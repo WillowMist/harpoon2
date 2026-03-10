@@ -220,7 +220,8 @@
             $.get(url, function(response) {
                 modalContent.html(response);
                 // Handle form submission
-                modalContent.find('form').on('submit', function(submitEvent) {
+                var form = modalContent.find('form');
+                form.on('submit', function(submitEvent) {
                     submitEvent.preventDefault();
                     var form = $(this);
                     var csrftoken = form.find('[name=csrfmiddlewaretoken]').val();
@@ -234,6 +235,7 @@
                         data: form.serialize(),
                         headers: {'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest'},
                         complete: function(xhr, status) {
+                            try {
                             var responseText = xhr.responseText;
                             
                             // Try to parse as JSON first
@@ -288,6 +290,9 @@
                                     // Not JSON, just show raw response
                                 }
                                 modalContent.html(xhr.responseText);
+                            }
+                            } catch(e) {
+                                console.log('Exception in complete handler:', e);
                             }
                         }
                     });

@@ -29,30 +29,29 @@ class DLFolderDeleteView(ModalDeleteView):
     success_message = 'Download folder deleted.'
     success_url = reverse_lazy('entities:settings')
     
-    def delete(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
+        # Get the object
         self.object = self.get_object()
         
         # Check if folder is in use by any managers
         managers_using_folder = models.Manager.objects.filter(folder=self.object)
         if managers_using_folder.exists():
+            manager_names = ', '.join([m.name for m in managers_using_folder])
             if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-                manager_names = ', '.join([m.name for m in managers_using_folder])
                 return JsonResponse({
                     'success': False, 
                     'error': f'Cannot delete folder. It is being used by manager(s): {manager_names}'
                 }, status=400)
-            else:
-                # For non-AJAX requests, add error message
-                from django.contrib import messages
-                messages.error(request, f'Cannot delete folder. It is being used by manager(s): {", ".join([m.name for m in managers_using_folder])}')
-                return redirect(reverse_lazy('entities:settings'))
+            # For non-AJAX, show the same form with error message
+            return self.get(request, *args, **kwargs)
         
         # Folder is not in use, proceed with deletion
+        self.object.delete()
+        
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            self.object.delete()
             return JsonResponse({'success': True})
-        response = super().delete(request, *args, **kwargs)
-        return response
+        
+        return redirect(self.success_url)
 
 
 class ManagerCreateView(ModalCreateView):
