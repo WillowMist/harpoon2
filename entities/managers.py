@@ -8,7 +8,8 @@ class Arr(object):
         self.apikey = manager.apikey
         self.label = manager.label
         self.headers = {'X-Api-Key': self.apikey, 'Accept': 'application/json'}
-        self.apiurl = self.url + '/api'
+        # Default API path - can be overridden in subclasses
+        self.apiurl = self.url + '/api/v3'
 
     def test(self):
         testurl = self.apiurl + '/system/status'
@@ -66,17 +67,46 @@ class Arr(object):
 class Sonarr(Arr):
     def __init__(self, manager):
         super().__init__(manager)
+        self.apiurl = self.url + '/api/v3'
+
+    def test(self):
+        testurl = self.apiurl + '/system/status'
+        try:
+            r = requests.get(testurl, params=None, headers=self.headers)
+            dt = r.json()
+            return True, dt
+        except Exception as e:
+            return False, e
 
 
 class Radarr(Arr):
     def __init__(self, manager):
         super().__init__(manager)
+        self.apiurl = self.url + '/api/v3'
+
+    def test(self):
+        testurl = self.apiurl + '/system/status'
+        try:
+            r = requests.get(testurl, params=None, headers=self.headers)
+            dt = r.json()
+            return True, dt
+        except Exception as e:
+            return False, e
 
 
 class Lidarr(Arr):
     def __init__(self, manager):
         super().__init__(manager)
         self.apiurl = self.url + '/api/v1'
+
+    def test(self):
+        testurl = self.apiurl + '/system/status'
+        try:
+            r = requests.get(testurl, params=None, headers=self.headers)
+            dt = r.json()
+            return True, dt
+        except Exception as e:
+            return False, e
 
     def check_queue(self):
         url = self.apiurl + '/queue'
@@ -93,12 +123,36 @@ class Readarr(Arr):
         super().__init__(manager)
         self.apiurl = self.url + '/api/v1'
 
+    def test(self):
+        testurl = self.apiurl + '/system/status'
+        try:
+            r = requests.get(testurl, params=None, headers=self.headers)
+            dt = r.json()
+            return True, dt
+        except Exception as e:
+            return False, e
+
     def check_queue(self):
         url = self.apiurl + '/queue'
         try:
             r = requests.get(url, params=None, headers=self.headers)
             print(r.json())
             dt = self.parse_queue(r.json()['records'])
+            return True, dt
+        except Exception as e:
+            return False, e
+
+
+class Whisparr(Arr):
+    def __init__(self, manager):
+        super().__init__(manager)
+        self.apiurl = self.url + '/api/v3'
+
+    def test(self):
+        testurl = self.apiurl + '/system/status'
+        try:
+            r = requests.get(testurl, params=None, headers=self.headers)
+            dt = r.json()
             return True, dt
         except Exception as e:
             return False, e

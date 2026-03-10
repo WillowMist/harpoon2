@@ -1,32 +1,30 @@
 {%  load crispy_forms_tags %}
-<form method="post" action="{% url 'entities:dlfolder_create' %}" id="createform">
+<form method="post" action="{% if object %}{% url 'entities:dlfolder-create' %}{% else %}{% url 'entities:dlfolder-create' %}{% endif %}" id="createform">
   {% csrf_token %}
 
- <div class="modal-header">
-    <h5 class="modal-title">Add Folder</h5>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-      <span aria-hidden="true">&times;</span>
-    </button>
-  </div>
+  <div class="modal-header bg-dark text-light border-secondary">
+     <h5 class="modal-title">Add Folder</h5>
+     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+   </div>
 
-  <div class="modal-body">
+  <div class="modal-body bg-dark text-light">
       <div class="{% if form.non_field_errors %}invalid{% endif %} mb-2">
       {% for error in form.non_field_errors %}
         {{ error }}
       {% endfor %}
     </div>
     {% for field in form %}
-      <div class="form-group{% if field.errors %} invalid{% endif %}">
+      <div class="mb-3{% if field.errors %} is-invalid{% endif %}">
         {{ field|as_crispy_field }}
         {% for error in field.errors %}
-          <p class="help-block">{{ error }}</p>
+          <div class="invalid-feedback">{{ error }}</div>
         {% endfor %}
       </div>
     {% endfor %}
   </div>
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
+  <div class="modal-footer bg-dark border-secondary">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
     <button type="submit" class="submit-btn btn btn-primary">Save Changes</button>
   </div>
 

@@ -1,0 +1,19 @@
+{% load crispy_forms_tags %}
+<form method="post" action="{% url 'entities:manager-delete' object.pk %}" id="deleteform">
+  {% csrf_token %}
+
+  <div class="modal-header bg-dark text-light border-secondary">
+     <h5 class="modal-title">Delete Manager</h5>
+     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+   </div>
+
+   <div class="modal-body bg-dark text-light">
+       <p>Are you sure you want to delete "{{ object }}"?</p>
+   </div>
+
+   <div class="modal-footer bg-dark border-secondary">
+     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+     <button type="submit" class="submit-btn btn btn-danger">Delete</button>
+   </div>
+
+</form>

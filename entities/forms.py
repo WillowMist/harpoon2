@@ -1,7 +1,7 @@
 from crisp_modals.forms import ModalModelForm
 from django import forms
 from django.forms import ValidationError
-from .models import DownloadFolder, Manager, Downloader
+from .models import DownloadFolder, Manager, Downloader, Seedbox
 import os
 import json
 
@@ -77,4 +77,10 @@ class DownloaderModalForm(ModalModelForm):
     class Meta:
         model = Downloader
         fields = ['name', 'downloadertype', 'options']
+
+
+class SeedboxModalForm(ModalModelForm):
+    class Meta:
+        model = Seedbox
+        fields = ['name', 'host', 'port', 'username', 'auth_type', 'password', 'ssh_key']
 

@@ -6,10 +6,10 @@ from rtorrent import RTorrent as rtorclient
 class SABNzbd(object):
     def __init__(self, downloader=None):
         self.downloader = downloader
-        self.optionfields = {'host': 'string',
-                             'port': 'int',
+        self.optionfields = {'url': 'string',
                              'apikey': 'string',
-                             'use_ssl': 'boolean',
+                             'cleanup': 'boolean',
+                             'enabled': 'boolean',
                              }
 
 class RTorrent(object):

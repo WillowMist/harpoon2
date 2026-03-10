@@ -123,7 +123,8 @@ class DownloaderDeleteView(ModalDeleteView):
 
 def settings(request):
     folders = models.DownloadFolder.objects.all()
-    return render(request, 'entities/settings.html', {'folders': folders})
+    seedboxes = models.Seedbox.objects.all()
+    return render(request, 'entities/settings.html', {'folders': folders, 'seedboxes': seedboxes})
 
 def managers(request):
     managers = models.Manager.objects.all()
@@ -163,3 +164,46 @@ def get_downloader_options(request, downloader_type):
         return JsonResponse({'success': True, 'options': options})
     except (AttributeError, TypeError):
         return JsonResponse({'success': False, 'error': 'Invalid downloader type'}, status=400)
+
+
+class SeedboxCreateView(ModalCreateView):
+    model = models.Seedbox
+    template_name = 'entities/seedboxcreate.html'
+    form_class = forms.SeedboxModalForm
+    success_message = 'Seedbox successfully created.'
+    success_url = reverse_lazy('entities:settings')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
+
+
+class SeedboxUpdateView(ModalUpdateView):
+    model = models.Seedbox
+    template_name = 'entities/seedboxcreate.html'
+    form_class = forms.SeedboxModalForm
+    success_message = 'Seedbox successfully modified.'
+    success_url = reverse_lazy('entities:settings')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
+
+
+class SeedboxDeleteView(ModalDeleteView):
+    model = models.Seedbox
+    template_name = 'entities/seedboxdelete.html'
+    success_message = 'Seedbox deleted.'
+    success_url = reverse_lazy('entities:settings')
+    
+    def delete(self, request, *args, **kwargs):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            self.object = self.get_object()
+            self.object.delete()
+            return JsonResponse({'success': True})
+        response = super().delete(request, *args, **kwargs)
+        return response

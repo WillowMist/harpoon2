@@ -1,0 +1,87 @@
+{%  load crispy_forms_tags %}
+<form method="post" action="{% if object %}{% url 'entities:seedbox-update' object.pk %}{% else %}{% url 'entities:seedbox-create' %}{% endif %}" id="createform">
+  {% csrf_token %}
+
+  <div class="modal-header bg-dark text-light border-secondary">
+     <h5 class="modal-title">{% if object %}Edit{% else %}Create{% endif %} Seedbox</h5>
+     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+   </div>
+
+   <div class="modal-body bg-dark text-light">
+       <div class="{% if form.non_field_errors %}invalid{% endif %} mb-2">
+       {% for error in form.non_field_errors %}
+         {{ error }}
+       {% endfor %}
+   </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Name</label>
+      {{ form.name }}
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Host</label>
+      {{ form.host }}
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Port</label>
+      {{ form.port }}
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Username</label>
+      {{ form.username }}
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Authentication Type</label>
+      {{ form.auth_type }}
+    </div>
+    
+    <!-- Password field (shown when auth_type is 'password') -->
+    <div class="mb-3" id="password-field-container">
+      <label class="form-label">Password</label>
+      {{ form.password }}
+    </div>
+    
+    <!-- SSH Key field (shown when auth_type is 'key') -->
+    <div class="mb-3 d-none" id="sshkey-field-container">
+      <label class="form-label">SSH Key</label>
+      {{ form.ssh_key }}
+    </div>
+  </div>
+
+  <div class="modal-footer bg-dark border-secondary">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+    <button type="submit" class="submit-btn btn btn-primary">Save Changes</button>
+  </div>
+
+</form>
+
+<script>
+$(document).ready(function() {
+    var authTypeSelect = $('#id_auth_type');
+    var passwordFieldContainer = $('#password-field-container');
+    var sshkeyFieldContainer = $('#sshkey-field-container');
+    
+    function updateFieldVisibility() {
+        var selectedValue = authTypeSelect.val();
+        if (selectedValue === 'password') {
+            passwordFieldContainer.removeClass('d-none');
+            sshkeyFieldContainer.addClass('d-none');
+        } else if (selectedValue === 'key') {
+            passwordFieldContainer.addClass('d-none');
+            sshkeyFieldContainer.removeClass('d-none');
+        }
+    }
+    
+    // Update on change
+    authTypeSelect.on('change', function() {
+        updateFieldVisibility();
+    });
+    
+    // Update on initial load
+    updateFieldVisibility();
+});
+</script>

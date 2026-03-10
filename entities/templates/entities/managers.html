@@ -4,15 +4,16 @@
 
 {% block content %}
 <div>
-    <h3>Managers <button type="button" id="add-folder" class="bs-modal btn btn-sm btn-primary" data-form-url="{% url 'entities:manager-create' %}"><i class="fa fa-fw fa-plus-circle"></i> Add Manager</button></h3>
+    <h3>Managers <a href="{% url 'entities:manager-create' %}" data-modal-url="{% url 'entities:manager-create' %}" class="modal-link btn btn-sm btn-primary"><i class="fa fa-fw fa-plus-circle"></i> Add Manager</a></h3>
 </div>
     <div class="card-columns">
 {% for manager in managers %}
         <div id="manager_info" class="card bg-dark text-white" style="width: 20rem;">
 
             <div class="card-header bg-primary"><h4 class="card-title">{{ manager.name }}
-                <button type="button" id="edit-manager" class="bs-modal btn btn-sm btn-primary border-secondary" data-form-url="{% url 'entities:manager-update' manager.pk %}"><i class="fa fa-fw fa-pencil-alt"></i></button>
-                <button type="button" id="test-manager" class="bs-modal btn btn-sm btn-primary border-secondary" data-form-url="{% url 'entities:manager-test' manager.pk %}"><i class="fa fa-fw fa-fingerprint"></i></button>
+                <a href="{% url 'entities:manager-update' manager.pk %}" data-modal-url="{% url 'entities:manager-update' manager.pk %}" class="modal-link btn btn-sm btn-primary border-secondary"><i class="fa fa-fw fa-pencil-alt"></i></a>
+                <a href="{% url 'entities:manager-test' manager.pk %}" data-modal-url="{% url 'entities:manager-test' manager.pk %}" class="modal-link btn btn-sm btn-info border-secondary"><i class="fa fa-fw fa-fingerprint"></i></a>
+                <a href="{% url 'entities:manager-delete' manager.pk %}" data-modal-url="{% url 'entities:manager-delete' manager.pk %}" class="modal-link btn btn-sm btn-danger border-secondary"><i class="fa fa-fw fa-trash"></i></a>
                 </h4>
             </div>
             <div class="card-body px-1">

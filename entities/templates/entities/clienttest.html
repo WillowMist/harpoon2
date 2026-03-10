@@ -1,16 +1,17 @@
+<div class="modal-header bg-dark text-light border-secondary">
+     <h5 class="modal-title">Test: {{ manager.name }}</h5>
+     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+</div>
+<div class="modal-body bg-dark text-light">
+     <div class="{% if success %}alert alert-success{% else %}alert alert-danger{% endif %}">
+         <strong>{% if success %}Success!{% else %}Failed!{% endif %}</strong>
+     </div>
+     <div><strong>Response:</strong></div>
+     <div class="bg-darker p-3 rounded" style="background-color: #1a1a1a;">
+         <code class="text-light">{{ message }}</code>
+     </div>
+</div>
 
-
- <div class="modal-header">
-    <h5 class="modal-title">{{ manager.name }} -- Test</h5>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-      <span aria-hidden="true">&times;</span>
-    </button>
-  </div>
- <div>
-     <h4>{{ success }}</h4>
-     Data: {{ message }}
- </div>
-
-  <div class="modal-footer">
-    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
-  </div>
+<div class="modal-footer bg-dark border-secondary">
+     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+</div>

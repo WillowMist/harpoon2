@@ -62,3 +62,21 @@ class Downloader(models.Model):
             if self.client.reload:
                 self.client.__init__(self)
             return self.client.test()
+
+
+class Seedbox(models.Model):
+    AUTH_TYPE_CHOICES = [
+        ('password', 'Username/Password'),
+        ('key', 'SSH Key'),
+    ]
+    
+    name = models.CharField(max_length=30, unique=True)
+    host = models.CharField(max_length=255)
+    port = models.IntegerField(default=22)
+    username = models.CharField(max_length=100)
+    auth_type = models.CharField(max_length=10, choices=AUTH_TYPE_CHOICES, default='password')
+    password = models.CharField(max_length=255, blank=True, null=True)
+    ssh_key = models.TextField(blank=True, null=True)
+
+    def __str__(self):
+        return self.name

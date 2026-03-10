@@ -41,7 +41,8 @@ INSTALLED_APPS = [
     'itemqueue.apps.ItemqueueConfig',
     'users.apps.UsersConfig',
     'crispy_forms',
-    'bootstrap_modal_forms',
+    'crispy_bootstrap5',
+    'crisp_modals',
 ]
 
 MIDDLEWARE = [
@@ -53,6 +54,9 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+CRISPY_ALLOWED_TEMPLATE_PACKS = "bootstrap5"
+CRISPY_TEMPLATE_PACK = "bootstrap5"
 
 ROOT_URLCONF = 'harpoon2.urls'
 
@@ -118,6 +122,8 @@ USE_L10N = True
 
 USE_TZ = True
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/3.1/howto/static-files/
@@ -132,7 +138,7 @@ LOGOUT_REDIRECT_URL = '/'
 
 from .secrets import *
 
-INTERFACE = 'united'
+INTERFACE = 'vapor'
 
 THEMES = [('cerulean', 'Cerulean'),
           ('cosmo', 'Cosmo'),
@@ -140,12 +146,14 @@ THEMES = [('cerulean', 'Cerulean'),
           ('darkly', 'Darkly'),
           ('flatly', 'Flatly'),
           ('journal', 'Journal'),
-          ('litera', 'Literia'),
+          ('litera', 'Litera'),
           ('lumen', 'Lumen'),
           ('lux', 'Lux'),
           ('materia', 'Materia'),
           ('minty', 'Minty'),
+          ('morph', 'Morph'),
           ('pulse', 'Pulse'),
+          ('quartz', 'Quartz'),
           ('sandstone', 'Sandstone'),
           ('simplex', 'Simplex'),
           ('sketchy', 'Sketchy'),
@@ -154,13 +162,16 @@ THEMES = [('cerulean', 'Cerulean'),
           ('spacelab', 'Spacelab'),
           ('superhero', 'Superhero'),
           ('united', 'United'),
-          ('yeti', 'Yeti')]
+          ('vapor', 'Vapor'),
+          ('yeti', 'Yeti'),
+          ('zephyr', 'Zephyr')]
 
 MANAGER_TYPES = [
     ('Sonarr', 'Sonarr'),
     ('Radarr', 'Radarr'),
     ('Lidarr', 'Lidarr'),
     ('Readarr', 'Readarr'),
+    ('Whisparr', 'Whisparr'),
     ('LazyLibrarian', 'LazyLibrarian'),
     ('Mylar', 'Mylar'),
 ]
