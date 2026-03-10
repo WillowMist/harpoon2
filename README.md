@@ -36,7 +36,7 @@ A modern Django-based rewrite of the Harpoon application designed to automatical
 Install Python 3.14+, pip, and create a virtual environment:
 
 Download Harpoon2:
-`git clone https://github.com/DarkSir23/harpoon2`
+`git clone https://github.com/WillowMist/harpoon2`
 
 Go to harpoon2 folder: `cd harpoon2`
 
