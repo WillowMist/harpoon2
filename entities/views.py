@@ -1,7 +1,8 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect
 from django.http import JsonResponse
 from crisp_modals.views import ModalCreateView, ModalUpdateView, ModalDeleteView
 from django.urls import reverse_lazy, reverse
+from django.contrib import messages
 from . import forms
 from . import models
 from .managers import Arr, Sonarr, Radarr, Lidarr, Readarr
@@ -29,8 +30,25 @@ class DLFolderDeleteView(ModalDeleteView):
     success_url = reverse_lazy('entities:settings')
     
     def delete(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        
+        # Check if folder is in use by any managers
+        managers_using_folder = models.Manager.objects.filter(folder=self.object)
+        if managers_using_folder.exists():
+            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                manager_names = ', '.join([m.name for m in managers_using_folder])
+                return JsonResponse({
+                    'success': False, 
+                    'error': f'Cannot delete folder. It is being used by manager(s): {manager_names}'
+                }, status=400)
+            else:
+                # For non-AJAX requests, add error message
+                from django.contrib import messages
+                messages.error(request, f'Cannot delete folder. It is being used by manager(s): {", ".join([m.name for m in managers_using_folder])}')
+                return redirect(reverse_lazy('entities:settings'))
+        
+        # Folder is not in use, proceed with deletion
         if request.headers.get('x-requested-with') == 'XMLHttpRequest':
-            self.object = self.get_object()
             self.object.delete()
             return JsonResponse({'success': True})
         response = super().delete(request, *args, **kwargs)

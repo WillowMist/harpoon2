@@ -234,36 +234,59 @@
                         data: form.serialize(),
                         headers: {'X-CSRFToken': csrftoken, 'X-Requested-With': 'XMLHttpRequest'},
                         complete: function(xhr, status) {
-                            // Check for success
+                            var responseText = xhr.responseText;
+                            
+                            // Try to parse as JSON first
+                            try {
+                                var response = JSON.parse(responseText);
+                                if (response.success) {
+                                    modal.modal('hide');
+                                    setTimeout(function() {
+                                        location.reload();
+                                    }, 300);
+                                    return;
+                                } else if (response.error) {
+                                    // Error JSON response (e.g., validation error with message)
+                                    var errorHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                                        response.error +
+                                        '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
+                                        '</div>';
+                                    modalContent.html(errorHtml + modalContent.html());
+                                    return;
+                                }
+                            } catch(e) {
+                                // Not JSON - might be form with errors
+                            }
+                            
+                            // Check for success status
                             if (xhr.status === 200 || xhr.status === 201 || xhr.status === 204) {
-                                var responseText = xhr.responseText;
-                                
-                                // Try to parse as JSON
-                                try {
-                                    var response = JSON.parse(responseText);
-                                    if (response.success) {
-                                        modal.modal('hide');
-                                        setTimeout(function() {
-                                            location.reload();
-                                        }, 300);
-                                        return;
-                                    }
-                                } catch(e) {
-                                    // Not JSON - might be form with errors
-                                    if (responseText.includes('<form') || responseText.includes('invalid-feedback')) {
-                                        modalContent.html(responseText);
-                                        modalContent.find('form').on('submit', arguments.callee);
-                                        return;
-                                    }
+                                // Check if response contains form (HTML form with validation errors)
+                                if (responseText.includes('<form') || responseText.includes('invalid-feedback')) {
+                                    modalContent.html(responseText);
+                                    modalContent.find('form').on('submit', arguments.callee);
+                                    return;
                                 }
                                 
-                                // If we get here with success status, reload anyway
+                                // If we get here with success status, reload
                                 modal.modal('hide');
                                 setTimeout(function() {
                                     location.reload();
                                 }, 300);
                             } else if (xhr.status >= 400) {
-                                // Error response
+                                // Error response - try to extract error message
+                                try {
+                                    var response = JSON.parse(responseText);
+                                    if (response.error) {
+                                        var errorHtml = '<div class="alert alert-danger alert-dismissible fade show" role="alert">' +
+                                            response.error +
+                                            '<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>' +
+                                            '</div>';
+                                        modalContent.html(errorHtml + modalContent.html());
+                                        return;
+                                    }
+                                } catch(e) {
+                                    // Not JSON, just show raw response
+                                }
                                 modalContent.html(xhr.responseText);
                             }
                         }
