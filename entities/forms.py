@@ -84,6 +84,27 @@ class SeedboxModalForm(ModalModelForm):
         super().__init__(*args, **kwargs)
         # Make password field render as password input
         self.fields['password'].widget = forms.PasswordInput()
+        # Make ssh_key field a textarea
+        self.fields['ssh_key'].widget = forms.Textarea()
+        # Don't pre-populate sensitive fields (browsers block this for security)
+        # If editing, clear the initial values so fields appear empty
+        if self.instance and self.instance.pk:
+            self.fields['password'].initial = None
+            self.fields['ssh_key'].initial = None
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # If password field is empty on edit, keep the existing password
+        if self.instance.pk and not self.cleaned_data.get('password'):
+            # Restore the original password if field was left empty
+            instance.password = self.instance.password
+        # If ssh_key field is empty on edit, keep the existing ssh_key
+        if self.instance.pk and not self.cleaned_data.get('ssh_key'):
+            # Restore the original ssh_key if field was left empty
+            instance.ssh_key = self.instance.ssh_key
+        if commit:
+            instance.save()
+        return instance
     
     class Meta:
         model = Seedbox

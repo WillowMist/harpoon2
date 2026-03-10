@@ -43,12 +43,14 @@
     <div class="mb-3" id="password-field-container">
       <label class="form-label">Password</label>
       {{ form.password }}
+      {% if object %}<small class="form-text text-muted d-block mt-1">Leave blank to keep existing password</small>{% endif %}
     </div>
     
     <!-- SSH Key field (shown when auth_type is 'key') -->
     <div class="mb-3 d-none" id="sshkey-field-container">
       <label class="form-label">SSH Key</label>
       {{ form.ssh_key }}
+      {% if object %}<small class="form-text text-muted d-block mt-1">Leave blank to keep existing SSH key</small>{% endif %}
     </div>
     
     <div class="mb-3">
