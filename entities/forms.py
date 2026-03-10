@@ -1,9 +1,11 @@
-from bootstrap_modal_forms.forms import BSModalModelForm
+from crisp_modals.forms import ModalModelForm
+from django import forms
 from django.forms import ValidationError
 from .models import DownloadFolder, Manager, Downloader
 import os
+import json
 
-class DLFolderModalForm(BSModalModelForm):
+class DLFolderModalForm(ModalModelForm):
     class Meta:
         model = DownloadFolder
         exclude = ['pk']
@@ -25,22 +27,54 @@ class DLFolderModalForm(BSModalModelForm):
         return data
 
 
-class ManagerModalForm(BSModalModelForm):
+class ManagerModalForm(ModalModelForm):
     class Meta:
         model = Manager
         exclude = ['pk']
 
-class DownloaderModalForm(BSModalModelForm):
+class DownloaderModalForm(ModalModelForm):
+    options = forms.CharField(widget=forms.HiddenInput(), required=False)
 
     def __init__(self, *args, **kwargs):
-        super(SchoolModelForm, self).__init__(*args, **kwargs)
-        if hasattr(self, 'instance'):
-            options = self.instance.options
-            for item in options.keys():
-                self.fields[f'opt_{item}'] = forms.CharField(required=False, label=f'Personnel ({group})', widget=forms.Textarea)
-                self.fields[f'opt_{item}'].initial = PersonList(self.instance.personnel[group]).to_string()
+        super().__init__(*args, **kwargs)
+        # Override the options field to be a CharField instead of JSONField
+        self.fields['options'].widget = forms.HiddenInput()
+        self.fields['options'].required = False
+        
+        # Initialize options field with JSON string (MUST be valid JSON)
+        if self.instance and self.instance.pk and self.instance.options:
+            # Always convert to valid JSON string
+            if isinstance(self.instance.options, dict):
+                self.fields['options'].initial = json.dumps(self.instance.options)
+            else:
+                try:
+                    # If it's a string, try to parse and re-serialize to ensure valid JSON
+                    self.fields['options'].initial = json.dumps(json.loads(self.instance.options))
+                except (json.JSONDecodeError, TypeError):
+                    self.fields['options'].initial = '{}'
+        else:
+            self.fields['options'].initial = '{}'
+
+    def clean_options(self):
+        options_str = self.cleaned_data.get('options', '{}')
+        # If it's already a dict, return it
+        if isinstance(options_str, dict):
+            return options_str
+        # Otherwise parse the JSON string
+        try:
+            return json.loads(options_str)
+        except (json.JSONDecodeError, TypeError):
+            return {}
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        # The clean_options method handles conversion
+        instance.options = self.cleaned_data.get('options', {})
+        if commit:
+            instance.save()
+        return instance
 
     class Meta:
         model = Downloader
-        exclude = ['pk']
+        fields = ['name', 'downloadertype', 'options']
 

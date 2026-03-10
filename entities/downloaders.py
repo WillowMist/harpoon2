@@ -3,12 +3,17 @@ from itemqueue.models import Item, ItemHistory
 from django.db import models
 from rtorrent import RTorrent as rtorclient
 
-class SABnzbd(object):
-    def __init__(self):
-        pass
+class SABNzbd(object):
+    def __init__(self, downloader=None):
+        self.downloader = downloader
+        self.optionfields = {'host': 'string',
+                             'port': 'int',
+                             'apikey': 'string',
+                             'use_ssl': 'boolean',
+                             }
 
 class RTorrent(object):
-    def __init__(self, downloader):
+    def __init__(self, downloader=None):
         self.downloader = downloader
         self.optionfields = {'host': 'string',
                              'port': 'int',
@@ -18,7 +23,7 @@ class RTorrent(object):
                              'password': 'string',
                              'startonload': 'boolean',
                              }
-        if hasattr(self.downloader, 'client'):
+        if downloader and hasattr(self.downloader, 'client'):
             self.downloader.checkoptions()
             self.options = self.downloader.options
             self.method = 'https' if self.options['use_ssl'] else 'http'

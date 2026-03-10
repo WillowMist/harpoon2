@@ -1,5 +1,6 @@
 from django.shortcuts import render
-from bootstrap_modal_forms.generic import BSModalCreateView, BSModalUpdateView
+from django.http import JsonResponse
+from crisp_modals.views import ModalCreateView, ModalUpdateView, ModalDeleteView
 from django.urls import reverse_lazy, reverse
 from . import forms
 from . import models
@@ -7,44 +8,117 @@ from .managers import Arr, Sonarr, Radarr, Lidarr, Readarr
 
 # Create your views here.
 
-class DLFolderCreateView(BSModalCreateView):
+class DLFolderCreateView(ModalCreateView):
     model = models.DownloadFolder
     template_name = 'entities/dlfoldercreate.html'
     form_class = forms.DLFolderModalForm
     success_message = 'Download folder added.'
     success_url = reverse_lazy('entities:settings')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
 
 
-class ManagerCreateView(BSModalCreateView):
+class DLFolderDeleteView(ModalDeleteView):
+    model = models.DownloadFolder
+    template_name = 'entities/dlfolderdelete.html'
+    success_message = 'Download folder deleted.'
+    success_url = reverse_lazy('entities:settings')
+    
+    def delete(self, request, *args, **kwargs):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            self.object = self.get_object()
+            self.object.delete()
+            return JsonResponse({'success': True})
+        response = super().delete(request, *args, **kwargs)
+        return response
+
+
+class ManagerCreateView(ModalCreateView):
     model = models.Manager
     template_name = 'entities/managercreate.html'
     form_class = forms.ManagerModalForm
     success_message = 'Manager successfully created.'
     success_url = reverse_lazy('entities:managers')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
 
 
-class ManagerUpdateView(BSModalUpdateView):
+class ManagerUpdateView(ModalUpdateView):
     model = models.Manager
     template_name = 'entities/managercreate.html'
     form_class = forms.ManagerModalForm
     success_message = 'Manager successfully modified.'
     success_url = reverse_lazy('entities:managers')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
 
 
-class DownloaderCreateView(BSModalCreateView):
+class ManagerDeleteView(ModalDeleteView):
+    model = models.Manager
+    template_name = 'entities/managerdelete.html'
+    success_message = 'Manager deleted.'
+    success_url = reverse_lazy('entities:managers')
+    
+    def delete(self, request, *args, **kwargs):
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            self.object = self.get_object()
+            self.object.delete()
+            return JsonResponse({'success': True})
+        response = super().delete(request, *args, **kwargs)
+        return response
+
+
+class DownloaderCreateView(ModalCreateView):
     model = models.Downloader
     template_name = 'entities/downloadercreate.html'
     form_class = forms.DownloaderModalForm
     success_message = 'Downloader successfully created.'
     success_url = reverse_lazy('entities:downloaders')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
 
 
-class DownloaderUpdateView(BSModalUpdateView):
+class DownloaderUpdateView(ModalUpdateView):
     model = models.Downloader
     template_name = 'entities/downloadercreate.html'
     form_class = forms.DownloaderModalForm
     success_message = 'Downloader successfully modified.'
     success_url = reverse_lazy('entities:downloaders')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
+
+
+class DownloaderDeleteView(ModalDeleteView):
+    model = models.Downloader
+    template_name = 'entities/downloaderdelete.html'
+    success_message = 'Downloader deleted.'
+    success_url = reverse_lazy('entities:downloaders')
+    
+    def delete(self, request, *args, **kwargs):
+        response = super().delete(request, *args, **kwargs)
+        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
 
 
 def settings(request):
@@ -61,14 +135,31 @@ def downloaders(request):
 
 def managertest(request, pk):
     manager = models.Manager.objects.get(pk=pk)
-    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr']:
+    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr', 'Whisparr']:
         if manager.managertype == 'Sonarr':
             client = Sonarr(manager)
         elif manager.managertype == 'Radarr':
             client = Radarr(manager)
         elif manager.managertype == 'Readarr':
             client = Readarr(manager)
+        elif manager.managertype == 'Whisparr':
+            from .managers import Whisparr
+            client = Whisparr(manager)
         else:
             client = Lidarr(manager)
         success, message = client.test()
         return render(request, 'entities/clienttest.html', {'success': success, 'message': message, 'manager': manager})
+
+
+def get_downloader_options(request, downloader_type):
+    """Returns the option fields for a given downloader type"""
+    from . import downloaders
+    
+    try:
+        downloader_class = getattr(downloaders, downloader_type)
+        # Create a temporary instance to get optionfields
+        temp_instance = downloader_class(None)
+        options = temp_instance.optionfields
+        return JsonResponse({'success': True, 'options': options})
+    except (AttributeError, TypeError):
+        return JsonResponse({'success': False, 'error': 'Invalid downloader type'}, status=400)

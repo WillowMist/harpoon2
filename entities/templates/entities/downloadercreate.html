@@ -1,33 +1,146 @@
 {%  load crispy_forms_tags %}
-<form method="post" action="{% url 'entities:downloader-create' %}" id="createform">
+<form method="post" action="{% if object %}{% url 'entities:downloader-update' object.pk %}{% else %}{% url 'entities:downloader-create' %}{% endif %}" id="createform">
   {% csrf_token %}
 
- <div class="modal-header">
-    <h5 class="modal-title">Modify Manager</h5>
-    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-      <span aria-hidden="true">&times;</span>
-    </button>
-  </div>
+  <div class="modal-header bg-dark text-light border-secondary">
+     <h5 class="modal-title">{% if object %}Edit{% else %}Create{% endif %} Downloader</h5>
+     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+   </div>
 
-  <div class="modal-body">
-      <div class="{% if form.non_field_errors %}invalid{% endif %} mb-2">
-      {% for error in form.non_field_errors %}
-        {{ error }}
-      {% endfor %}
-    </div>
-    {% for field in form %}
-      <div class="form-group{% if field.errors %} invalid{% endif %}">
-        {{ field|as_crispy_field }}
-        {% for error in field.errors %}
-          <p class="help-block">{{ error }}</p>
-        {% endfor %}
-      </div>
-    {% endfor %}
-  </div>
+   <div class="modal-body bg-dark text-light">
+       <div class="{% if form.non_field_errors %}invalid{% endif %} mb-2">
+       {% for error in form.non_field_errors %}
+         {{ error }}
+       {% endfor %}
+   </div>
+   
+   <div class="mb-3">
+     <label class="form-label">Name</label>
+     {{ form.name }}
+   </div>
+   
+   <div class="mb-3">
+     <label class="form-label">Downloader Type</label>
+     {{ form.downloadertype }}
+   </div>
+   
+   <!-- Dynamic options fields will be inserted here -->
+   <div id="dynamic-options"></div>
+   
+   <!-- Hidden field to store JSON options -->
+   <input type="hidden" name="options" id="options-json" value="{{ form.options.value|default:'{}' }}" data-raw-value="{{ form.options.value|default:'{}' }}">{# Store value in data attr to preserve JSON #}
+ </div>
 
-  <div class="modal-footer">
-    <button type="button" class="btn btn-default" data-dismiss="modal">Close</button>
-    <button type="submit" class="submit-btn btn btn-primary">Save Changes</button>
-  </div>
+ <div class="modal-footer bg-dark border-secondary">
+   <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+   <button type="submit" class="submit-btn btn btn-primary">Save Changes</button>
+ </div>
 
 </form>
+
+<script>
+$(document).ready(function() {
+    var downloaderTypeSelect = $('#id_downloadertype');
+    var dynamicOptionsDiv = $('#dynamic-options');
+    var optionsJsonInput = $('#options-json');
+    var currentOptions = {};
+    
+    // Try to parse existing options from the value attribute
+    try {
+        // Get the raw value from data attribute (less likely to be HTML-escaped)
+        var jsonValue = optionsJsonInput.attr('value');
+        if (jsonValue && jsonValue !== '{}') {
+            // Try to parse it as JSON
+            currentOptions = JSON.parse(jsonValue);
+        }
+    } catch(e) {
+        // If JSON parsing fails, try parsing as Python dict
+        try {
+            var jsonValue = optionsJsonInput.attr('value');
+            // Replace Python dict syntax with JSON syntax
+            jsonValue = jsonValue.replace(/'/g, '"').replace(/True/g, 'true').replace(/False/g, 'false').replace(/None/g, 'null');
+            currentOptions = JSON.parse(jsonValue);
+        } catch(e2) {
+            currentOptions = {};
+        }
+    }
+    
+    function populateOptionsFields(downloaderType) {
+        if (!downloaderType) {
+            dynamicOptionsDiv.html('');
+            return;
+        }
+        
+        $.ajax({
+            url: '{% url "entities:get-downloader-options" downloader_type="TYPE" %}'.replace('TYPE', downloaderType),
+            type: 'GET',
+            success: function(response) {
+                if (response.success) {
+                    var html = '';
+                    var options = response.options;
+                    
+                    for (var key in options) {
+                        var type = options[key];
+                        var value = currentOptions[key];
+                        if (value === undefined) value = '';
+                        var fieldId = 'opt_' + key;
+                        var inputType = 'text';
+                        
+                        if (type === 'int') {
+                            inputType = 'number';
+                        } else if (type === 'boolean') {
+                            inputType = 'checkbox';
+                        } else if (key.toLowerCase().includes('password') || key.toLowerCase().includes('apikey') || key.toLowerCase().includes('key')) {
+                            inputType = 'password';
+                        }
+                        
+                        if (type === 'boolean') {
+                            html += '<div class="form-check mb-3">';
+                            html += '<input type="checkbox" class="form-check-input" id="' + fieldId + '" name="' + fieldId + '" value="true"' + (value === true || value === 'true' ? ' checked' : '') + ' data-option-key="' + key + '">';
+                            html += '<label class="form-check-label" for="' + fieldId + '">' + key + '</label>';
+                            html += '</div>';
+                        } else {
+                            html += '<div class="mb-3">';
+                            html += '<label for="' + fieldId + '" class="form-label">' + key + '</label>';
+                            html += '<input type="' + inputType + '" class="form-control" id="' + fieldId + '" name="' + fieldId + '" value="' + (value || '') + '" data-option-key="' + key + '">';
+                            html += '</div>';
+                        }
+                    }
+                    
+                    dynamicOptionsDiv.html(html);
+                }
+            }
+        });
+    }
+    
+    // Populate on downloader type change
+    downloaderTypeSelect.on('change', function() {
+        currentOptions = {};
+        populateOptionsFields($(this).val());
+    });
+    
+    // Populate on initial load if downloader type is set
+    if (downloaderTypeSelect.val()) {
+        populateOptionsFields(downloaderTypeSelect.val());
+    }
+    
+    // Before form submission, collect options
+    // Listen to both 'submit' and 'before-ajax-submit' events to ensure options are collected
+    $('#createform').on('submit before-ajax-submit', function(e) {
+        currentOptions = {};
+        $('#dynamic-options input, #dynamic-options select, #dynamic-options textarea').each(function() {
+            var key = $(this).data('option-key');
+            if (key) {
+                if ($(this).attr('type') === 'checkbox') {
+                    currentOptions[key] = $(this).is(':checked');
+                } else if ($(this).attr('type') === 'number') {
+                    currentOptions[key] = parseInt($(this).val()) || 0;
+                } else {
+                    currentOptions[key] = $(this).val();
+                }
+            }
+        });
+        optionsJsonInput.val(JSON.stringify(currentOptions));
+    });
+});
+</script>
