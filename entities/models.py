@@ -77,6 +77,7 @@ class Seedbox(models.Model):
     auth_type = models.CharField(max_length=10, choices=AUTH_TYPE_CHOICES, default='password')
     password = models.CharField(max_length=255, blank=True, null=True)
     ssh_key = models.TextField(blank=True, null=True)
+    base_download_folder = models.CharField(max_length=400, blank=True, null=True, help_text="Base path on seedbox for downloads (e.g., /home/user/downloads)")
 
     def __str__(self):
         return self.name

@@ -80,7 +80,12 @@ class DownloaderModalForm(ModalModelForm):
 
 
 class SeedboxModalForm(ModalModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make password field render as password input
+        self.fields['password'].widget = forms.PasswordInput()
+    
     class Meta:
         model = Seedbox
-        fields = ['name', 'host', 'port', 'username', 'auth_type', 'password', 'ssh_key']
+        fields = ['name', 'host', 'port', 'username', 'auth_type', 'password', 'ssh_key', 'base_download_folder']
 
