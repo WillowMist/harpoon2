@@ -73,7 +73,8 @@ def poll_manager(manager_id):
                     )
                     logger.info(f"New grabbed item: {title} ({download_id})")
             
-            elif event_type == 'downloadFolderImported':
+            elif event_type in ('downloadFolderImported', 'downloadImported'):
+                # Handle both Sonarr/Radarr (downloadFolderImported) and Lidarr (downloadImported)
                 download_id = record.get('downloadId', '')
                 title = record.get('title', record.get('sourceTitle', 'Unknown'))
                 
