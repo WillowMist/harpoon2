@@ -680,3 +680,84 @@ def check_stalled_transfers():
     
     if stalled_count > 0:
         logger.info(f"Detected and failed {stalled_count} stalled transfers")
+
+
+@shared_task
+def check_downloader_failures():
+    """Check downloader for failed downloads and report them to manager.
+    
+    This catches failures that the manager might not have reported,
+    allowing the manager to search for alternative releases.
+    """
+    from entities.models import Downloader
+    
+    for downloader in Downloader.objects.all():
+        if downloader.downloadertype != 'SABNzbd':
+            continue  # Only checking SABnzbd for now
+        
+        try:
+            client = downloader.client
+            client._ensure_client()
+            
+            # Get failed downloads from SABnzbd
+            history_result = client._api_call('history', {'limit': 500})
+            if 'history' not in history_result:
+                continue
+            
+            slots = history_result['history'].get('slots', [])
+            
+            for slot in slots:
+                if slot.get('status') != 'Failed':
+                    continue
+                
+                nzb_name = slot.get('nzb_name', '')
+                fail_message = slot.get('fail_message', 'Download failed')
+                
+                if not nzb_name:
+                    continue
+                
+                # Try to find matching item in Harpoon by name
+                # Use icontains since names might have slight variations
+                matching_items = Item.objects.filter(
+                    name__icontains=nzb_name[:30],  # Match first 30 chars
+                    status__in=['Grabbed', 'PostProcessing'],  # Only care about active items
+                    manager__isnull=False
+                )
+                
+                for item in matching_items:
+                    if item.status in ['Failed', 'Completed']:
+                        continue  # Already handled
+                    
+                    # Found a match - mark as failed and notify manager
+                    logger.warning(f"Detected downloader failure for {item.name}: {fail_message}")
+                    
+                    item.status = 'Failed'
+                    item.save()
+                    
+                    ItemHistory.objects.create(
+                        item=item,
+                        details=f'Downloader failure detected ({downloader.name}): {fail_message}'
+                    )
+                    
+                    # Notify manager to search for alternative
+                    if item.manager:
+                        try:
+                            manager_client = item.manager.client
+                            reject_success, reject_msg = manager_client.reject_download(
+                                item,
+                                f"Download failed on {downloader.name}: {fail_message}"
+                            )
+                            ItemHistory.objects.create(
+                                item=item,
+                                details=f'Notified manager to search for alternative: {reject_msg}'
+                            )
+                            logger.info(f"Notified {item.manager.name} to search for alternative")
+                        except Exception as e:
+                            logger.error(f"Failed to notify manager: {e}")
+                            ItemHistory.objects.create(
+                                item=item,
+                                details=f'Could not notify manager: {str(e)}'
+                            )
+        
+        except Exception as e:
+            logger.error(f"Error checking {downloader.name} for failures: {e}")

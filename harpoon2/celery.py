@@ -39,4 +39,9 @@ app.conf.beat_schedule = {
         'task': 'itemqueue.tasks.check_stalled_transfers',
         'schedule': 60.0,  # Every 60 seconds
     },
+    # Check downloader for failures and notify manager
+    'check-downloader-failures': {
+        'task': 'itemqueue.tasks.check_downloader_failures',
+        'schedule': 300.0,  # Every 5 minutes
+    },
 }
