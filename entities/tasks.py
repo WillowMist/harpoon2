@@ -72,6 +72,27 @@ def poll_manager(manager_id):
                         details=f'Grabbed by {manager.name}'
                     )
                     logger.info(f"New grabbed item: {title} ({download_id})")
+            
+            elif event_type == 'downloadFolderImported':
+                download_id = record.get('downloadId', '')
+                title = record.get('title', record.get('sourceTitle', 'Unknown'))
+                
+                if not download_id:
+                    continue
+                
+                # Item has been downloaded and imported - mark as completed
+                try:
+                    item = Item.objects.get(hash=download_id)
+                    if item.status != 'Completed':
+                        item.status = 'Completed'
+                        item.save()
+                        ItemHistory.objects.create(
+                            item=item,
+                            details=f'Downloaded and imported by {manager.name}'
+                        )
+                        logger.info(f"Item completed: {title} ({download_id})")
+                except Item.DoesNotExist:
+                    logger.debug(f"Received import event for unknown item: {download_id}")
                     
     except Exception as e:
         logger.error(f"Error polling manager {manager.name}: {e}")
