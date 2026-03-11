@@ -17,4 +17,3 @@ kombu>=5.4
 pytz>=2024.0
 cffi>=1.17
 cryptography>=44.0
-rtorrent-python>=0.2.9

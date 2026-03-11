@@ -60,6 +60,45 @@ class Arr(object):
             for key in changed.keys():
                 history = ItemHistory.objects.create(item=queueitem, details=f'{key} set to "{changed[key]}"')
         return
+    
+    def reject_download(self, item, reason):
+        """Notify the manager that a download failed and should be re-attempted.
+        
+        This sends a message to the *arr manager to mark the download as failed,
+        allowing it to search for an alternate release.
+        
+        Args:
+            item: Item object with hash and clientid
+            reason: String explanation of why it failed (e.g., "RAR extraction failed: corrupted archive")
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        try:
+            # Build rejection message to send to manager
+            # The manager queue item has: id (clientid), title, downloadId (hash)
+            url = self.apiurl + '/queue/bulk'
+            
+            payload = {
+                'ids': [item.clientid],
+                'blacklist': True  # Mark as blacklisted so *arr won't grab it again
+            }
+            
+            response = requests.delete(url, json=payload, headers=self.headers, timeout=10)
+            
+            if response.status_code in [200, 204]:
+                message = f"Notified manager to reject download: {reason}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Failed to notify manager (HTTP {response.status_code}): {reason}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+                
+        except Exception as e:
+            message = f"Error notifying manager about failed download: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 

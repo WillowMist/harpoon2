@@ -76,7 +76,7 @@ class DownloaderModalForm(ModalModelForm):
 
     class Meta:
         model = Downloader
-        fields = ['name', 'downloadertype', 'options']
+        fields = ['name', 'downloadertype', 'seedbox', 'options']
 
 
 class SeedboxModalForm(ModalModelForm):

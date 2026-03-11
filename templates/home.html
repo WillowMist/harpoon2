@@ -1,21 +1,172 @@
 {% extends 'base.html' %}
 
-{% block title %}Home{% endblock %}
+{% block title %}Dashboard{% endblock %}
+
+{% block head %}
+<meta http-equiv="refresh" content="5">
+{% endblock %}
 
 {% block content %}
-    <div class="card-deck">
-    {% for manager in managers %}
-        <div id="manager_info" class="card bg-dark text-white" style="width: 20rem;">
+<h2 class="mb-4">Dashboard</h2>
 
-            <div class="card-header bg-primary"><h4 class="card-title">{{ manager.name }}</h4>
+<!-- Grabbing Downloads Card -->
+{% if grabbing_downloads %}
+<div class="card bg-dark text-white mb-4">
+    <div class="card-header bg-success">
+        <h5 class="card-title mb-0"><i class="fas fa-download me-2"></i>Grabbing</h5>
+    </div>
+    <div class="card-body">
+        {% for download in grabbing_downloads %}
+        <div class="row align-items-center mb-2">
+            <div class="col-md-4">
+                <strong>{{ download.name|truncatechars:40 }}</strong>
+                <br><small class="text-muted">{{ download.downloader }}</small>
             </div>
-            <div class="card-body px-1">
-                <div><b>URL:</b> {{ manager.url }}</div>
-                <div><b>Label:</b> {{ manager.label }}</div>
-                <div><b>Folder:</b> {{ manager.folder }}</div>
-                <div><b>Version:</b> {{ manager.client.test.1.version }}</div>
+            <div class="col-md-6">
+                <div class="progress" style="height: 20px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: {{ download.percent }}%;"
+                         aria-valuenow="{{ download.percent }}" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        {{ download.percent|floatformat:1 }}%
+                    </div>
+                </div>
+                <small>{{ download.completed|filesizeformat }} / {{ download.size|filesizeformat }}</small>
+            </div>
+            <div class="col-md-2 text-end">
+                <span class="badge bg-success">{{ download.percent|floatformat:1 }}%</span>
             </div>
         </div>
-    {% endfor %}
+        {% endfor %}
     </div>
+</div>
+{% endif %}
+
+<!-- Active SFTP Transfers Card -->
+{% if active_transfers %}
+<div class="card bg-dark text-white mb-4">
+    <div class="card-header bg-info">
+        <div class="d-flex justify-content-between align-items-center">
+            <h5 class="card-title mb-0"><i class="fas fa-exchange-alt me-2"></i>SFTP Transfers (Total Progress)</h5>
+            <small>Total Speed: <strong>{{ total_speed_mbps|floatformat:1 }} MB/s</strong></small>
+        </div>
+    </div>
+    <div class="card-body">
+         {% for transfer in active_transfers %}
+         <div class="row align-items-center mb-3">
+              <div class="col-md-3">
+                  <strong>{{ transfer.name|truncatechars:35 }}</strong>
+                  <br><small class="text-muted">{{ transfer.file_count }} file{{ transfer.file_count|pluralize }}</small>
+                  <br><small class="text-warning">⚡ {{ transfer.speed_mbps|floatformat:1 }} MB/s</small>
+              </div>
+             <div class="col-md-5">
+                 <!-- SFTP Transfer Progress -->
+                 <div class="progress" style="height: 20px;">
+                     <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                          role="progressbar" 
+                          style="width: {{ transfer.percent }}%;"
+                          aria-valuenow="{{ transfer.percent }}" 
+                          aria-valuemin="0" 
+                          aria-valuemax="100">
+                         {{ transfer.percent }}%
+                     </div>
+                 </div>
+                 <small>{{ transfer.completed|filesizeformat }} / {{ transfer.size|filesizeformat }}</small>
+                 
+                 <!-- Extraction Progress (if extracting) -->
+                 {% if transfer.extraction_status %}
+                 <div style="margin-top: 8px;">
+                     <small class="text-light">
+                         {% if transfer.extraction_status == 'extracting' %}
+                             <i class="fas fa-box-open me-1"></i><strong>Extracting:</strong>
+                         {% elif transfer.extraction_status == 'completed' %}
+                             <i class="fas fa-check-circle me-1 text-success"></i><strong>Extraction Complete</strong>
+                         {% elif transfer.extraction_status == 'failed' %}
+                             <i class="fas fa-exclamation-circle me-1 text-danger"></i><strong>Extraction Failed</strong>
+                         {% endif %}
+                     </small>
+                     <div class="progress" style="height: 12px; margin-top: 2px;">
+                         {% if transfer.extraction_status == 'extracting' %}
+                             <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" 
+                                  role="progressbar" 
+                                  style="width: {{ transfer.extraction_progress }}%;"
+                                  aria-valuenow="{{ transfer.extraction_progress }}" 
+                                  aria-valuemin="0" 
+                                  aria-valuemax="100">
+                                 {{ transfer.extraction_progress }}%
+                             </div>
+                         {% elif transfer.extraction_status == 'completed' %}
+                             <div class="progress-bar bg-success" 
+                                  role="progressbar" 
+                                  style="width: 100%;"
+                                  aria-valuenow="100" 
+                                  aria-valuemin="0" 
+                                  aria-valuemax="100">
+                             </div>
+                         {% elif transfer.extraction_status == 'failed' %}
+                             <div class="progress-bar bg-danger" 
+                                  role="progressbar" 
+                                  style="width: 100%;"
+                                  aria-valuenow="100" 
+                                  aria-valuemin="0" 
+                                  aria-valuemax="100">
+                             </div>
+                         {% endif %}
+                     </div>
+                 </div>
+                 {% endif %}
+             </div>
+             <div class="col-md-2">
+                 <span class="badge bg-info">{{ transfer.percent }}%</span>
+             </div>
+         </div>
+         {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Manager Summary Cards -->
+<div class="row mb-4">
+    {% for m in manager_summary %}
+    <div class="col-md-3 col-sm-6">
+        <div class="card bg-dark text-white">
+            <div class="card-header">
+                <h6 class="card-title mb-0">{{ m.name }}</h6>
+            </div>
+            <div class="card-body">
+                <div class="row text-center">
+                    <div class="col-6">
+                        <h3 class="mb-0">{{ m.grabbing }}</h3>
+                        <small>Queued</small>
+                    </div>
+                    <div class="col-6">
+                        <h3 class="mb-0">{{ m.postprocessing }}</h3>
+                        <small>Processing</small>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer text-center">
+                <small>{{ m.completed }} completed | {{ m.failed }} failed</small>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Summary -->
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i>
+    Total queued: <strong>{{ total_queued }}</strong> | 
+    <a href="/queue/" class="alert-link">View Queue</a> | 
+    <a href="/history/" class="alert-link">View History</a>
+</div>
+
+{% if not active_downloads and total_queued == 0 %}
+<div class="alert alert-success">
+    <i class="fas fa-check-circle me-2"></i>All quiet. No active downloads.
+</div>
+{% endif %}
+
 {% endblock %}

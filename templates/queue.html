@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+
+{% block title %}Queue{% endblock %}
+
+{% block head %}
+<meta http-equiv="refresh" content="5">
+{% endblock %}
+
+{% block content %}
+<h2 class="mb-4">Download Queue</h2>
+
+<!-- Post-Processing Card -->
+{% if postprocessing_items %}
+<div class="card bg-dark text-white mb-4">
+    <div class="card-header bg-warning">
+        <h5 class="card-title mb-0"><i class="fas fa-cog me-2"></i>Post-Processing ({{ postprocessing_items.count }})</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-dark table-striped mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Manager</th>
+                    <th>Downloader</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in postprocessing_items %}
+                <tr>
+                    <td>{{ item.name|truncatechars:50 }}</td>
+                    <td>{{ item.manager.name }}</td>
+                    <td>{{ item.downloader.name }}</td>
+                    <td>{{ item.modified|timesince }} ago</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Queued Items Card -->
+{% if grabbing_items %}
+<div class="card bg-dark text-white mb-4">
+    <div class="card-header bg-info">
+        <h5 class="card-title mb-0"><i class="fas fa-clock me-2"></i>Queued ({{ grabbing_items.count }})</h5>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-dark table-striped mb-0">
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Manager</th>
+                    <th>Downloader</th>
+                    <th>Added</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in grabbing_items %}
+                <tr>
+                    <td>{{ item.name|truncatechars:50 }}</td>
+                    <td>{{ item.manager.name }}</td>
+                    <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}<span class="text-warning">Pending</span>{% endif %}</td>
+                    <td>{{ item.created|timesince }} ago</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if not grabbing_items and not postprocessing_items %}
+<div class="alert alert-info">
+    <i class="fas fa-info-circle me-2"></i>Queue is empty.
+</div>
+{% endif %}
+
+{% endblock %}

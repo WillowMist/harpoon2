@@ -19,12 +19,17 @@
      {{ form.name }}
    </div>
    
-   <div class="mb-3">
-     <label class="form-label">Downloader Type</label>
-     {{ form.downloadertype }}
-   </div>
-   
-   <!-- Dynamic options fields will be inserted here -->
+    <div class="mb-3">
+      <label class="form-label">Downloader Type</label>
+      {{ form.downloadertype }}
+    </div>
+    
+    <div class="mb-3">
+      <label class="form-label">Seedbox</label>
+      {{ form.seedbox }}
+    </div>
+    
+    <!-- Dynamic options fields will be inserted here -->
    <div id="dynamic-options"></div>
    
    <!-- Hidden field to store JSON options -->

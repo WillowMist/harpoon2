@@ -33,6 +33,7 @@ class Downloader(models.Model):
     name = models.CharField(max_length=30, unique=True)
     downloadertype = models.CharField(max_length=20, choices=DOWNLOADER_TYPES)
     options = models.JSONField(default=dict)
+    seedbox = models.ForeignKey('Seedbox', on_delete=models.SET_NULL, null=True, blank=True, related_name='downloaders')
 
     @classmethod
     def from_db(cls, db, field_names, values):

@@ -21,6 +21,8 @@ from django.contrib.auth import views as auth_views
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', views.home, name='home'),
+    path('queue/', views.queue, name='queue'),
+    path('history/', views.history, name='history'),
     path("search/", include('dplibs.search', namespace="watson")),
     path('users/', include('users.urls')),
     path('logout', auth_views.LogoutView.as_view(), {'next_page': '/'}, name='logout'),
