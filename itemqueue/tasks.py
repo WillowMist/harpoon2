@@ -603,19 +603,35 @@ def check_downloaders():
                         pass
                         
             elif downloader.downloadertype == 'SABNzbd':
-                # Check for completed downloads
+                # Check for completed and failed downloads
                 client._ensure_client()
-                history_result = client._api_call('history')
+                history_result = client._api_call('history', {'limit': 500})
                 if 'history' in history_result:
                     for item_info in history_result['history'].get('slots', []):
-                        if item_info.get('status') == 'Completed':
-                            nzo_id = item_info.get('nzo_id')
-                            try:
-                                item = Item.objects.get(hash=nzo_id)
+                        nzo_id = item_info.get('nzo_id')
+                        status = item_info.get('status', '')
+                        
+                        try:
+                            item = Item.objects.get(hash=nzo_id)
+                            
+                            if status == 'Completed':
                                 if item.status != 'Completed' and item.status != 'Failed':
                                     postprocess_item.delay(nzo_id)
-                            except Item.DoesNotExist:
-                                pass
+                            
+                            elif status == 'Failed':
+                                # Download failed on downloader - mark as failed if not already
+                                if item.status != 'Failed':
+                                    fail_message = item_info.get('fail_message', 'Download failed on downloader')
+                                    item.status = 'Failed'
+                                    item.save()
+                                    ItemHistory.objects.create(
+                                        item=item,
+                                        details=f'Download failed on {downloader.name}: {fail_message}'
+                                    )
+                                    logger.warning(f"Marked {item.name} as failed: {fail_message}")
+                        
+                        except Item.DoesNotExist:
+                            pass
         except Exception as e:
             logger.error(f"Error checking downloader {downloader.name}: {e}")
 
