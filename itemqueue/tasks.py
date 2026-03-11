@@ -390,41 +390,80 @@ def transfer_files_async(item_hash):
             transfer.started = django.utils.timezone.now()
             transfer.save()
             
-            try:
-                logger.info(f"SFTP: {remote_file_path} -> {local_path} ({file_size / 1024 / 1024:.1f}MB)")
-                
-                # Progress callback with throttling
-                last_update = [0]
-                update_interval = 1024 * 1024
-                
-                def progress_callback(bytes_so_far, bytes_total):
-                    """Update progress during file transfer."""
-                    try:
-                        if bytes_so_far - last_update[0] >= update_interval or bytes_so_far >= bytes_total:
-                            transfer.bytes_transferred = bytes_so_far
-                            transfer.save()
-                            last_update[0] = bytes_so_far
-                    except Exception as e:
-                        logger.debug(f"Could not update transfer progress: {e}")
-                
-                # Download file with progress tracking
-                sftp.get(remote_file_path, local_path, callback=progress_callback)
-                
-                # Update transfer record - mark as completed
-                transfer.bytes_transferred = file_size
-                transfer.status = 'completed'
-                transfer.completed = django.utils.timezone.now()
-                transfer.save()
-                
-                ItemHistory.objects.create(item=item, details=f'Copied {filename}')
-                copied_count += 1
-            except Exception as e:
-                logger.error(f"Failed to copy {remote_file_path}: {e}")
-                transfer.status = 'failed'
-                transfer.error_message = str(e)
-                transfer.save()
-                ItemHistory.objects.create(item=item, details=f'Failed to copy {filename}: {str(e)}')
-                failed_count += 1
+            retry_count = 0
+            max_retries = 3
+            transfer_successful = False
+            
+            while retry_count < max_retries and not transfer_successful:
+                try:
+                    logger.info(f"SFTP: {remote_file_path} -> {local_path} ({file_size / 1024 / 1024:.1f}MB)" + 
+                               (f" [Retry {retry_count+1}/{max_retries}]" if retry_count > 0 else ""))
+                    
+                    # Progress callback with throttling
+                    last_update = [0]
+                    update_interval = 1024 * 1024
+                    
+                    def progress_callback(bytes_so_far, bytes_total):
+                        """Update progress during file transfer."""
+                        try:
+                            if bytes_so_far - last_update[0] >= update_interval or bytes_so_far >= bytes_total:
+                                transfer.bytes_transferred = bytes_so_far
+                                transfer.save()
+                                last_update[0] = bytes_so_far
+                        except Exception as e:
+                            logger.debug(f"Could not update transfer progress: {e}")
+                    
+                    # Download file with progress tracking
+                    sftp.get(remote_file_path, local_path, callback=progress_callback)
+                    
+                    # Update transfer record - mark as completed
+                    transfer.bytes_transferred = file_size
+                    transfer.status = 'completed'
+                    transfer.completed = django.utils.timezone.now()
+                    transfer.save()
+                    
+                    ItemHistory.objects.create(item=item, details=f'Copied {filename}')
+                    copied_count += 1
+                    transfer_successful = True
+                    
+                except Exception as e:
+                    logger.error(f"Failed to copy {remote_file_path}: {e}")
+                    retry_count += 1
+                    
+                    if retry_count < max_retries:
+                        # Try to recover connection and retry
+                        logger.warning(f"Attempting to reconnect for retry {retry_count}/{max_retries}...")
+                        try:
+                            sftp.close()
+                            ssh.close()
+                        except:
+                            pass
+                        
+                        # Reconnect
+                        try:
+                            ssh = paramiko.SSHClient()
+                            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                            
+                            if seedbox.auth_type == 'password':
+                                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
+                            else:
+                                pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
+                                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
+                            
+                            sftp = ssh.open_sftp()
+                            sftp.get_channel().settimeout(60)
+                            logger.info("Successfully reconnected to seedbox")
+                        except Exception as reconnect_error:
+                            logger.error(f"Failed to reconnect: {reconnect_error}")
+                            transfer_successful = False
+                    else:
+                        # Max retries exceeded
+                        transfer.status = 'failed'
+                        transfer.error_message = f"Transfer failed after {max_retries} retries: {str(e)}"
+                        transfer.save()
+                        ItemHistory.objects.create(item=item, details=f'Failed to copy {filename} after {max_retries} retries: {str(e)}')
+                        failed_count += 1
+                        transfer_successful = True  # Exit retry loop
         
         sftp.close()
         ssh.close()
