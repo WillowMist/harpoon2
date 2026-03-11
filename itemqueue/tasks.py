@@ -346,18 +346,30 @@ def transfer_files_async(item_hash):
             local_dir = os.path.dirname(local_path)
             os.makedirs(local_dir, exist_ok=True)
             
-            if os.path.exists(local_path):
-                logger.info(f"Skipped (exists): {local_path}")
-                skipped_count += 1
-                continue
-            
-            # Get file size
+            # Get remote file size
             try:
                 file_stat = sftp.stat(remote_file_path)
                 file_size = file_stat.st_size
             except Exception as e:
                 logger.warning(f"Cannot stat {remote_file_path}: {e}")
                 continue
+            
+            # Check if file exists locally and verify file size
+            if os.path.exists(local_path):
+                local_size = os.path.getsize(local_path)
+                if local_size == file_size:
+                    # File exists and has correct size - skip it
+                    logger.info(f"Skipped (complete): {local_path} ({local_size / (1024*1024):.1f}MB)")
+                    skipped_count += 1
+                    continue
+                else:
+                    # File exists but size mismatch - delete and retransfer
+                    logger.warning(f"File size mismatch for {local_path}: local={local_size}, remote={file_size}. Deleting and retransferring.")
+                    try:
+                        os.remove(local_path)
+                    except Exception as e:
+                        logger.error(f"Failed to delete incomplete file {local_path}: {e}")
+                        continue
             
             # Create FileTransfer record with 'pending' status
             try:
