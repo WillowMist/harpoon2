@@ -93,6 +93,29 @@ def poll_manager(manager_id):
                         logger.info(f"Item completed: {title} ({download_id})")
                 except Item.DoesNotExist:
                     logger.debug(f"Received import event for unknown item: {download_id}")
+            
+            elif event_type == 'downloadFailed':
+                download_id = record.get('downloadId', '')
+                title = record.get('title', record.get('sourceTitle', 'Unknown'))
+                data = record.get('data', {})
+                error_message = data.get('message', 'Download failed (no details available)')
+                
+                if not download_id:
+                    continue
+                
+                # Item download failed - mark as failed with error details
+                try:
+                    item = Item.objects.get(hash=download_id)
+                    if item.status != 'Failed':
+                        item.status = 'Failed'
+                        item.save()
+                        ItemHistory.objects.create(
+                            item=item,
+                            details=f'Download failed: {error_message}'
+                        )
+                        logger.warning(f"Item failed: {title} ({download_id}) - {error_message}")
+                except Item.DoesNotExist:
+                    logger.debug(f"Received failed event for unknown item: {download_id}")
                     
     except Exception as e:
         logger.error(f"Error polling manager {manager.name}: {e}")
