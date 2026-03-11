@@ -256,6 +256,45 @@ class RTorrentDownloader(BaseDownloader):
             'downloaded': torrent.get('bytes_downloaded', 0),
             'ratio': torrent.get('ratio', 0),
         }
+    
+    def get_completed(self) -> list:
+        """Get list of completed torrents.
+        
+        Returns:
+            List of torrent info dicts for completed torrents
+        """
+        self._ensure_client()
+        try:
+            torrents = self.client.download_list() or []
+            completed_torrents = []
+            
+            for torrent in torrents:
+                # torrent is a list like [hash_value]
+                hash_value = torrent[0] if isinstance(torrent, list) else torrent
+                hash_value = hash_value.upper() if hash_value else ''
+                
+                if not hash_value:
+                    continue
+                
+                # Check if completed
+                is_complete = self.client.d_is_complete(hash_value)
+                if is_complete:
+                    name = self.client.d_name(hash_value)
+                    size_bytes = self.client.d_size_bytes(hash_value)
+                    directory = self.client.d_directory(hash_value)
+                    
+                    completed_torrents.append({
+                        'hash': hash_value,
+                        'info_hash': hash_value,
+                        'name': name,
+                        'size_bytes': size_bytes,
+                        'directory': directory,
+                        'completed': True,
+                    })
+            
+            return completed_torrents
+        except Exception as e:
+            return []
 
     def get_files(self, hash: str) -> list:
         """Get the list of files in a torrent.
