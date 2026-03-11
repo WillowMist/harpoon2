@@ -604,6 +604,10 @@ def check_downloaders():
                         
             elif downloader.downloadertype == 'SABNzbd':
                 # Check for completed and failed downloads
+                # NOTE: This only tracks failures for NZO IDs that exist in our database.
+                # If the manager re-grabs with a new NZO ID after a failure, we won't know
+                # about it unless the manager reports the failure event. Ideally, the manager
+                # should report all failures via downloadFailed events.
                 client._ensure_client()
                 history_result = client._api_call('history', {'limit': 500})
                 if 'history' in history_result:
