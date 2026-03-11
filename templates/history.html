@@ -4,6 +4,55 @@
 
 {% block head %}
 <meta http-equiv="refresh" content="60">
+<style>
+.details-cell {
+    max-width: 500px;
+    word-break: break-word;
+    white-space: normal;
+}
+.collapsible-details {
+    cursor: pointer;
+    user-select: none;
+    display: inline-block;
+}
+.collapsible-details::before {
+    content: '▶ ';
+    display: inline-block;
+    margin-right: 5px;
+    transition: transform 0.2s;
+    font-size: 0.85em;
+}
+.collapsible-details.expanded::before {
+    transform: rotate(90deg);
+}
+.details-preview {
+    display: inline;
+    max-width: 400px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.details-preview.expanded {
+    display: none;
+}
+.details-content {
+    display: none;
+    padding-top: 8px;
+    font-family: monospace;
+    font-size: 0.85em;
+    background: rgba(0, 0, 0, 0.2);
+    padding: 8px;
+    border-radius: 3px;
+    margin-top: 5px;
+    line-height: 1.4;
+}
+.details-content.expanded {
+    display: block;
+}
+.details-content div {
+    margin-bottom: 4px;
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -27,12 +76,32 @@
             </thead>
             <tbody>
                 {% for item in failed_items %}
+                {% with history_list=item.history.all %}
                 <tr>
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
-                    <td>{% for h in item.history.all %}{{ h.details|truncatechars:30 }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                    <td class="details-cell">
+                        {% if history_list.count > 1 or history_list.0.details|length > 100 %}
+                        <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
+                            <span class="details-preview">{{ history_list.0.details|truncatechars:80 }}</span>
+                            <span class="details-preview expanded">
+                                {% for h in history_list %}
+                                    {{ h.details }}{% if not forloop.last %}<br>{% endif %}
+                                {% endfor %}
+                            </span>
+                        </div>
+                        <div class="details-content">
+                            {% for h in history_list %}
+                            <div>{{ h.details }}</div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        {{ history_list.0.details }}
+                        {% endif %}
+                    </td>
                     <td>{{ item.modified|timesince }} ago</td>
                 </tr>
+                {% endwith %}
                 {% endfor %}
             </tbody>
         </table>

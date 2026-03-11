@@ -217,7 +217,12 @@ def transfer_files_async(item_hash):
             if not remote_dir:
                 return
             
-            # For RTorrent, we copy all files from the directory
+            # Check if this is a single-file torrent
+            # (torrent name ends with a file extension like .mkv, .mp4, etc.)
+            is_single_file = torrent_name and ('.' in torrent_name.split('/')[-1])
+            
+            # For single-file torrents, transfer just that file
+            # For multi-file torrents, transfer all files from the directory
             files_to_copy = None
             
         elif downloader.downloadertype == 'SABNzbd':
@@ -286,55 +291,82 @@ def transfer_files_async(item_hash):
         os.makedirs(item_folder, exist_ok=True)
         logger.info(f"Created folder for item: {item_folder}")
         
-        # Get list of files to copy
-        try:
-            remote_files = sftp.listdir(remote_dir)
-        except Exception as e:
-            logger.error(f"Cannot access remote directory {remote_dir}: {e}")
-            sftp.close()
-            ssh.close()
-            return
-        
-        # Build transfer list by recursively traversing directories
-        # Preserve folder structure in the destination
+        # Build transfer list
+        # For single-file torrents, only transfer that specific file
+        # For multi-file torrents, recursively transfer all files from the directory
         transfer_list = []  # List of (remote_path, relative_path) tuples
         import stat as stat_module_list
         
-        def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
-            """Recursively walk remote directory and collect files while preserving structure."""
+        if is_single_file and downloader.downloadertype == 'RTorrent':
+            # Single-file torrent: construct the full remote path and transfer ONLY that file
+            # DO NOT fall back to listing the entire directory - that causes unrelated files to be transferred
+            full_remote_path = os.path.join(remote_dir, torrent_name)
             try:
-                remote_items = sftp_obj.listdir(remote_path)
+                # Verify the file exists
+                sftp.stat(full_remote_path)
+                # Use just the torrent name as the relative path so it transfers to item_folder/torrent_name
+                transfer_list.append((full_remote_path, torrent_name))
+                logger.info(f"Single-file torrent detected: {torrent_name}")
             except Exception as e:
-                logger.warning(f"Cannot access remote directory {remote_path}: {e}")
+                logger.error(f"Cannot stat single-file torrent {full_remote_path}: {e} - aborting transfer")
+                sftp.close()
+                ssh.close()
+                return
+        else:
+            # Multi-file torrent: recursively traverse directories
+            try:
+                remote_files = sftp.listdir(remote_dir)
+            except Exception as e:
+                logger.error(f"Cannot access remote directory {remote_dir}: {e}")
+                sftp.close()
+                ssh.close()
                 return
             
-            for item_name in remote_items:
-                remote_item_path = os.path.join(remote_path, item_name)
-                relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
-                
-                # Skip hidden files, images, HTML
-                if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
-                    continue
-                
-                # Check if it's a directory or file
+            def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
+                """Recursively walk remote directory and collect files while preserving structure."""
                 try:
-                    item_stat = sftp_obj.stat(remote_item_path)
-                    if stat_module_list.S_ISDIR(item_stat.st_mode):
-                        # Recursively walk subdirectories
-                        walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
-                    else:
-                        # It's a file, add to transfer list
-                        transfer_list.append((remote_item_path, relative_item_path))
+                    remote_items = sftp_obj.listdir(remote_path)
                 except Exception as e:
-                    logger.warning(f"Cannot stat {remote_item_path}: {e}")
-                    continue
-        
-        walk_remote_sftp(sftp, remote_dir, remote_dir)
+                    logger.warning(f"Cannot access remote directory {remote_path}: {e}")
+                    return
+                
+                for item_name in remote_items:
+                    remote_item_path = os.path.join(remote_path, item_name)
+                    relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
+                    
+                    # Skip hidden files, images, HTML
+                    if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
+                        continue
+                    
+                    # Check if it's a directory or file
+                    try:
+                        item_stat = sftp_obj.stat(remote_item_path)
+                        if stat_module_list.S_ISDIR(item_stat.st_mode):
+                            # Recursively walk subdirectories
+                            walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
+                        else:
+                            # It's a file, add to transfer list
+                            transfer_list.append((remote_item_path, relative_item_path))
+                    except Exception as e:
+                        logger.warning(f"Cannot stat {remote_item_path}: {e}")
+                        continue
+            
+            walk_remote_sftp(sftp, remote_dir, remote_dir)
         logger.info(f"Found {len(transfer_list)} files to transfer (including nested directories)")
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files
         # This ensures the dashboard shows correct total size from the start
         # transfer_list now contains (remote_path, relative_path) tuples
+        
+        # Check for existing transfer records to prevent duplicates
+        existing_transfers = FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring'])
+        if existing_transfers.exists():
+            logger.info(f"Item {item.name} already has {existing_transfers.count()} pending/transferring records. Skipping duplicate transfer creation.")
+            ItemHistory.objects.create(item=item, details=f'Skipped duplicate transfer creation - {existing_transfers.count()} transfers already active')
+            sftp.close()
+            ssh.close()
+            return
+        
         transfer_records = {}
         skipped_count = 0
         
@@ -483,6 +515,11 @@ def transfer_files_async(item_hash):
         logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
         ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
         
+        # Mark item as Completed now that transfer is done
+        item.status = 'Completed'
+        item.save()
+        ItemHistory.objects.create(item=item, details='File transfer completed, item marked as Completed')
+        
         # Post-transfer processing: extract RAR archives if present
         if copied_count > 0:
             try:
@@ -561,10 +598,12 @@ def postprocess_item(item_hash):
             item.save()
             return
         
-        item.status = 'Completed'
+        # Download is complete on the downloader - transition to PostProcessing (file transfer)
+        # Don't mark as Completed yet - that happens after transfer completes
+        item.status = 'PostProcessing'
         item.save()
-        ItemHistory.objects.create(item=item, details='Download complete, queuing file transfer')
-        logger.info(f"Item {item.name} marked completed")
+        ItemHistory.objects.create(item=item, details='Download complete on downloader, starting file transfer')
+        logger.info(f"Item {item.name} ready for file transfer")
         
         try:
             logger.info(f"Queuing async file transfer for {item.name}")
@@ -597,7 +636,8 @@ def check_downloaders():
                     hash_value = torrent_info.get('hash')
                     try:
                         item = Item.objects.get(hash=hash_value)
-                        if item.status != 'Completed' and item.status != 'Failed':
+                        # Only call postprocess if not already processed/completed/failed
+                        if item.status not in ['Completed', 'Failed', 'PostProcessing']:
                             postprocess_item.delay(hash_value)
                     except Item.DoesNotExist:
                         pass
@@ -619,7 +659,8 @@ def check_downloaders():
                             item = Item.objects.get(hash=nzo_id)
                             
                             if status == 'Completed':
-                                if item.status != 'Completed' and item.status != 'Failed':
+                                # Only call postprocess if not already processed/completed/failed
+                                if item.status not in ['Completed', 'Failed', 'PostProcessing']:
                                     postprocess_item.delay(nzo_id)
                             
                             elif status == 'Failed':

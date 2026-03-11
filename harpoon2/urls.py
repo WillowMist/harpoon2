@@ -23,6 +23,8 @@ urlpatterns = [
     path('', views.home, name='home'),
     path('queue/', views.queue, name='queue'),
     path('history/', views.history, name='history'),
+    path('download/<int:item_id>/cancel/', views.cancel_download, name='cancel_download'),
+    path('transfer/<str:item_name>/cancel/', views.cancel_transfer, name='cancel_transfer'),
     path("search/", include('dplibs.search', namespace="watson")),
     path('users/', include('users.urls')),
     path('logout', auth_views.LogoutView.as_view(), {'next_page': '/'}, name='logout'),

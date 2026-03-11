@@ -1,6 +1,7 @@
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, render, redirect
+from django.contrib import messages
 from entities.models import Manager, Downloader
-from itemqueue.models import Item, FileTransfer
+from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
 
 def home(request):
@@ -106,10 +107,22 @@ def home(request):
     
     # Convert to list format for template
     # Only show transfers that have pending or transferring files
+    # Sort by active status first (items with active transfers come first)
     transfers_list = []
     total_speed_mbps = 0
     
-    for item_hash, data in list(transfers_by_item.items())[:10]:  # Limit to 10 items
+    # Sort transfers_by_item to prioritize items with active (pending/transferring) transfers
+    sorted_transfers = sorted(transfers_by_item.items(), 
+        key=lambda x: (
+            FileTransfer.objects.filter(
+                item__hash=x[0],
+                status__in=['pending', 'transferring']
+            ).exists() == False,  # False sorts before True, so active items first
+            -x[1]['total_completed']  # Then by most recently progressed
+        )
+    )
+    
+    for item_hash, data in sorted_transfers[:10]:  # Limit to 10 items
         # Check if this item has any pending/transferring transfers
         has_active = FileTransfer.objects.filter(
             item__hash=item_hash,
@@ -176,3 +189,64 @@ def history(request):
         'completed_items': completed_items,
         'failed_items': failed_items,
     })
+
+
+def cancel_download(request, item_id):
+    """Cancel a download and mark it as failed."""
+    if request.method == 'POST':
+        try:
+            item = Item.objects.get(id=item_id)
+            
+            # Mark item as failed
+            old_status = item.status
+            item.status = 'Failed'
+            item.save()
+            
+            # Create history entry
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Download cancelled by user (was {old_status})'
+            )
+            
+            messages.success(request, f'Download cancelled: {item.name}')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error cancelling download: {str(e)}')
+    
+    return redirect('queue')
+
+
+def cancel_transfer(request, item_name):
+    """Cancel an SFTP transfer."""
+    if request.method == 'POST':
+        try:
+            # Find the item by name
+            item = Item.objects.get(name=item_name)
+            
+            # Mark all its transfers as cancelled/failed
+            from itemqueue.models import FileTransfer
+            transfers = FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring'])
+            transfer_count = transfers.count()
+            transfers.update(status='failed')
+            
+            # Mark item as failed
+            old_status = item.status
+            item.status = 'Failed'
+            item.save()
+            
+            # Create history entry
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Transfer cancelled by user - {transfer_count} file(s) cancelled (was {old_status})'
+            )
+            
+            return redirect('home')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+            return redirect('home')
+        except Exception as e:
+            messages.error(request, f'Error cancelling transfer: {str(e)}')
+            return redirect('home')
+    
+    return redirect('home')

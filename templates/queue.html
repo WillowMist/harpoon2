@@ -4,6 +4,31 @@
 
 {% block head %}
 <meta http-equiv="refresh" content="5">
+<style>
+.expand-icon {
+    cursor: pointer;
+    user-select: none;
+    font-weight: bold;
+    color: #0d6efd;
+}
+.expand-icon:hover {
+    color: #0b5ed7;
+}
+.details-row {
+    display: none;
+}
+.details-row.show {
+    display: table-row;
+}
+.details-cell-content {
+    padding: 15px;
+    background: rgba(0, 0, 0, 0.2);
+}
+.btn-sm-compact {
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+}
+</style>
 {% endblock %}
 
 {% block content %}
@@ -50,25 +75,89 @@
         <table class="table table-dark table-striped mb-0">
             <thead>
                 <tr>
+                    <th style="width: 30px;"></th>
                     <th>Name</th>
                     <th>Manager</th>
                     <th>Downloader</th>
                     <th>Added</th>
+                    <th style="width: 100px;">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in grabbing_items %}
-                <tr>
+                <tr onclick="toggleDetails(this)" style="cursor: pointer;">
+                    <td><span class="expand-icon">▶</span></td>
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
                     <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}<span class="text-warning">Pending</span>{% endif %}</td>
                     <td>{{ item.created|timesince }} ago</td>
+                    <td onclick="event.stopPropagation();">
+                        <form method="post" action="{% url 'cancel_download' item.id %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-danger btn-sm-compact" title="Cancel this download">Cancel</button>
+                        </form>
+                    </td>
+                </tr>
+                <tr class="details-row" data-item-id="{{ item.id }}">
+                    <td colspan="6">
+                        <div class="details-cell-content">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>Download Hash:</strong><br>
+                                    <code>{{ item.hash }}</code>
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Status:</strong><br>
+                                    <span class="badge bg-info">{{ item.status }}</span>
+                                </div>
+                            </div>
+                            <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <strong>Manager:</strong><br>
+                                    {{ item.manager.name }} ({{ item.manager.managertype }})
+                                </div>
+                                <div class="col-md-6">
+                                    <strong>Downloader:</strong><br>
+                                    {% if item.downloader %}
+                                        {{ item.downloader.name }} ({{ item.downloader.downloadertype }})
+                                    {% else %}
+                                        <span class="text-warning">Not assigned yet - waiting for available downloader</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% if item.history.all %}
+                            <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                            <div>
+                                <strong>History (recent):</strong><br>
+                                <small>
+                                {% for h in item.history.all|dictsort:"created" %}
+                                    {% if forloop.counter > item.history.all.count|add:"-4" %}
+                                    <div><i class="fas fa-info-circle me-1"></i>{{ h.details }}</div>
+                                    {% endif %}
+                                {% endfor %}
+                                </small>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+
+<script>
+function toggleDetails(row) {
+    const nextRow = row.nextElementSibling;
+    if (nextRow && nextRow.classList.contains('details-row')) {
+        nextRow.classList.toggle('show');
+        row.querySelector('.expand-icon').style.transform = 
+            nextRow.classList.contains('show') ? 'rotate(90deg)' : 'rotate(0deg)';
+    }
+}
+</script>
 {% endif %}
 
 {% if not grabbing_items and not postprocessing_items %}
