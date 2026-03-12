@@ -8,6 +8,7 @@ import paramiko
 import django.utils.timezone
 import subprocess
 import glob
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -622,7 +623,11 @@ def transfer_files_async(item_hash):
                         logger.info(f"Manager post-processing initiated: {pp_message}")
                     else:
                         logger.error(f"Manager post-processing failed: {pp_message}")
+                        # Don't mark as Failed immediately - schedule retry
                         ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+                        # Schedule retry in 5 minutes
+                        logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
+                        retry_postprocessing.apply_async(args=[item_hash], countdown=300)
             except Exception as e:
                 logger.error(f"Error calling manager post-processing: {e}")
                 ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
@@ -811,6 +816,85 @@ def check_stalled_transfers():
     
     if stalled_count > 0:
         logger.info(f"Detected and failed {stalled_count} stalled transfers")
+
+
+@shared_task
+def retry_postprocessing(item_hash):
+    """Retry post-processing for an item that failed.
+    
+    This task is scheduled when post-processing fails, allowing automatic retries
+    without manual user intervention.
+    """
+    try:
+        item = Item.objects.get(hash=item_hash)
+    except Item.DoesNotExist:
+        logger.error(f"Item {item_hash} not found for retry_postprocessing")
+        return
+    
+    # Only retry if item is Completed (meaning transfer succeeded but post-processing failed)
+    if item.status != 'Completed':
+        logger.debug(f"Skipping retry for {item.name} - status is {item.status}, not Completed")
+        return
+    
+    if not item.manager or not hasattr(item.manager, 'client'):
+        logger.error(f"Item {item.name} has no manager configured")
+        return
+    
+    try:
+        # Get local folder from latest completed transfer
+        first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+        if not first_transfer or not first_transfer.local_path:
+            logger.warning(f"No completed transfers found for {item.name}, cannot retry post-processing")
+            return
+        
+        local_folder = os.path.dirname(first_transfer.local_path)
+        
+        # Construct the download path with item folder name included
+        sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+        sanitized_item_name = sanitized_item_name.strip()
+        
+        # Get base folder
+        if item.manager.folder:
+            if item.manager.folder.remote_folder_name:
+                base_remote_path = item.manager.folder.remote_folder_name
+            else:
+                base_remote_path = item.manager.folder.folder
+            download_path = os.path.join(base_remote_path, sanitized_item_name)
+        else:
+            download_path = local_folder
+        
+        # Check if there's only one video file in the directory
+        video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
+        try:
+            local_item_path = os.path.join(local_folder, sanitized_item_name)
+            if os.path.isdir(local_item_path):
+                video_files = [f for f in os.listdir(local_item_path) 
+                             if os.path.isfile(os.path.join(local_item_path, f)) 
+                             and os.path.splitext(f)[1].lower() in video_extensions]
+                if len(video_files) == 1:
+                    video_file = video_files[0]
+                    download_path = os.path.join(download_path, video_file)
+                    logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
+        except Exception as e:
+            logger.warning(f"Could not check for single video file: {e}")
+        
+        logger.info(f"Retrying post-processing for {item.name} at path: {download_path}")
+        client = item.manager.client
+        success, pp_message = client.post_process(item, download_path)
+        
+        if success:
+            logger.info(f"Retry post-processing succeeded for {item.name}: {pp_message}")
+            ItemHistory.objects.create(item=item, details=f'Post-processing retry succeeded: {pp_message}')
+        else:
+            logger.error(f"Retry post-processing failed for {item.name}: {pp_message}")
+            ItemHistory.objects.create(item=item, details=f'Post-processing retry failed: {pp_message}')
+            # Schedule another retry in 10 minutes
+            logger.info(f"Scheduling another retry for {item.name} in 10 minutes")
+            retry_postprocessing.apply_async(args=[item_hash], countdown=600)
+    
+    except Exception as e:
+        logger.error(f"Error in retry_postprocessing for {item_hash}: {e}")
+        ItemHistory.objects.create(item=item, details=f'Retry failed with error: {str(e)}')
 
 
 @shared_task
