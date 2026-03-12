@@ -58,6 +58,40 @@
 {% block content %}
 <h2 class="mb-4">History</h2>
 
+<!-- Archive Toggle and Bulk Actions -->
+<div class="row mb-4">
+    <div class="col-md-6">
+        <div class="btn-group" role="group">
+            <a href="{% url 'history' %}" class="btn btn-outline-secondary {% if not show_archived %}active{% endif %}">
+                <i class="fas fa-list me-1"></i>Active Items ({{ completed_count }}C / {{ failed_count }}F)
+            </a>
+            <a href="{% url 'history' %}?show_archived=true" class="btn btn-outline-secondary {% if show_archived %}active{% endif %}">
+                <i class="fas fa-archive me-1"></i>Archived Items ({{ completed_archived_count }}C / {{ failed_archived_count }}F)
+            </a>
+        </div>
+    </div>
+    {% if not show_archived %}
+    <div class="col-md-6 text-end">
+        {% if failed_count > 0 %}
+        <form method="post" action="{% url 'archive_all_failed' %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-warning" onclick="return confirm('Archive all {{ failed_count }} failed item(s)?')">
+                <i class="fas fa-archive me-1"></i>Archive All Failed
+            </button>
+        </form>
+        {% endif %}
+        {% if completed_count > 0 %}
+        <form method="post" action="{% url 'archive_all_completed' %}" style="display:inline;">
+            {% csrf_token %}
+            <button type="submit" class="btn btn-sm btn-success" onclick="return confirm('Archive all {{ completed_count }} completed item(s)?')">
+                <i class="fas fa-archive me-1"></i>Archive All Completed
+            </button>
+        </form>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
 <!-- Failed Items Card -->
 {% if failed_items %}
 <div class="card bg-dark text-white mb-4">
@@ -72,6 +106,7 @@
                     <th>Manager</th>
                     <th>Error</th>
                     <th>Failed</th>
+                    <th style="width: 80px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -100,6 +135,23 @@
                         {% endif %}
                     </td>
                     <td>{{ item.modified|timesince }} ago</td>
+                    <td>
+                        {% if not show_archived %}
+                        <form method="post" action="{% url 'archive_item' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-warning" title="Archive this item">
+                                <i class="fas fa-archive"></i>
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="post" action="{% url 'unarchive_item' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Unarchive this item">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endwith %}
                 {% endfor %}
@@ -123,6 +175,7 @@
                     <th>Manager</th>
                     <th>Downloader</th>
                     <th>Completed</th>
+                    <th style="width: 80px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -132,6 +185,23 @@
                     <td>{{ item.manager.name }}</td>
                     <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</td>
                     <td>{{ item.modified|timesince }} ago</td>
+                    <td>
+                        {% if not show_archived %}
+                        <form method="post" action="{% url 'archive_item' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="Archive this item">
+                                <i class="fas fa-archive"></i>
+                            </button>
+                        </form>
+                        {% else %}
+                        <form method="post" action="{% url 'unarchive_item' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-secondary" title="Unarchive this item">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>

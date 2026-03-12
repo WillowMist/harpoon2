@@ -8,13 +8,13 @@ def home(request):
     """Dashboard - shows active downloads (grabbing), file transfers, and quick summary by manager."""
     managers = Manager.objects.all()
     
-    # Get counts by manager
+    # Get counts by manager (exclude archived items)
     manager_summary = []
     for m in managers:
-        grabbing = Item.objects.filter(status='Grabbed', manager=m).count()
-        postprocessing = Item.objects.filter(status='PostProcessing', manager=m).count()
-        completed = Item.objects.filter(status='Completed', manager=m).count()
-        failed = Item.objects.filter(status='Failed', manager=m).count()
+        grabbing = Item.objects.filter(status='Grabbed', manager=m, archived=False).count()
+        postprocessing = Item.objects.filter(status='PostProcessing', manager=m, archived=False).count()
+        completed = Item.objects.filter(status='Completed', manager=m, archived=False).count()
+        failed = Item.objects.filter(status='Failed', manager=m, archived=False).count()
         manager_summary.append({
             'name': m.name,
             'grabbing': grabbing,
@@ -171,8 +171,8 @@ def home(request):
 
 def queue(request):
     """Queue page - shows all queued/grabbing/postprocessing items."""
-    grabbing_items = Item.objects.filter(status='Grabbed').select_related('manager', 'downloader').order_by('-created')
-    postprocessing_items = Item.objects.filter(status='PostProcessing').select_related('manager', 'downloader').order_by('-modified')
+    grabbing_items = Item.objects.filter(status='Grabbed', archived=False).select_related('manager', 'downloader').order_by('-created')
+    postprocessing_items = Item.objects.filter(status='PostProcessing', archived=False).select_related('manager', 'downloader').order_by('-modified')
     
     return render(request, 'queue.html', {
         'grabbing_items': grabbing_items,
@@ -182,12 +182,35 @@ def queue(request):
 
 def history(request):
     """History page - shows completed and failed items."""
-    completed_items = Item.objects.filter(status='Completed').select_related('manager', 'downloader').order_by('-modified')[:50]
-    failed_items = Item.objects.filter(status='Failed').select_related('manager', 'downloader').order_by('-modified')[:50]
+    # Get show_archived parameter from query string
+    show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
+    
+    # Base queryset
+    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader')
+    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader')
+    
+    # Filter by archive status
+    if show_archived:
+        completed_items = completed_base.filter(archived=True).order_by('-archived_at')[:50]
+        failed_items = failed_base.filter(archived=True).order_by('-archived_at')[:50]
+    else:
+        completed_items = completed_base.filter(archived=False).order_by('-modified')[:50]
+        failed_items = failed_base.filter(archived=False).order_by('-modified')[:50]
+    
+    # Get counts for display
+    completed_count = Item.objects.filter(status='Completed', archived=False).count()
+    completed_archived_count = Item.objects.filter(status='Completed', archived=True).count()
+    failed_count = Item.objects.filter(status='Failed', archived=False).count()
+    failed_archived_count = Item.objects.filter(status='Failed', archived=True).count()
     
     return render(request, 'history.html', {
         'completed_items': completed_items,
         'failed_items': failed_items,
+        'show_archived': show_archived,
+        'completed_count': completed_count,
+        'completed_archived_count': completed_archived_count,
+        'failed_count': failed_count,
+        'failed_archived_count': failed_archived_count,
     })
 
 
@@ -240,8 +263,83 @@ def cancel_transfer(request, item_name):
                 item=item,
                 details=f'Transfer cancelled by user - {transfer_count} file(s) cancelled (was {old_status})'
             )
+     
+    return redirect('home')
+
+
+def archive_item(request, item_hash):
+    """Archive a single item."""
+    if request.method == 'POST':
+        try:
+            item = Item.objects.get(hash=item_hash)
             
-            return redirect('home')
+            # Archive the item
+            from django.utils import timezone
+            item.archived = True
+            item.archived_at = timezone.now()
+            item.save()
+            
+            messages.success(request, f'Item archived: {item.name}')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error archiving item: {str(e)}')
+    
+    return redirect('history')
+
+
+def unarchive_item(request, item_hash):
+    """Unarchive a single item."""
+    if request.method == 'POST':
+        try:
+            item = Item.objects.get(hash=item_hash)
+            
+            # Unarchive the item
+            item.archived = False
+            item.archived_at = None
+            item.save()
+            
+            messages.success(request, f'Item unarchived: {item.name}')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error unarchiving item: {str(e)}')
+    
+    return redirect('history')
+
+
+def archive_all_failed(request):
+    """Archive all failed items."""
+    if request.method == 'POST':
+        try:
+            from django.utils import timezone
+            failed_items = Item.objects.filter(status='Failed', archived=False)
+            count = failed_items.count()
+            
+            failed_items.update(archived=True, archived_at=timezone.now())
+            
+            messages.success(request, f'Archived {count} failed item(s)')
+        except Exception as e:
+            messages.error(request, f'Error archiving failed items: {str(e)}')
+    
+    return redirect('history')
+
+
+def archive_all_completed(request):
+    """Archive all completed items."""
+    if request.method == 'POST':
+        try:
+            from django.utils import timezone
+            completed_items = Item.objects.filter(status='Completed', archived=False)
+            count = completed_items.count()
+            
+            completed_items.update(archived=True, archived_at=timezone.now())
+            
+            messages.success(request, f'Archived {count} completed item(s)')
+        except Exception as e:
+            messages.error(request, f'Error archiving completed items: {str(e)}')
+    
+    return redirect('history')
         except Item.DoesNotExist:
             messages.error(request, 'Item not found')
             return redirect('home')

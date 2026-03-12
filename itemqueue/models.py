@@ -19,6 +19,10 @@ class Item(models.Model):
     extraction_progress = models.IntegerField(default=0)  # 0-100%
     extraction_started = models.DateTimeField(null=True, blank=True)
     extraction_completed = models.DateTimeField(null=True, blank=True)
+    
+    # Archive tracking
+    archived = models.BooleanField(default=False)
+    archived_at = models.DateTimeField(null=True, blank=True)
 
 
 class ItemHistory(models.Model):
