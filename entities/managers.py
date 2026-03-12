@@ -24,7 +24,13 @@ class Arr(object):
         url = self.apiurl + '/queue'
         try:
             r = requests.get(url, params=None, headers=self.headers)
-            dt = self.parse_queue(r.json())
+            response_data = r.json()
+            # Handle both list and dict responses (dict has 'records' key)
+            if isinstance(response_data, dict) and 'records' in response_data:
+                queue_data = response_data['records']
+            else:
+                queue_data = response_data
+            dt = self.parse_queue(queue_data)
             return True, dt
         except Exception as e:
             return False, e
