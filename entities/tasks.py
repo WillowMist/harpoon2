@@ -201,7 +201,19 @@ def assign_items_to_downloaders():
                                 name__icontains=download_client
                             ).first()
                             
-                            # If no match by name, try matching by type
+                            # If no match by name, try fuzzy matching (e.g., "Black SabNZBd" -> "Black SAB")
+                            if not downloader:
+                                # Try partial matches
+                                if 'sab' in download_client.lower():
+                                    downloader = Downloader.objects.filter(
+                                        name__icontains='SAB'
+                                    ).first()
+                                elif 'rtorrent' in download_client.lower() or 'torrent' in download_client.lower():
+                                    downloader = Downloader.objects.filter(
+                                        name__icontains='RTorrent'
+                                    ).first()
+                            
+                            # If still no match, try matching by type based on protocol
                             if not downloader:
                                 if protocol in ('torrent', 'bt'):
                                     downloader = Downloader.objects.filter(
