@@ -28,6 +28,62 @@
     padding: 0.25rem 0.5rem;
     font-size: 0.8rem;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    .table {
+        font-size: 0.85rem;
+    }
+    
+    .table th, .table td {
+        padding: 0.5rem 0.25rem;
+    }
+    
+    .btn-sm-compact {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.75rem;
+    }
+    
+    .details-cell-content {
+        padding: 10px;
+    }
+}
+
+@media (max-width: 576px) {
+    .table {
+        font-size: 0.75rem;
+    }
+    
+    .table th, .table td {
+        padding: 0.4rem 0.2rem;
+    }
+    
+    /* Hide non-essential columns on small phones */
+    .table th:nth-child(4),
+    .table td:nth-child(4),
+    .table th:nth-child(5),
+    .table td:nth-child(5) {
+        display: none;
+    }
+    
+    .expand-icon {
+        font-size: 0.9rem;
+    }
+    
+    .details-cell-content {
+        padding: 8px;
+        font-size: 0.75rem;
+    }
+    
+    .details-cell-content .row {
+        flex-direction: column;
+    }
+    
+    .details-cell-content .col-md-6 {
+        width: 100%;
+        margin-bottom: 0.5rem;
+    }
+}
 </style>
 {% endblock %}
 

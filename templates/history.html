@@ -70,6 +70,72 @@ tr.edit-mode .edit-control {
 tr.edit-mode .view-control {
     display: none;
 }
+
+/* Mobile responsive styles */
+@media (max-width: 768px) {
+    .table {
+        font-size: 0.85rem;
+    }
+    
+    .table th, .table td {
+        padding: 0.5rem 0.25rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+    
+    .form-select-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+    
+    /* Hide less important columns on mobile */
+    .hide-on-mobile {
+        display: none;
+    }
+    
+    /* Stack buttons vertically on mobile, only show key actions */
+    .btn-outline-secondary.view-control {
+        display: none !important;
+    }
+    
+    .card {
+        margin-bottom: 1rem;
+    }
+    
+    .table-responsive-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+@media (max-width: 576px) {
+    .details-cell {
+        max-width: 150px;
+    }
+    
+    .table {
+        font-size: 0.75rem;
+    }
+    
+    .btn-sm {
+        padding: 0.2rem 0.4rem;
+        font-size: 0.65rem;
+    }
+    
+    .table th:nth-child(n+5),
+    .table td:nth-child(n+5) {
+        display: none;
+    }
+    
+    .table th:last-child,
+    .table td:last-child {
+        display: table-cell;
+        width: 80px;
+    }
+}
 </style>
 {% endblock %}
 
@@ -144,7 +210,7 @@ function autoSubmitForm(form) {
                     <th>Downloader</th>
                     <th>Error</th>
                     <th>Failed</th>
-                    <th style="width: 150px;">Action</th>
+                    <th style="width: 200px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -253,7 +319,7 @@ function autoSubmitForm(form) {
                     <th>Downloader</th>
                     <th>Details</th>
                     <th>Completed</th>
-                    <th style="width: 120px;">Action</th>
+                    <th style="width: 200px;">Action</th>
                 </tr>
             </thead>
             <tbody>
