@@ -99,8 +99,44 @@ class Arr(object):
             message = f"Error notifying manager about failed download: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
-
-
+    
+    def post_process(self, item, download_path):
+        """Send a download completion notification to the manager for post-processing.
+        
+        This triggers the manager to import the downloaded files from the specified path.
+        
+        Args:
+            item: Item object with hash, name, and clientid
+            download_path: Local path where files have been downloaded/extracted to
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        try:
+            url = self.apiurl + '/command'
+            
+            payload = {
+                "name": "DownloadedEpisodesScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+                
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 class Sonarr(Arr):
