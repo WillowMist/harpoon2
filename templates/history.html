@@ -104,9 +104,11 @@
                 <tr>
                     <th>Name</th>
                     <th>Manager</th>
+                    <th>Status</th>
+                    <th>Downloader</th>
                     <th>Error</th>
                     <th>Failed</th>
-                    <th style="width: 80px;">Action</th>
+                    <th style="width: 150px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -115,6 +117,28 @@
                 <tr>
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
+                    <td>
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                                <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
+                                <option value="PostProcessing" {% if item.status == 'PostProcessing' %}selected{% endif %}>PostProcessing</option>
+                                <option value="Completed" {% if item.status == 'Completed' %}selected{% endif %}>Completed</option>
+                                <option value="Failed" {% if item.status == 'Failed' %}selected{% endif %}>Failed</option>
+                            </select>
+                        </form>
+                    </td>
+                    <td>
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <select name="downloader" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                                <option value="">None</option>
+                                {% for dl in downloaders %}
+                                <option value="{{ dl.id }}" {% if item.downloader.id == dl.id %}selected{% endif %}>{{ dl.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                    </td>
                     <td class="details-cell">
                         {% if history_list.count > 1 or history_list.0.details|length > 100 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
@@ -137,6 +161,12 @@
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
                         {% if not show_archived %}
+                        <form method="post" action="{% url 'retry_failed_item' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <button type="submit" class="btn btn-sm btn-outline-info" title="Retry this failed item">
+                                <i class="fas fa-redo"></i>
+                            </button>
+                        </form>
                         <form method="post" action="{% url 'archive_item' item.hash %}" style="display:inline;">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-sm btn-outline-warning" title="Archive this item">
@@ -173,10 +203,11 @@
                 <tr>
                     <th>Name</th>
                     <th>Manager</th>
+                    <th>Status</th>
                     <th>Downloader</th>
                     <th>Details</th>
                     <th>Completed</th>
-                    <th style="width: 80px;">Action</th>
+                    <th style="width: 120px;">Action</th>
                 </tr>
             </thead>
             <tbody>
@@ -185,7 +216,28 @@
                 <tr>
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
-                    <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</td>
+                    <td>
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                                <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
+                                <option value="PostProcessing" {% if item.status == 'PostProcessing' %}selected{% endif %}>PostProcessing</option>
+                                <option value="Completed" {% if item.status == 'Completed' %}selected{% endif %}>Completed</option>
+                                <option value="Failed" {% if item.status == 'Failed' %}selected{% endif %}>Failed</option>
+                            </select>
+                        </form>
+                    </td>
+                    <td>
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" style="display:inline;">
+                            {% csrf_token %}
+                            <select name="downloader" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                                <option value="">None</option>
+                                {% for dl in downloaders %}
+                                <option value="{{ dl.id }}" {% if item.downloader.id == dl.id %}selected{% endif %}>{{ dl.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                    </td>
                     <td class="details-cell">
                         {% if history_list.count > 0 or transfers.count > 0 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">

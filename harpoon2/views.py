@@ -203,6 +203,9 @@ def history(request):
     failed_count = Item.objects.filter(status='Failed', archived=False).count()
     failed_archived_count = Item.objects.filter(status='Failed', archived=True).count()
     
+    # Get all downloaders for dropdown
+    downloaders = Downloader.objects.all().order_by('name')
+    
     return render(request, 'history.html', {
         'completed_items': completed_items,
         'failed_items': failed_items,
@@ -211,6 +214,7 @@ def history(request):
         'completed_archived_count': completed_archived_count,
         'failed_count': failed_count,
         'failed_archived_count': failed_archived_count,
+        'downloaders': downloaders,
     })
 
 
@@ -346,5 +350,106 @@ def archive_all_completed(request):
             messages.success(request, f'Archived {count} completed item(s)')
         except Exception as e:
             messages.error(request, f'Error archiving completed items: {str(e)}')
+    
+    return redirect('history')
+
+
+def update_item_status(request, item_hash):
+    """Update item status via dropdown."""
+    if request.method == 'POST':
+        new_status = request.POST.get('status', '').strip()
+        
+        # Validate status
+        valid_statuses = ['Grabbed', 'PostProcessing', 'Completed', 'Failed']
+        if new_status not in valid_statuses:
+            messages.error(request, 'Invalid status')
+            return redirect('history')
+        
+        try:
+            item = Item.objects.get(hash=item_hash)
+            old_status = item.status
+            item.status = new_status
+            item.save()
+            
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Status changed by user: {old_status} → {new_status}'
+            )
+            
+            messages.success(request, f'Status updated: {old_status} → {new_status}')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error updating status: {str(e)}')
+    
+    return redirect('history')
+
+
+def update_item_downloader(request, item_hash):
+    """Update item downloader via dropdown."""
+    if request.method == 'POST':
+        downloader_id = request.POST.get('downloader', '').strip()
+        
+        try:
+            item = Item.objects.get(hash=item_hash)
+            
+            if downloader_id == '':
+                old_dl = item.downloader.name if item.downloader else 'None'
+                item.downloader = None
+                new_dl = 'None'
+            else:
+                downloader = Downloader.objects.get(id=downloader_id)
+                old_dl = item.downloader.name if item.downloader else 'None'
+                item.downloader = downloader
+                new_dl = downloader.name
+            
+            item.save()
+            
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Downloader changed by user: {old_dl} → {new_dl}'
+            )
+            
+            messages.success(request, f'Downloader updated: {old_dl} → {new_dl}')
+        except Downloader.DoesNotExist:
+            messages.error(request, 'Downloader not found')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error updating downloader: {str(e)}')
+    
+    return redirect('history')
+
+
+def retry_failed_item(request, item_hash):
+    """Retry a failed item - reset to Grabbed and clear transfers."""
+    if request.method == 'POST':
+        try:
+            item = Item.objects.get(hash=item_hash)
+            
+            if item.status != 'Failed':
+                messages.error(request, 'Only failed items can be retried')
+                return redirect('history')
+            
+            # Clear file transfers
+            from itemqueue.models import FileTransfer
+            transfers = FileTransfer.objects.filter(item=item)
+            transfer_count = transfers.count()
+            transfers.delete()
+            
+            # Reset to Grabbed status
+            item.status = 'Grabbed'
+            item.save()
+            
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Retried by user - reset to Grabbed (deleted {transfer_count} transfers)'
+            )
+            
+            messages.success(request, f'Item retried: reset to Grabbed status')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error retrying item: {str(e)}')
     
     return redirect('history')
