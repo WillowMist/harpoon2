@@ -1,11 +1,11 @@
 {%  load crispy_forms_tags %}
-<form method="post" action="{% if object %}{% url 'entities:dlfolder-create' %}{% else %}{% url 'entities:dlfolder-create' %}{% endif %}" id="createform">
+<form method="post" action="{% if object %}{% url 'entities:dlfolder-update' object.pk %}{% else %}{% url 'entities:dlfolder-create' %}{% endif %}" id="createform">
   {% csrf_token %}
 
-  <div class="modal-header bg-dark text-light border-secondary">
-     <h5 class="modal-title">Add Folder</h5>
-     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-   </div>
+   <div class="modal-header bg-dark text-light border-secondary">
+      <h5 class="modal-title">{% if object %}Edit Folder{% else %}Add Folder{% endif %}</h5>
+      <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+    </div>
 
   <div class="modal-body bg-dark text-light">
       <div class="{% if form.non_field_errors %}invalid{% endif %} mb-2">
