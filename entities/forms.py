@@ -12,15 +12,23 @@ class DLFolderModalForm(ModalModelForm):
 
     def clean_folder(self):
         data = self.cleaned_data['folder']
+        # Check for duplicate folder paths, but exclude the current instance if editing
+        existing = DownloadFolder.objects.filter(folder=data)
+        if self.instance.pk:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            self.add_error('folder', ValidationError('A folder with this path already exists.'))
+            return data
+        
+        # Only try to create the folder if it doesn't exist (skip when editing)
         if os.path.exists(data) and os.path.isdir(data):
             return data
         elif os.path.exists(data) and os.path.isfile(data):
             self.add_error('folder', ValidationError('Path exists, but is a file.  Please only enter a folder.'))
-        else:
+        elif not self.instance.pk:  # Only create if this is a new folder (not editing)
             try:
                 os.makedirs(data)
             except PermissionError:
-
                 self.add_error('folder', ValidationError('Folder does not exist and could not be created.  Please check permissions.'))
             except NotADirectoryError:
                 self.add_error('folder', ValidationError('Invalid directory.  Check the path and try again.'))
