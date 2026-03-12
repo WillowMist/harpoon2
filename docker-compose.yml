@@ -30,8 +30,8 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
       - REDIS_URL=redis://redis:6379/0
     ports:
-      # Use port 8001 on host to avoid conflict with host Django development server
-      - "8001:8000"
+      # Harpoon2 runs on port 4277
+      - "4277:8000"
     volumes:
       # Only mount /data for persistent storage, not the entire app directory
       # This preserves the installed Python packages in the container
