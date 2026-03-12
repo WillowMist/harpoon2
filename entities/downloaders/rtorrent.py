@@ -258,36 +258,38 @@ class RTorrentDownloader(BaseDownloader):
         }
     
     def get_completed(self) -> list:
-        """Get list of completed torrents.
+        """Get list of completed torrents using efficient multicall.
         
         Returns:
             List of torrent info dicts for completed torrents
         """
         self._ensure_client()
         try:
-            torrents = self.client.download_list() or []
-            completed_torrents = []
+            # Use multicall2 to get all torrents with their details in one call
+            # This is much more efficient than individual calls
+            result = self.client._get_client().d.multicall2('', 'main',
+                'd.hash=',
+                'd.name=',
+                'd.size_bytes=',
+                'd.complete=',
+                'd.directory='
+            )
             
-            for torrent in torrents:
-                # torrent is a list like [hash_value]
-                hash_value = torrent[0] if isinstance(torrent, list) else torrent
-                hash_value = hash_value.upper() if hash_value else ''
-                
-                if not hash_value:
+            completed_torrents = []
+            for torrent_data in result:
+                if not isinstance(torrent_data, list) or len(torrent_data) < 5:
                     continue
                 
-                # Check if completed
-                is_complete = self.client.d_is_complete(hash_value)
+                hash_val, name, size, is_complete, directory = torrent_data[:5]
+                
+                # Only include completed torrents
                 if is_complete:
-                    name = self.client.d_name(hash_value)
-                    size_bytes = self.client.d_size_bytes(hash_value)
-                    directory = self.client.d_directory(hash_value)
-                    
                     completed_torrents.append({
-                        'hash': hash_value,
-                        'info_hash': hash_value,
+                        'hash': hash_val.upper() if hash_val else '',
+                        'info_hash': hash_val.upper() if hash_val else '',
                         'name': name,
-                        'size_bytes': size_bytes,
+                        'size': size,
+                        'size_bytes': size,
                         'directory': directory,
                         'completed': True,
                     })

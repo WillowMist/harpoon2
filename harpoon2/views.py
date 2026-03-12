@@ -191,11 +191,11 @@ def history(request):
     })
 
 
-def cancel_download(request, item_id):
+def cancel_download(request, item_hash):
     """Cancel a download and mark it as failed."""
     if request.method == 'POST':
         try:
-            item = Item.objects.get(id=item_id)
+            item = Item.objects.get(hash=item_hash)
             
             # Mark item as failed
             old_status = item.status

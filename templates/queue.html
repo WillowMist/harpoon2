@@ -92,13 +92,13 @@
                     <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}<span class="text-warning">Pending</span>{% endif %}</td>
                     <td>{{ item.created|timesince }} ago</td>
                     <td onclick="event.stopPropagation();">
-                        <form method="post" action="{% url 'cancel_download' item.id %}" style="display:inline;">
+                        <form method="post" action="{% url 'cancel_download' item.hash %}" style="display:inline;">
                             {% csrf_token %}
                             <button type="submit" class="btn btn-danger btn-sm-compact" title="Cancel this download">Cancel</button>
                         </form>
                     </td>
                 </tr>
-                <tr class="details-row" data-item-id="{{ item.id }}">
+                <tr class="details-row" data-item-id="{{ item.hash }}">
                     <td colspan="6">
                         <div class="details-cell-content">
                             <div class="row">
