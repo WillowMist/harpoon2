@@ -14,6 +14,7 @@ class DLFolderModalForm(ModalModelForm):
         super().__init__(*args, **kwargs)
         # Make remote_folder_name explicitly optional
         self.fields['remote_folder_name'].required = False
+        self.fields['remote_folder_name'].help_text = 'Optional'
 
     def validate_unique(self):
         """Override unique validation to properly handle editing"""
