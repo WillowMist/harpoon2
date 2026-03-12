@@ -174,16 +174,54 @@
                     <th>Name</th>
                     <th>Manager</th>
                     <th>Downloader</th>
+                    <th>Details</th>
                     <th>Completed</th>
                     <th style="width: 80px;">Action</th>
                 </tr>
             </thead>
             <tbody>
                 {% for item in completed_items %}
+                {% with history_list=item.history.all transfers=item.transfers.all %}
                 <tr>
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
                     <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</td>
+                    <td class="details-cell">
+                        {% if history_list.count > 0 or transfers.count > 0 %}
+                        <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
+                            <span class="details-preview">
+                                {% if transfers.count > 0 %}
+                                    Transfer: {{ transfers.0.percent_complete }}% ({{ transfers.0.file_size|filesizeformat }})
+                                {% elif history_list.count > 0 %}
+                                    {{ history_list.0.details|truncatechars:40 }}
+                                {% else %}
+                                    No details
+                                {% endif %}
+                            </span>
+                        </div>
+                        <div class="details-content">
+                            {% if transfers.count > 0 %}
+                            <div><strong>Transfer Information:</strong></div>
+                            {% for transfer in transfers %}
+                            <div>Filename: {{ transfer.filename }}</div>
+                            <div>Progress: {{ transfer.percent_complete }}% ({{ transfer.bytes_transferred|filesizeformat }} / {{ transfer.file_size|filesizeformat }})</div>
+                            <div>Status: {{ transfer.status }}</div>
+                            <div>Started: {{ transfer.started }}</div>
+                            <div>Completed: {{ transfer.completed }}</div>
+                            {% if transfer.error_message %}<div style="color: #ff6b6b;">Error: {{ transfer.error_message }}</div>{% endif %}
+                            {% endfor %}
+                            {% endif %}
+                            {% if history_list.count > 0 %}
+                            <div><strong>Event History:</strong></div>
+                            {% for h in history_list %}
+                            <div>[{{ h.created|date:"H:i:s" }}] {{ h.details }}</div>
+                            {% endfor %}
+                            {% endif %}
+                        </div>
+                        {% else %}
+                        <span style="color: #888;">No details</span>
+                        {% endif %}
+                    </td>
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
                         {% if not show_archived %}
@@ -203,6 +241,7 @@
                         {% endif %}
                     </td>
                 </tr>
+                {% endwith %}
                 {% endfor %}
             </tbody>
         </table>
