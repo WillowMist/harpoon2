@@ -299,17 +299,32 @@ def transfer_files_async(item_hash):
         import stat as stat_module_list
         
         if is_single_file and downloader.downloadertype == 'RTorrent':
-            # Single-file torrent: construct the full remote path and transfer ONLY that file
-            # DO NOT fall back to listing the entire directory - that causes unrelated files to be transferred
-            full_remote_path = os.path.join(remote_dir, torrent_name)
+            # Single-file torrent: find and transfer the actual media file
+            # List the directory to find the actual .mkv/.mp4/etc file
             try:
+                remote_files = sftp.listdir(remote_dir)
+                media_file = None
+                
+                # Look for media files (skip .nfo, Screens directories, etc)
+                for filename in remote_files:
+                    if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
+                        media_file = filename
+                        break
+                
+                if not media_file:
+                    logger.error(f"No media file found in single-file torrent directory {remote_dir}")
+                    sftp.close()
+                    ssh.close()
+                    return
+                
+                full_remote_path = os.path.join(remote_dir, media_file)
                 # Verify the file exists
                 sftp.stat(full_remote_path)
-                # Use just the torrent name as the relative path so it transfers to item_folder/torrent_name
-                transfer_list.append((full_remote_path, torrent_name))
-                logger.info(f"Single-file torrent detected: {torrent_name}")
+                # Use just the filename as the relative path so it transfers to item_folder/filename
+                transfer_list.append((full_remote_path, media_file))
+                logger.info(f"Single-file torrent detected: {media_file}")
             except Exception as e:
-                logger.error(f"Cannot stat single-file torrent {full_remote_path}: {e} - aborting transfer")
+                logger.error(f"Cannot process single-file torrent in {remote_dir}: {e} - aborting transfer")
                 sftp.close()
                 ssh.close()
                 return
