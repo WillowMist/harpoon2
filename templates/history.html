@@ -52,10 +52,46 @@
 .details-content div {
     margin-bottom: 4px;
 }
+.edit-control {
+    display: none;
+}
+.edit-control.active {
+    display: inline-block;
+}
+.view-control {
+    display: inline;
+}
+.view-control.hidden {
+    display: none;
+}
+tr.edit-mode .edit-control {
+    display: inline-block;
+}
+tr.edit-mode .view-control {
+    display: none;
+}
 </style>
 {% endblock %}
 
 {% block content %}
+<script>
+function toggleEditMode(itemHash, event) {
+    event.preventDefault();
+    const row = document.querySelector(`tr[data-item-hash="${itemHash}"]`);
+    row.classList.toggle('edit-mode');
+}
+
+function cancelEdit(itemHash, event) {
+    event.preventDefault();
+    const row = document.querySelector(`tr[data-item-hash="${itemHash}"]`);
+    row.classList.remove('edit-mode');
+}
+
+function autoSubmitForm(form) {
+    form.submit();
+}
+</script>
+
 <h2 class="mb-4">History</h2>
 
 <!-- Archive Toggle and Bulk Actions -->
@@ -114,29 +150,33 @@
             <tbody>
                 {% for item in failed_items %}
                 {% with history_list=item.history.all %}
-                <tr>
+                <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
                     <td>
-                        <form method="post" action="{% url 'update_item_status' item.hash %}" style="display:inline;">
+                        <span class="view-control">{{ item.status }}</span>
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control" style="display:none;">
                             {% csrf_token %}
-                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                            <select name="status" class="form-select form-select-sm" style="width: auto;">
                                 <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
                                 <option value="PostProcessing" {% if item.status == 'PostProcessing' %}selected{% endif %}>PostProcessing</option>
                                 <option value="Completed" {% if item.status == 'Completed' %}selected{% endif %}>Completed</option>
                                 <option value="Failed" {% if item.status == 'Failed' %}selected{% endif %}>Failed</option>
                             </select>
+                            <button type="submit" class="btn btn-sm btn-success" style="margin-top: 5px;">Apply</button>
                         </form>
                     </td>
                     <td>
-                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" style="display:inline;">
+                        <span class="view-control">{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</span>
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control" style="display:none;">
                             {% csrf_token %}
-                            <select name="downloader" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                            <select name="downloader" class="form-select form-select-sm" style="width: auto;">
                                 <option value="">None</option>
                                 {% for dl in downloaders %}
                                 <option value="{{ dl.id }}" {% if item.downloader.id == dl.id %}selected{% endif %}>{{ dl.name }}</option>
                                 {% endfor %}
                             </select>
+                            <button type="submit" class="btn btn-sm btn-success" style="margin-top: 5px;">Apply</button>
                         </form>
                     </td>
                     <td class="details-cell">
@@ -161,15 +201,21 @@
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
                         {% if not show_archived %}
+                        <button class="btn btn-sm btn-outline-primary view-control" onclick="toggleEditMode('{{ item.hash }}', event);" title="Edit this item">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary edit-control" onclick="cancelEdit('{{ item.hash }}', event);" title="Cancel editing">
+                            Cancel
+                        </button>
                         <form method="post" action="{% url 'retry_failed_item' item.hash %}" style="display:inline;">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-info" title="Retry this failed item">
+                            <button type="submit" class="btn btn-sm btn-outline-info view-control" title="Retry this failed item">
                                 <i class="fas fa-redo"></i>
                             </button>
                         </form>
                         <form method="post" action="{% url 'archive_item' item.hash %}" style="display:inline;">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-warning" title="Archive this item">
+                            <button type="submit" class="btn btn-sm btn-outline-warning view-control" title="Archive this item">
                                 <i class="fas fa-archive"></i>
                             </button>
                         </form>
@@ -213,29 +259,33 @@
             <tbody>
                 {% for item in completed_items %}
                 {% with history_list=item.history.all transfers=item.transfers.all %}
-                <tr>
+                <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
                     <td>
-                        <form method="post" action="{% url 'update_item_status' item.hash %}" style="display:inline;">
+                        <span class="view-control">{{ item.status }}</span>
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control" style="display:none;">
                             {% csrf_token %}
-                            <select name="status" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                            <select name="status" class="form-select form-select-sm" style="width: auto;">
                                 <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
                                 <option value="PostProcessing" {% if item.status == 'PostProcessing' %}selected{% endif %}>PostProcessing</option>
                                 <option value="Completed" {% if item.status == 'Completed' %}selected{% endif %}>Completed</option>
                                 <option value="Failed" {% if item.status == 'Failed' %}selected{% endif %}>Failed</option>
                             </select>
+                            <button type="submit" class="btn btn-sm btn-success" style="margin-top: 5px;">Apply</button>
                         </form>
                     </td>
                     <td>
-                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" style="display:inline;">
+                        <span class="view-control">{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</span>
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control" style="display:none;">
                             {% csrf_token %}
-                            <select name="downloader" class="form-select form-select-sm" onchange="this.form.submit();" style="width: auto;">
+                            <select name="downloader" class="form-select form-select-sm" style="width: auto;">
                                 <option value="">None</option>
                                 {% for dl in downloaders %}
                                 <option value="{{ dl.id }}" {% if item.downloader.id == dl.id %}selected{% endif %}>{{ dl.name }}</option>
                                 {% endfor %}
                             </select>
+                            <button type="submit" class="btn btn-sm btn-success" style="margin-top: 5px;">Apply</button>
                         </form>
                     </td>
                     <td class="details-cell">
@@ -277,9 +327,15 @@
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
                         {% if not show_archived %}
+                        <button class="btn btn-sm btn-outline-primary view-control" onclick="toggleEditMode('{{ item.hash }}', event);" title="Edit this item">
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary edit-control" onclick="cancelEdit('{{ item.hash }}', event);" title="Cancel editing">
+                            Cancel
+                        </button>
                         <form method="post" action="{% url 'archive_item' item.hash %}" style="display:inline;">
                             {% csrf_token %}
-                            <button type="submit" class="btn btn-sm btn-outline-success" title="Archive this item">
+                            <button type="submit" class="btn btn-sm btn-outline-success view-control" title="Archive this item">
                                 <i class="fas fa-archive"></i>
                             </button>
                         </form>
