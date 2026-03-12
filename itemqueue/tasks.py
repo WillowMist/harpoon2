@@ -521,7 +521,8 @@ def transfer_files_async(item_hash):
         item.save()
         ItemHistory.objects.create(item=item, details='File transfer completed, item marked as Completed')
         
-        # Post-transfer processing: extract RAR archives if present and call manager post-processing
+        # Post-transfer processing: extract RAR archives if present
+        local_folder = None
         if copied_count > 0:
             try:
                 first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
@@ -534,31 +535,38 @@ def transfer_files_async(item_hash):
                         logger.warning(f"RAR processing encountered issues: {message}")
                     else:
                         logger.info(f"RAR processing completed: {message}")
-                    
-                    # After RAR extraction, call manager post-processing
-                    if item.manager and hasattr(item.manager, 'client'):
-                        try:
-                            # Determine download path: use remote_folder_name if available, otherwise use regular folder
-                            if item.manager.folder.remote_folder_name:
-                                download_path = item.manager.folder.remote_folder_name
-                            else:
-                                download_path = local_folder
-                            
-                            logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
-                            client = item.manager.client
-                            success, pp_message = client.post_process(item, download_path)
-                            
-                            if success:
-                                logger.info(f"Manager post-processing initiated: {pp_message}")
-                            else:
-                                logger.error(f"Manager post-processing failed: {pp_message}")
-                                ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
-                        except Exception as e:
-                            logger.error(f"Error calling manager post-processing: {e}")
-                            ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
             except Exception as e:
                 logger.error(f"Error during RAR archive processing: {e}")
                 ItemHistory.objects.create(item=item, details=f'RAR processing error: {str(e)}')
+        
+        # Call manager post-processing regardless of whether RAR extraction occurred
+        if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
+            try:
+                if not local_folder:
+                    # If we didn't process RAR files, still get the local folder from first transfer
+                    first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+                    if first_transfer and first_transfer.local_path:
+                        local_folder = os.path.dirname(first_transfer.local_path)
+                
+                if local_folder:
+                    # Determine download path: use remote_folder_name if available, otherwise use local folder
+                    if item.manager.folder and item.manager.folder.remote_folder_name:
+                        download_path = item.manager.folder.remote_folder_name
+                    else:
+                        download_path = local_folder
+                    
+                    logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
+                    client = item.manager.client
+                    success, pp_message = client.post_process(item, download_path)
+                    
+                    if success:
+                        logger.info(f"Manager post-processing initiated: {pp_message}")
+                    else:
+                        logger.error(f"Manager post-processing failed: {pp_message}")
+                        ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+            except Exception as e:
+                logger.error(f"Error calling manager post-processing: {e}")
+                ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
         
     except Exception as e:
         logger.error(f"Error in async file transfer {item_hash}: {e}")
