@@ -72,6 +72,26 @@ tr.edit-mode .view-control {
 }
 
 /* Mobile responsive styles */
+@media (max-width: 1024px) {
+    .table {
+        font-size: 0.85rem;
+    }
+    
+    .table th, .table td {
+        padding: 0.5rem 0.3rem;
+    }
+    
+    .btn-sm {
+        padding: 0.25rem 0.5rem;
+        font-size: 0.75rem;
+    }
+    
+    .form-select-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+    }
+}
+
 @media (max-width: 768px) {
     .table {
         font-size: 0.85rem;
@@ -91,49 +111,138 @@ tr.edit-mode .view-control {
         padding: 0.25rem 0.5rem;
     }
     
-    /* Hide less important columns on mobile */
-    .hide-on-mobile {
+    /* Hide less important columns on tablet */
+    .table th:nth-child(2),
+    .table td:nth-child(2),
+    .table th:nth-child(5),
+    .table td:nth-child(5) {
         display: none;
     }
     
-    /* Stack buttons vertically on mobile, only show key actions */
-    .btn-outline-secondary.view-control {
-        display: none !important;
+    /* Adjust remaining columns */
+    .table th:nth-child(3),
+    .table td:nth-child(3),
+    .table th:nth-child(4),
+    .table td:nth-child(4) {
+        width: auto;
     }
     
     .card {
         margin-bottom: 1rem;
     }
-    
-    .table-responsive-wrapper {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
 }
 
 @media (max-width: 576px) {
-    .details-cell {
-        max-width: 150px;
+    /* Convert table to card-like mobile view */
+    .table tbody tr {
+        display: flex;
+        flex-wrap: wrap;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        margin-bottom: 1rem;
+        border-radius: 0.25rem;
+        gap: 0.5rem;
+        padding: 0.75rem;
+        background: rgba(0, 0, 0, 0.3);
     }
     
-    .table {
-        font-size: 0.75rem;
-    }
-    
-    .btn-sm {
-        padding: 0.2rem 0.4rem;
-        font-size: 0.65rem;
-    }
-    
-    .table th:nth-child(n+5),
-    .table td:nth-child(n+5) {
+    .table thead {
         display: none;
     }
     
-    .table th:last-child,
-    .table td:last-child {
-        display: table-cell;
-        width: 80px;
+    .table tbody {
+        display: block;
+    }
+    
+    .table td {
+        display: inline-block;
+        padding: 0.25rem 0;
+        border: none;
+        width: 100%;
+        word-break: break-word;
+    }
+    
+    /* Show labels for each field */
+    .table td:nth-child(1)::before {
+        content: "Name: ";
+        font-weight: bold;
+        color: #4ef3ff;
+    }
+    
+    .table td:nth-child(2)::before {
+        content: "Status: ";
+        font-weight: bold;
+        color: #4ef3ff;
+    }
+    
+    .table td:nth-child(3)::before {
+        content: "Downloader: ";
+        font-weight: bold;
+        color: #4ef3ff;
+    }
+    
+    .table td:nth-child(4)::before {
+        content: "Details: ";
+        font-weight: bold;
+        color: #4ef3ff;
+        display: block;
+    }
+    
+    .table td:nth-child(5)::before {
+        content: "Date: ";
+        font-weight: bold;
+        color: #4ef3ff;
+    }
+    
+    .table td:nth-child(6) {
+        width: 100%;
+        display: block;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+        padding-top: 0.5rem;
+        margin-top: 0.5rem;
+    }
+    
+    .table td:nth-child(6)::before {
+        content: "Actions: ";
+        font-weight: bold;
+        color: #4ef3ff;
+        display: block;
+        margin-bottom: 0.5rem;
+    }
+    
+    /* Hide form, status, downloader cols on very small screens */
+    .table td:nth-child(2),
+    .table td:nth-child(3) {
+        width: 100%;
+        display: none;
+    }
+    
+    .details-cell {
+        max-width: 100%;
+        width: 100%;
+    }
+    
+    .btn-sm {
+        padding: 0.3rem 0.6rem;
+        font-size: 0.7rem;
+        display: inline-block;
+        margin-right: 0.25rem;
+        margin-bottom: 0.25rem;
+    }
+    
+    .form-select-sm {
+        font-size: 0.75rem;
+        padding: 0.25rem 0.5rem;
+        width: 100%;
+    }
+    
+    .table td form {
+        width: 100%;
+    }
+    
+    .details-preview {
+        display: block;
+        max-width: 100%;
+        white-space: normal;
     }
 }
 </style>
