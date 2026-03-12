@@ -16,10 +16,9 @@ class DLFolderModalForm(ModalModelForm):
         self.fields['remote_folder_name'].required = False
 
     def validate_unique(self):
-        """Skip unique validation - we handle it ourselves in clean()"""
-        exclude = self.Meta.exclude if hasattr(self.Meta, 'exclude') else []
-        exclude = list(exclude) + ['folder']  # Exclude folder from unique validation
-        self.instance.full_clean(exclude=exclude)
+        """Override unique validation to properly handle editing"""
+        # Don't call super() - we handle uniqueness in clean() instead
+        pass
 
     def clean(self):
         cleaned_data = super().clean()
