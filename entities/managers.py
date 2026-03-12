@@ -51,12 +51,21 @@ class Arr(object):
             changed = {'hash': queueitem.hash}
         else:
             changed = {}
+        # Preserve archived status - don't overwrite it during updates
+        original_archived = queueitem.archived
+        original_archived_at = queueitem.archived_at
+        
         for attr in ['size', 'name', 'status', 'clientid', 'manager']:
             if getattr(queueitem, attr) != record[attr]:
                 changed[attr] = record[attr]
                 setattr(queueitem, attr, record[attr])
         if changed:
             queueitem.save()
+            # Re-apply archived status if it was changed
+            if queueitem.archived != original_archived or queueitem.archived_at != original_archived_at:
+                queueitem.archived = original_archived
+                queueitem.archived_at = original_archived_at
+                queueitem.save(update_fields=['archived', 'archived_at'])
             for key in changed.keys():
                 history = ItemHistory.objects.create(item=queueitem, details=f'{key} set to "{changed[key]}"')
         return
