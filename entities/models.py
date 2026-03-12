@@ -8,6 +8,7 @@ from . import managers, downloaders
 
 class DownloadFolder(models.Model):
     folder = models.CharField(max_length=400, unique=True)
+    remote_folder_name = models.CharField(max_length=400, blank=True, null=True)
 
     def __str__(self):
         return self.folder
