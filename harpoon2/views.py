@@ -263,7 +263,15 @@ def cancel_transfer(request, item_name):
                 item=item,
                 details=f'Transfer cancelled by user - {transfer_count} file(s) cancelled (was {old_status})'
             )
-     
+            
+            return redirect('home')
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+            return redirect('home')
+        except Exception as e:
+            messages.error(request, f'Error cancelling transfer: {str(e)}')
+            return redirect('home')
+    
     return redirect('home')
 
 
@@ -332,7 +340,7 @@ def archive_all_completed(request):
             from django.utils import timezone
             completed_items = Item.objects.filter(status='Completed', archived=False)
             count = completed_items.count()
-            
+             
             completed_items.update(archived=True, archived_at=timezone.now())
             
             messages.success(request, f'Archived {count} completed item(s)')
@@ -340,11 +348,3 @@ def archive_all_completed(request):
             messages.error(request, f'Error archiving completed items: {str(e)}')
     
     return redirect('history')
-        except Item.DoesNotExist:
-            messages.error(request, 'Item not found')
-            return redirect('home')
-        except Exception as e:
-            messages.error(request, f'Error cancelling transfer: {str(e)}')
-            return redirect('home')
-    
-    return redirect('home')
