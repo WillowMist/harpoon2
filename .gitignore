@@ -30,3 +30,4 @@ ENV/
 .DS_Store
 .env
 docker-compose.yml
+harpoon2/secrets.py
