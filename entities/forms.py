@@ -9,6 +9,11 @@ class DLFolderModalForm(ModalModelForm):
     class Meta:
         model = DownloadFolder
         fields = ['folder', 'remote_folder_name']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Make remote_folder_name explicitly optional
+        self.fields['remote_folder_name'].required = False
 
     def clean(self):
         cleaned_data = super().clean()
