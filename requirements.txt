@@ -1,7 +1,10 @@
 Django>=5.2,<6.0
 celery>=5.4,<6.0
 redis>=5.0,<6.0
+djangorestframework>=3.14
 django-celery-beat>=2.9,<3.0
+django-celery-results>=2.5
+django-extensions>=3.2
 django-watson>=1.6
 django-crispy-forms>=2.3
 crispy-bootstrap5>=2026.3

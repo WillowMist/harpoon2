@@ -1,12 +1,12 @@
-version: '3.8'
 
 services:
   # Redis service (required for Celery broker)
   redis:
     image: redis:7-alpine
     container_name: harpoon2-redis
-    ports:
-      - "6379:6379"
+    # Note: Only expose within Docker network, not to host (to avoid conflicts with host Redis)
+    # ports:
+    #   - "6379:6379"
     volumes:
       - harpoon2-redis-data:/data
     healthcheck:
@@ -30,9 +30,11 @@ services:
       - ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
       - REDIS_URL=redis://redis:6379/0
     ports:
-      - "8000:8000"
+      # Use port 8001 on host to avoid conflict with host Django development server
+      - "8001:8000"
     volumes:
-      - ./:/opt/harpoon2
+      # Only mount /data for persistent storage, not the entire app directory
+      # This preserves the installed Python packages in the container
       - harpoon2-data:/data
     depends_on:
       redis:

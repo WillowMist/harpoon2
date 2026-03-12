@@ -18,8 +18,8 @@ if [ ! -f /data/settings.py ]; then
 import os
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
+# Note: settings.py is symlinked to /data/settings.py, so we need to use the app directory
+BASE_DIR = Path('/opt/harpoon2')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 INSTALLED_APPS = [
@@ -29,16 +29,14 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'rest_framework',
-    'django_extensions',
+    'django_celery_beat',
+    'watson',
+    'entities.apps.EntitiesConfig',
+    'itemqueue.apps.ItemqueueConfig',
+    'users.apps.UsersConfig',
     'crispy_forms',
     'crispy_bootstrap5',
-    'watson',
-    'django_celery_beat',
-    'django_celery_results',
-    'users',
-    'entities',
-    'itemqueue',
+    'crisp_modals',
 ]
 DATABASES = {
     'default': {
@@ -46,18 +44,62 @@ DATABASES = {
         'NAME': '/data/harpoon2.db',
     }
 }
-CELERY_BROKER_URL = 'redis://redis:6379/0'
-CELERY_RESULT_BACKEND = 'redis://redis:6379/0'
-CELERY_ACCEPT_CONTENT = ['application/json']
+REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
+REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
+CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
 STATIC_URL = '/static/'
 STATIC_ROOT = '/data/static/'
+STATICFILES_DIRS = [
+    Path('/opt/harpoon2') / 'static',
+]
 MEDIA_URL = '/media/'
 MEDIA_ROOT = '/data/media/'
 USE_TZ = True
 TIME_ZONE = 'UTC'
+INTERFACE = 'vapor'
+THEMES = [('cerulean', 'Cerulean'),
+          ('cosmo', 'Cosmo'),
+          ('cyborg', 'Cyborg'),
+          ('darkly', 'Darkly'),
+          ('flatly', 'Flatly'),
+          ('journal', 'Journal'),
+          ('litera', 'Litera'),
+          ('lumen', 'Lumen'),
+          ('lux', 'Lux'),
+          ('materia', 'Materia'),
+          ('minty', 'Minty'),
+          ('morph', 'Morph'),
+          ('pulse', 'Pulse'),
+          ('quartz', 'Quartz'),
+          ('sandstone', 'Sandstone'),
+          ('simplex', 'Simplex'),
+          ('sketchy', 'Sketchy'),
+          ('slate', 'Slate'),
+          ('solar', 'Solar'),
+          ('spacelab', 'Spacelab'),
+          ('superhero', 'Superhero'),
+          ('united', 'United'),
+          ('vapor', 'Vapor'),
+          ('yeti', 'Yeti'),
+          ('zephyr', 'Zephyr')]
+MANAGER_TYPES = [
+    ('Sonarr', 'Sonarr'),
+    ('Radarr', 'Radarr'),
+    ('Lidarr', 'Lidarr'),
+    ('Readarr', 'Readarr'),
+    ('Whisparr', 'Whisparr'),
+    ('LazyLibrarian', 'LazyLibrarian'),
+    ('Mylar', 'Mylar'),
+]
+DOWNLOADER_TYPES = [
+    ('RTorrent', 'RTorrent'),
+    ('SABNzbd', 'SABNzbd'),
+]
 EOF
     }
     chmod 644 /data/settings.py
@@ -70,18 +112,23 @@ if [ ! -L /opt/harpoon2/harpoon2/settings.py ] || [ ! -e /opt/harpoon2/harpoon2/
     ln -sf /data/settings.py /opt/harpoon2/harpoon2/settings.py
 fi
 
-# Run database migrations
-echo -e "${YELLOW}Running database migrations...${NC}"
-python manage.py migrate --noinput
-
-# Collect static files
-echo -e "${YELLOW}Collecting static files...${NC}"
-python manage.py collectstatic --noinput --clear
+# Only run migrations and collect static for the 'start' command
+# This prevents import errors when the settings aren't fully loaded yet
 
 # Handle different commands
 case "${1:-start}" in
     start)
         echo -e "${GREEN}Starting all services...${NC}"
+        
+        # Run migrations (only on first startup or when needed)
+        echo -e "${YELLOW}Checking database...${NC}"
+        if [ ! -f /data/harpoon2.db ]; then
+            echo -e "${YELLOW}Running initial database migrations...${NC}"
+            python3 manage.py migrate --noinput || true
+            
+            echo -e "${YELLOW}Collecting static files...${NC}"
+            python3 manage.py collectstatic --noinput --clear || true
+        fi
         
         # Start Redis
         echo -e "${YELLOW}Starting Redis server...${NC}"
@@ -100,7 +147,7 @@ case "${1:-start}" in
         
         # Start Django development server
         echo -e "${GREEN}Starting Django development server on 0.0.0.0:8000${NC}"
-        python manage.py runserver 0.0.0.0:8000
+        python3 manage.py runserver 0.0.0.0:8000
         
         # Trap signals to gracefully shutdown
         trap "kill $BEAT_PID $WORKER_PID; exit" SIGTERM SIGINT
@@ -109,7 +156,7 @@ case "${1:-start}" in
         
     django)
         echo -e "${GREEN}Starting Django only...${NC}"
-        python manage.py runserver 0.0.0.0:8000
+        python3 manage.py runserver 0.0.0.0:8000
         ;;
         
     worker)
@@ -129,17 +176,17 @@ case "${1:-start}" in
         
     migrate)
         echo -e "${GREEN}Running migrations...${NC}"
-        python manage.py migrate
+        python3 manage.py migrate
         ;;
         
     createsuperuser)
         echo -e "${GREEN}Creating superuser...${NC}"
-        python manage.py createsuperuser
+        python3 manage.py createsuperuser
         ;;
         
     shell)
         echo -e "${GREEN}Starting Django shell...${NC}"
-        python manage.py shell
+        python3 manage.py shell
         ;;
         
     bash)

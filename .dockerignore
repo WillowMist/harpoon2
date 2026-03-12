@@ -39,7 +39,6 @@ htmlcov/
 logs/
 
 # Static/Media
-static/
 media/
 
 # Docker
