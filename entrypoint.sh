@@ -20,6 +20,7 @@ from pathlib import Path
 
 # Note: settings.py is symlinked to /data/settings.py, so we need to use the app directory
 BASE_DIR = Path('/opt/harpoon2')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')]
 INSTALLED_APPS = [
