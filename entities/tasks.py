@@ -52,8 +52,33 @@ def poll_manager(manager_id):
                 title = record.get('title', record.get('sourceTitle', 'Unknown'))
                 size = record.get('size', 0)
                 
+                # For Whisparr with Blackhole downloaders (Torrent/Usenet Blackhole),
+                # downloadId will be empty. Use sourceTitle as the hash instead.
                 if not download_id:
-                    continue
+                    if manager.managertype == 'Whisparr':
+                        # Use sourceTitle as hash for blackhole downloads
+                        download_id = record.get('sourceTitle', '')
+                        if not download_id:
+                            continue
+                        logger.debug(f"Using sourceTitle as hash for Whisparr blackhole: {download_id}")
+                    else:
+                        continue
+                
+                # For Whisparr with SABnzbd, try to get the downloader from the download client info
+                downloader = None
+                if manager.managertype == 'Whisparr' and download_id.startswith('SABnzbd_'):
+                    # Get the download client type
+                    data_field = record.get('data', {})
+                    if isinstance(data_field, dict):
+                        client_type = data_field.get('downloadClient', '')
+                        if client_type == 'SABnzbd':
+                            try:
+                                from entities.models import Downloader
+                                # Find SABnzbd downloader
+                                downloader = Downloader.objects.get(downloadertype='SABNzbd')
+                                logger.debug(f"Assigned SABnzbd downloader '{downloader.name}' to item {title}")
+                            except Downloader.DoesNotExist:
+                                logger.debug(f"SABnzbd downloader not found for item {title}")
                 
                 # Check if already in queue
                 item, created = Item.objects.get_or_create(
@@ -63,6 +88,7 @@ def poll_manager(manager_id):
                         'size': size,
                         'status': 'Grabbed',
                         'manager': manager,
+                        'downloader': downloader,  # Assign downloader if found
                     }
                 )
                 
@@ -75,23 +101,24 @@ def poll_manager(manager_id):
             
             elif event_type in ('downloadFolderImported', 'downloadImported'):
                 # Handle both Sonarr/Radarr (downloadFolderImported) and Lidarr (downloadImported)
+                # NOTE: This event means the manager has imported the item into its library,
+                # NOT that it's been transferred to seedbox yet. The actual Completed status
+                # is set by the transfer task after files are successfully transferred.
+                # We log this event for reference but don't change item status here.
                 download_id = record.get('downloadId', '')
                 title = record.get('title', record.get('sourceTitle', 'Unknown'))
                 
                 if not download_id:
                     continue
                 
-                # Item has been downloaded and imported - mark as completed
+                # Just log that we received the import notification
                 try:
                     item = Item.objects.get(hash=download_id)
-                    if item.status != 'Completed':
-                        item.status = 'Completed'
-                        item.save()
-                        ItemHistory.objects.create(
-                            item=item,
-                            details=f'Downloaded and imported by {manager.name}'
-                        )
-                        logger.info(f"Item completed: {title} ({download_id})")
+                    ItemHistory.objects.create(
+                        item=item,
+                        details=f'Import event received from {manager.name} - awaiting transfer completion'
+                    )
+                    logger.debug(f"Received import event for item: {title} ({download_id})")
                 except Item.DoesNotExist:
                     logger.debug(f"Received import event for unknown item: {download_id}")
             
