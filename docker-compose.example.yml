@@ -31,7 +31,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
     ports:
       # Harpoon2 runs on port 4277
-      - "4277:8000"
+      - "4277:4277"
     volumes:
       # Only mount /data for persistent storage, not the entire app directory
       # This preserves the installed Python packages in the container
@@ -42,7 +42,7 @@ services:
     networks:
       - harpoon2-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      test: ["CMD", "curl", "-f", "http://localhost:4277/"]
       interval: 10s
       timeout: 5s
       retries: 5
