@@ -146,8 +146,8 @@ case "${1:-start}" in
         WORKER_PID=$!
         
         # Start Django development server
-        echo -e "${GREEN}Starting Django development server on 0.0.0.0:4277${NC}"
-        python3 manage.py runserver 0.0.0.0:4277
+        echo -e "${GREEN}Starting Django development server on 0.0.0.0:8000${NC}"
+        python3 manage.py runserver 0.0.0.0:8000
         
         # Trap signals to gracefully shutdown
         trap "kill $BEAT_PID $WORKER_PID; exit" SIGTERM SIGINT
@@ -156,7 +156,7 @@ case "${1:-start}" in
         
     django)
         echo -e "${GREEN}Starting Django only...${NC}"
-        python3 manage.py runserver 0.0.0.0:4277
+        python3 manage.py runserver 0.0.0.0:8000
         ;;
         
     worker)

@@ -42,7 +42,7 @@ services:
     networks:
       - harpoon2-network
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4277/"]
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
       interval: 10s
       timeout: 5s
       retries: 5
