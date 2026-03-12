@@ -28,6 +28,9 @@ DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')]
 
+# CSRF trusted origins for reverse proxy/HTTPS
+CSRF_TRUSTED_ORIGINS = [h.strip() for h in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if h.strip()]
+
 # Application definition
 
 INSTALLED_APPS = [

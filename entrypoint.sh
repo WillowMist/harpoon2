@@ -23,6 +23,7 @@ BASE_DIR = Path('/opt/harpoon2')
 SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')]
+CSRF_TRUSTED_ORIGINS = [h.strip() for h in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if h.strip()]
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
