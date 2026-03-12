@@ -8,7 +8,7 @@ import json
 class DLFolderModalForm(ModalModelForm):
     class Meta:
         model = DownloadFolder
-        exclude = ['pk']
+        fields = ['folder', 'remote_folder_name']
 
     def clean_folder(self):
         data = self.cleaned_data['folder']

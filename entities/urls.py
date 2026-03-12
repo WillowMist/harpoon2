@@ -4,6 +4,7 @@ from . import views
 app_name = 'entities'
 urlpatterns = [
     path('dlfoldercreate/', views.DLFolderCreateView.as_view(), name='dlfolder-create'),
+    path('folders/<int:pk>/update/', views.DLFolderUpdateView.as_view(), name='dlfolder-update'),
     path('dlfolder/<int:pk>/delete/', views.DLFolderDeleteView.as_view(), name='dlfolder-delete'),
     path('managercreate/', views.ManagerCreateView.as_view(), name='manager-create'),
     path('downloadercreate/', views.DownloaderCreateView.as_view(), name='downloader-create'),

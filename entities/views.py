@@ -23,6 +23,20 @@ class DLFolderCreateView(ModalCreateView):
         return response
 
 
+class DLFolderUpdateView(ModalUpdateView):
+    model = models.DownloadFolder
+    template_name = 'entities/dlfoldercreate.html'
+    form_class = forms.DLFolderModalForm
+    success_message = 'Download folder updated.'
+    success_url = reverse_lazy('entities:settings')
+    
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        if self.request.headers.get('x-requested-with') == 'XMLHttpRequest':
+            return JsonResponse({'success': True})
+        return response
+
+
 class DLFolderDeleteView(ModalDeleteView):
     model = models.DownloadFolder
     template_name = 'entities/dlfolderdelete.html'

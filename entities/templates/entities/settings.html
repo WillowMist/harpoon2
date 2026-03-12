@@ -11,6 +11,7 @@
     <thead>
       <tr>
         <th>Folder Path</th>
+        <th>Remote Folder Name</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -18,13 +19,15 @@
       {% for folder in folders %}
         <tr>
           <td>{{ folder.folder }}</td>
+          <td>{{ folder.remote_folder_name|default:"—" }}</td>
           <td>
+            <a href="{% url 'entities:dlfolder-update' folder.pk %}" data-modal-url="{% url 'entities:dlfolder-update' folder.pk %}" class="modal-link btn btn-sm btn-primary"><i class="fa fa-fw fa-pencil-alt"></i></a>
             <a href="{% url 'entities:dlfolder-delete' folder.pk %}" data-modal-url="{% url 'entities:dlfolder-delete' folder.pk %}" class="modal-link btn btn-sm btn-danger"><i class="fa fa-fw fa-trash"></i></a>
           </td>
         </tr>
       {% empty %}
         <tr>
-          <td colspan="2" class="text-center">No folders configured</td>
+          <td colspan="3" class="text-center">No folders configured</td>
         </tr>
       {% endfor %}
     </tbody>
