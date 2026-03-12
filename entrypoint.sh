@@ -21,7 +21,7 @@ from pathlib import Path
 # Note: settings.py is symlinked to /data/settings.py, so we need to use the app directory
 BASE_DIR = Path('/opt/harpoon2')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')
+ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')]
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
