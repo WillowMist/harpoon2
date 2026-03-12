@@ -15,12 +15,26 @@ class DLFolderModalForm(ModalModelForm):
         # Make remote_folder_name explicitly optional
         self.fields['remote_folder_name'].required = False
 
+    def validate_unique(self):
+        """Skip unique validation - we handle it ourselves in clean()"""
+        exclude = self.Meta.exclude if hasattr(self.Meta, 'exclude') else []
+        exclude = list(exclude) + ['folder']  # Exclude folder from unique validation
+        self.instance.full_clean(exclude=exclude)
+
     def clean(self):
         cleaned_data = super().clean()
         folder_path = cleaned_data.get('folder')
         
         # Skip file system checks if folder is empty (validation error will be caught elsewhere)
         if not folder_path:
+            return cleaned_data
+        
+        # Check for duplicate folder paths, but exclude the current instance if editing
+        existing = DownloadFolder.objects.filter(folder=folder_path)
+        if self.instance.pk:
+            existing = existing.exclude(pk=self.instance.pk)
+        if existing.exists():
+            self.add_error('folder', ValidationError('A folder with this path already exists.'))
             return cleaned_data
         
         # Only try to create the folder if it doesn't exist (skip when editing)
