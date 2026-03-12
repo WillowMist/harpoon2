@@ -167,6 +167,31 @@ class Sonarr(Arr):
             return True, dt
         except Exception as e:
             return False, e
+    
+    def post_process(self, item, download_path):
+        """Send DownloadedEpisodesScan command for TV shows."""
+        try:
+            url = self.apiurl + '/command'
+            payload = {
+                "name": "DownloadedEpisodesScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 class Radarr(Arr):
@@ -182,6 +207,31 @@ class Radarr(Arr):
             return True, dt
         except Exception as e:
             return False, e
+
+    def post_process(self, item, download_path):
+        """Send DownloadedMoviesScan command for movies."""
+        try:
+            url = self.apiurl + '/command'
+            payload = {
+                "name": "DownloadedMoviesScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 class Lidarr(Arr):
@@ -206,6 +256,31 @@ class Lidarr(Arr):
             return True, dt
         except Exception as e:
             return False, e
+
+    def post_process(self, item, download_path):
+        """Send DownloadedAlbumsScan command for music."""
+        try:
+            url = self.apiurl + '/command'
+            payload = {
+                "name": "DownloadedAlbumsScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 class Readarr(Arr):
@@ -232,6 +307,31 @@ class Readarr(Arr):
         except Exception as e:
             return False, e
 
+    def post_process(self, item, download_path):
+        """Send DownloadedBooksScan command for books."""
+        try:
+            url = self.apiurl + '/command'
+            payload = {
+                "name": "DownloadedBooksScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
+
 
 class Whisparr(Arr):
     def __init__(self, manager):
@@ -246,3 +346,28 @@ class Whisparr(Arr):
             return True, dt
         except Exception as e:
             return False, e
+
+    def post_process(self, item, download_path):
+        """Send DownloadedScenesScan command for adult content."""
+        try:
+            url = self.apiurl + '/command'
+            payload = {
+                "name": "DownloadedScenesScan",
+                "path": download_path,
+                "downloadClientID": item.hash,
+                "importMode": "Move"
+            }
+            response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            
+            if response.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
