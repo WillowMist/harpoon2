@@ -300,19 +300,37 @@ def transfer_files_async(item_hash):
         
         if is_single_file and downloader.downloadertype == 'RTorrent':
             # Single-file torrent: find and transfer the actual media file
-            # List the directory to find the actual .mkv/.mp4/etc file
+            # The torrent_name should be the actual filename (e.g., "Movie.mkv")
             try:
+                # For single-file torrents, the torrent name IS the filename
+                # But check in the directory to be safe (in case structure changed)
                 remote_files = sftp.listdir(remote_dir)
                 media_file = None
                 
-                # Look for media files (skip .nfo, Screens directories, etc)
-                for filename in remote_files:
-                    if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
-                        media_file = filename
-                        break
+                # First, try to match the exact torrent name
+                if torrent_name in remote_files:
+                    media_file = torrent_name
+                else:
+                    # If exact match not found, look for media files (skip .nfo, Screens directories, etc)
+                    for filename in remote_files:
+                        if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm')):
+                            # Additional check: make sure it matches the expected name pattern
+                            # Extract just the filename from torrent_name for comparison
+                            torrent_basename = os.path.basename(torrent_name)
+                            # Check if filenames are similar (handles minor naming variations)
+                            if filename.lower() == torrent_basename.lower():
+                                media_file = filename
+                                break
+                    
+                    # If still no match, take the first media file as fallback
+                    if not media_file:
+                        for filename in remote_files:
+                            if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
+                                media_file = filename
+                                break
                 
                 if not media_file:
-                    logger.error(f"No media file found in single-file torrent directory {remote_dir}")
+                    logger.error(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name}")
                     sftp.close()
                     ssh.close()
                     return
@@ -322,7 +340,7 @@ def transfer_files_async(item_hash):
                 sftp.stat(full_remote_path)
                 # Use just the filename as the relative path so it transfers to item_folder/filename
                 transfer_list.append((full_remote_path, media_file))
-                logger.info(f"Single-file torrent detected: {media_file}")
+                logger.info(f"Single-file torrent detected: {media_file} (from torrent: {torrent_name})")
             except Exception as e:
                 logger.error(f"Cannot process single-file torrent in {remote_dir}: {e} - aborting transfer")
                 sftp.close()
