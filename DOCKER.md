@@ -10,7 +10,26 @@ This guide explains how to run Harpoon2 in Docker containers.
 
 ## Quick Start
 
-### 1. Build and Start
+### 1. Setup docker-compose.yml
+
+```bash
+# Copy the example configuration
+cp docker-compose.example.yml docker-compose.yml
+```
+
+### 2. Configure Environment Variables (Optional)
+
+Create a `.env` file for custom configuration:
+
+```bash
+cat > .env << EOF
+SECRET_KEY=your-secret-key-here
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2,your-domain.com
+EOF
+```
+
+### 3. Build and Start
 
 ```bash
 docker-compose up -d
@@ -20,12 +39,12 @@ This will:
 - Build the Harpoon2 image
 - Start Redis server
 - Initialize database
-- Run Django development server on port 8000
+- Run Django development server on port 4277
 - Start Celery worker and beat scheduler
 
-### 2. Access the Application
+### 4. Access the Application
 
-Open your browser to: `http://localhost:8000`
+Open your browser to: `http://localhost:4277`
 
 ### 3. Create Superuser (First Time Only)
 
@@ -124,11 +143,10 @@ docker run --rm -v harpoon2_harpoon2-data:/data -v $(pwd):/backup \
 ## Services
 
 ### Harpoon2 (Main Application)
-- **Port**: 8000
+- **Port**: 4277
 - **Command**: `start` (runs Django, Celery worker, and Celery beat)
 - **Volumes**: 
   - `/data` - Persistent data (database, settings, media, static files)
-  - Current directory mounted to `/opt/harpoon2` for development
 
 ### Redis
 - **Port**: 6379
