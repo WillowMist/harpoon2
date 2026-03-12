@@ -151,11 +151,8 @@ MEDIA_ROOT = '/data/media/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
 
-# Import secrets if available
-try:
-    from .secrets import *
-except ImportError:
-    pass
+# Note: All sensitive settings are now configured via environment variables
+# See .env.example for required settings
 
 INTERFACE = 'vapor'
 
