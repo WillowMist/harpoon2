@@ -4,19 +4,26 @@ from celery.schedules import crontab
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'harpoon2.settings')
 
+import django
+django.setup()
+
 app = Celery('harpoon2')
-#app.config_from_object('harpoon2.settings')
-app.config_from_object('django.conf:settings')
+# Load Django settings
+from django.conf import settings
+app.config_from_object(settings)
 
-# Load task modules from all registered Django app configs.
-app.autodiscover_tasks()
-
+# Explicitly set the broker URL for Redis
 app.conf.update(
+    broker_url='redis://localhost:6379/0',
+    result_backend='redis://localhost:6379/0',
     task_time_limit=3600,  # 1 hour hard limit
     task_soft_time_limit=3300,  # 55 minute soft limit
     task_acks_late=True,
     worker_prefetch_multiplier=1,
 )
+
+# Load task modules from all registered Django app configs.
+app.autodiscover_tasks()
 
 app.conf.beat_schedule = {
     # Poll managers every minute for newly grabbed items
