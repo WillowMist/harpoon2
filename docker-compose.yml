@@ -27,7 +27,7 @@ services:
     environment:
       - DEBUG=False
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
+      - ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2,harpoon.cloudmist.org
       - REDIS_URL=redis://redis:6379/0
     ports:
       # Harpoon2 runs on port 4277
