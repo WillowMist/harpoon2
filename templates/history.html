@@ -155,7 +155,7 @@ function autoSubmitForm(form) {
                     <td>{{ item.manager.name }}</td>
                     <td>
                         <span class="view-control">{{ item.status }}</span>
-                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control" style="display:none;">
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control">
                             {% csrf_token %}
                             <select name="status" class="form-select form-select-sm" style="width: auto;">
                                 <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
@@ -168,7 +168,7 @@ function autoSubmitForm(form) {
                     </td>
                     <td>
                         <span class="view-control">{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</span>
-                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control" style="display:none;">
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control">
                             {% csrf_token %}
                             <select name="downloader" class="form-select form-select-sm" style="width: auto;">
                                 <option value="">None</option>
@@ -264,7 +264,7 @@ function autoSubmitForm(form) {
                     <td>{{ item.manager.name }}</td>
                     <td>
                         <span class="view-control">{{ item.status }}</span>
-                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control" style="display:none;">
+                        <form method="post" action="{% url 'update_item_status' item.hash %}" class="edit-control">
                             {% csrf_token %}
                             <select name="status" class="form-select form-select-sm" style="width: auto;">
                                 <option value="Grabbed" {% if item.status == 'Grabbed' %}selected{% endif %}>Grabbed</option>
@@ -277,7 +277,7 @@ function autoSubmitForm(form) {
                     </td>
                     <td>
                         <span class="view-control">{% if item.downloader %}{{ item.downloader.name }}{% else %}-{% endif %}</span>
-                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control" style="display:none;">
+                        <form method="post" action="{% url 'update_item_downloader' item.hash %}" class="edit-control">
                             {% csrf_token %}
                             <select name="downloader" class="form-select form-select-sm" style="width: auto;">
                                 <option value="">None</option>
