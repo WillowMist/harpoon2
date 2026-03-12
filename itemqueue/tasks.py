@@ -236,6 +236,7 @@ def transfer_files_async(item_hash):
             
             remote_dir = storage_path
             files_to_copy = None
+            is_single_file = False  # SABnzbd doesn't have single-file concept
         else:
             return
         
