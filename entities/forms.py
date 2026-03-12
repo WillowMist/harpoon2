@@ -10,15 +10,28 @@ class DLFolderModalForm(ModalModelForm):
         model = DownloadFolder
         fields = ['folder', 'remote_folder_name']
 
-    def clean_folder(self):
-        data = self.cleaned_data['folder']
-        # Check for duplicate folder paths, but exclude the current instance if editing
-        existing = DownloadFolder.objects.filter(folder=data)
-        if self.instance.pk:
-            existing = existing.exclude(pk=self.instance.pk)
-        if existing.exists():
-            self.add_error('folder', ValidationError('A folder with this path already exists.'))
-            return data
+    def clean(self):
+        cleaned_data = super().clean()
+        folder_path = cleaned_data.get('folder')
+        
+        # Skip file system checks if folder is empty (validation error will be caught elsewhere)
+        if not folder_path:
+            return cleaned_data
+        
+        # Only try to create the folder if it doesn't exist (skip when editing)
+        if os.path.exists(folder_path) and os.path.isdir(folder_path):
+            pass  # Folder exists, all good
+        elif os.path.exists(folder_path) and os.path.isfile(folder_path):
+            self.add_error('folder', ValidationError('Path exists, but is a file. Please only enter a folder.'))
+        elif not self.instance.pk:  # Only create if this is a new folder (not editing)
+            try:
+                os.makedirs(folder_path)
+            except PermissionError:
+                self.add_error('folder', ValidationError('Folder does not exist and could not be created. Please check permissions.'))
+            except NotADirectoryError:
+                self.add_error('folder', ValidationError('Invalid directory. Check the path and try again.'))
+        
+        return cleaned_data
         
         # Only try to create the folder if it doesn't exist (skip when editing)
         if os.path.exists(data) and os.path.isdir(data):
