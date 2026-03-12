@@ -580,6 +580,22 @@ def transfer_files_async(item_hash):
                     else:
                         download_path = local_folder
                     
+                    # Check if there's only one video file in the directory - if so, use that file path
+                    video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
+                    try:
+                        local_item_path = os.path.join(local_folder, sanitized_item_name)
+                        if os.path.isdir(local_item_path):
+                            video_files = [f for f in os.listdir(local_item_path) 
+                                         if os.path.isfile(os.path.join(local_item_path, f)) 
+                                         and os.path.splitext(f)[1].lower() in video_extensions]
+                            if len(video_files) == 1:
+                                # Single video file - use it instead of directory
+                                video_file = video_files[0]
+                                download_path = os.path.join(download_path, video_file)
+                                logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
+                    except Exception as e:
+                        logger.warning(f"Could not check for single video file: {e}")
+                    
                     logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
                     client = item.manager.client
                     success, pp_message = client.post_process(item, download_path)
