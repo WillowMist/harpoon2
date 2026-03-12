@@ -549,9 +549,19 @@ def transfer_files_async(item_hash):
                         local_folder = os.path.dirname(first_transfer.local_path)
                 
                 if local_folder:
-                    # Determine download path: use remote_folder_name if available, otherwise use local folder
-                    if item.manager.folder and item.manager.folder.remote_folder_name:
-                        download_path = item.manager.folder.remote_folder_name
+                    # Construct the download path with item folder name included
+                    # Get the sanitized item name (same logic as during transfer)
+                    sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+                    sanitized_item_name = sanitized_item_name.strip()
+                    
+                    # Get base folder (local version for extraction check, remote for API)
+                    if item.manager.folder:
+                        # Construct remote path with item folder name
+                        if item.manager.folder.remote_folder_name:
+                            base_remote_path = item.manager.folder.remote_folder_name
+                        else:
+                            base_remote_path = item.manager.folder.folder
+                        download_path = os.path.join(base_remote_path, sanitized_item_name)
                     else:
                         download_path = local_folder
                     
