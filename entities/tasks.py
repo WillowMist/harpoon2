@@ -162,10 +162,11 @@ def assign_items_to_downloaders():
     from entities.models import Downloader
     
     # Get items that have a manager but no downloader assigned
+    # Include both Grabbed items and Failed items (to retry assignment for items that failed due to no downloader)
     items = Item.objects.filter(
         manager__isnull=False,
         downloader__isnull=True,
-        status='Grabbed'
+        status__in=['Grabbed', 'Failed']
     )
     
     for item in items:
