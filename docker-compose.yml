@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  # Redis service (required for Celery broker)
+  redis:
+    image: redis:7-alpine
+    container_name: harpoon2-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - harpoon2-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - harpoon2-network
+
+  # Harpoon2 main application
+  harpoon2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: harpoon2
+    command: start
+    environment:
+      - DEBUG=False
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
+      - REDIS_URL=redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./:/opt/harpoon2
+      - harpoon2-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - harpoon2-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional: Nginx reverse proxy (for production)
+  # Uncomment to use
+  # nginx:
+  #   image: nginx:latest
+  #   container_name: harpoon2-nginx
+  #   ports:
+  #     - "80:80"
+  #     - "443:443"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf:ro
+  #     - harpoon2-data:/data:ro
+  #   depends_on:
+  #     - harpoon2
+  #   networks:
+  #     - harpoon2-network
+
+volumes:
+  harpoon2-data:
+    driver: local
+  harpoon2-redis-data:
+    driver: local
+
+networks:
+  harpoon2-network:
+    driver: bridge
