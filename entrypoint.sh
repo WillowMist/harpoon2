@@ -142,9 +142,9 @@ case "${1:-start}" in
         celery -A harpoon2 beat -l info --logfile=/var/log/harpoon2/celery-beat.log &
         BEAT_PID=$!
         
-        # Start Celery Worker
+        # Start Celery Worker (DEBUG level for detailed logging)
         echo -e "${YELLOW}Starting Celery worker...${NC}"
-        celery -A harpoon2 worker -l info --logfile=/var/log/harpoon2/celery-worker.log &
+        celery -A harpoon2 worker -l debug --logfile=/var/log/harpoon2/celery-worker.log &
         WORKER_PID=$!
         
         # Start Django development server
@@ -163,7 +163,7 @@ case "${1:-start}" in
         
     worker)
         echo -e "${GREEN}Starting Celery worker only...${NC}"
-        celery -A harpoon2 worker -l info
+        celery -A harpoon2 worker -l debug
         ;;
         
     beat)
