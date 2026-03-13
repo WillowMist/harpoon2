@@ -14,7 +14,7 @@
        {% endfor %}
    </div>
    {% for field in form %}
-     <div class="mb-3{% if field.errors %} is-invalid{% endif %}">
+     <div class="mb-3{% if field.errors %} is-invalid{% endif %}" data-field-type="{{ field.name }}">
        {{ field|as_crispy_field }}
        {% for error in field.errors %}
          <div class="invalid-feedback">{{ error }}</div>
@@ -29,3 +29,51 @@
  </div>
 
 </form>
+
+<script>
+(function() {
+  function toggleFields() {
+    var managerType = document.querySelector('select[name="managertype"]');
+    if (!managerType) return;
+    
+    var isBlackhole = managerType.value === 'Blackhole';
+    
+    // Fields to show/hide
+    var arrFields = ['url', 'apikey', 'folder', 'label'];
+    var blackholeFields = [
+      'monitor_directory', 'monitor_subdirectories', 'category',
+      'torrent_downloader', 'nzb_downloader', 'temp_folder',
+      'poll_interval', 'move_on_complete', 'delete_source',
+      'duplicate_handling', 'enabled', 'scan_on_startup'
+    ];
+    
+    // Toggle *arr fields
+    arrFields.forEach(function(fieldName) {
+      var fieldDiv = document.querySelector('[data-field-type="' + fieldName + '"]');
+      if (fieldDiv) {
+        fieldDiv.style.display = isBlackhole ? 'none' : 'block';
+      }
+    });
+    
+    // Toggle Blackhole fields
+    blackholeFields.forEach(function(fieldName) {
+      var fieldDiv = document.querySelector('[data-field-type="' + fieldName + '"]');
+      if (fieldDiv) {
+        fieldDiv.style.display = isBlackhole ? 'block' : 'none';
+      }
+    });
+  }
+  
+  // Run on page load
+  toggleFields();
+  
+  // Run when manager type changes
+  var managerType = document.querySelector('select[name="managertype"]');
+  if (managerType) {
+    managerType.addEventListener('change', toggleFields);
+  }
+  
+  // Also run when modal is shown (for Bootstrap modals)
+  document.addEventListener('shown.bs.modal', toggleFields);
+})();
+</script>

@@ -50,6 +50,9 @@ class Downloader(models.Model):
     options = models.JSONField(default=dict)
     seedbox = models.ForeignKey('Seedbox', on_delete=models.SET_NULL, null=True, blank=True, related_name='downloaders')
 
+    def __str__(self):
+        return self.name
+
     @classmethod
     def from_db(cls, db, field_names, values):
         new = super(Downloader, cls).from_db(db, field_names, values)

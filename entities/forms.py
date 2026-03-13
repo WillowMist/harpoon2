@@ -71,6 +71,25 @@ class ManagerModalForm(ModalModelForm):
     class Meta:
         model = Manager
         exclude = ['pk']
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Define which fields are for *arr managers vs Blackhole
+        arr_only_fields = {'url', 'apikey', 'folder', 'label'}
+        blackhole_only_fields = {
+            'monitor_directory', 'monitor_subdirectories', 'category',
+            'torrent_downloader', 'nzb_downloader', 'temp_folder',
+            'poll_interval', 'move_on_complete', 'delete_source',
+            'duplicate_handling', 'enabled', 'scan_on_startup'
+        }
+        
+        # Add CSS classes to fields based on their type
+        for field_name in self.fields:
+            if field_name in arr_only_fields:
+                self.fields[field_name].widget.attrs['class'] = self.fields[field_name].widget.attrs.get('class', '') + ' arr-only'
+            elif field_name in blackhole_only_fields:
+                self.fields[field_name].widget.attrs['class'] = self.fields[field_name].widget.attrs.get('class', '') + ' blackhole-only'
 
 class DownloaderModalForm(ModalModelForm):
     options = forms.CharField(widget=forms.HiddenInput(), required=False)
