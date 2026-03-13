@@ -253,6 +253,7 @@ MANAGER_TYPES = [
     ('Whisparr', 'Whisparr'),
     ('LazyLibrarian', 'LazyLibrarian'),
     ('Mylar', 'Mylar'),
+    ('Blackhole', 'Blackhole'),
 ]
 
 DOWNLOADER_TYPES = [

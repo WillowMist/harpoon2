@@ -379,3 +379,189 @@ class Whisparr(Arr):
             message = f"Error initiating post-processing: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
+
+
+class Blackhole:
+    """Manager that monitors a directory for .nzb and .torrent files."""
+    
+    def __init__(self, manager):
+        self.manager = manager
+        self.name = manager.name
+        self.monitor_directory = manager.monitor_directory
+        self.monitor_subdirectories = manager.monitor_subdirectories
+        self.category = manager.category
+        self.torrent_downloader = manager.torrent_downloader
+        self.nzb_downloader = manager.nzb_downloader
+        self.temp_folder = manager.temp_folder
+        self.poll_interval = manager.poll_interval
+        self.move_on_complete = manager.move_on_complete
+        self.delete_source = manager.delete_source
+        self.duplicate_handling = manager.duplicate_handling
+        self.enabled = manager.enabled
+        self.scan_on_startup = manager.scan_on_startup
+    
+    def test(self):
+        """Test that the monitor directory exists and is accessible."""
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        if not self.monitor_directory:
+            return False, "Monitor directory not configured"
+        
+        if not os.path.exists(self.monitor_directory):
+            return False, f"Monitor directory does not exist: {self.monitor_directory}"
+        
+        if not os.path.isdir(self.monitor_directory):
+            return False, f"Monitor path is not a directory: {self.monitor_directory}"
+        
+        if not os.access(self.monitor_directory, os.R_OK | os.W_OK):
+            return False, f"Monitor directory is not readable/writable: {self.monitor_directory}"
+        
+        return True, f"Monitor directory accessible: {self.monitor_directory}"
+    
+    def get_files_to_process(self):
+        """Scan monitor directory for .nzb and .torrent files.
+        
+        Returns:
+            dict with 'torrent' and 'nzb' keys containing lists of file paths
+        """
+        import os
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        nzb_files = []
+        torrent_files = []
+        
+        if not self.monitor_directory or not os.path.exists(self.monitor_directory):
+            logger.warning(f"Monitor directory does not exist: {self.monitor_directory}")
+            return {'nzb': [], 'torrent': []}
+        
+        if self.monitor_subdirectories:
+            # Walk all subdirectories
+            for root, dirs, files in os.walk(self.monitor_directory):
+                for filename in files:
+                    lower = filename.lower()
+                    if lower.endswith('.nzb'):
+                        nzb_files.append(os.path.join(root, filename))
+                    elif lower.endswith('.torrent'):
+                        torrent_files.append(os.path.join(root, filename))
+        else:
+            # Only monitor root directory
+            for filename in os.listdir(self.monitor_directory):
+                filepath = os.path.join(self.monitor_directory, filename)
+                if os.path.isfile(filepath):
+                    lower = filename.lower()
+                    if lower.endswith('.nzb'):
+                        nzb_files.append(filepath)
+                    elif lower.endswith('.torrent'):
+                        torrent_files.append(filepath)
+        
+        logger.debug(f"Found {len(nzb_files)} .nzb and {len(torrent_files)} .torrent files in {self.monitor_directory}")
+        
+        return {'nzb': nzb_files, 'torrent': torrent_files}
+    
+    def get_category_for_file(self, filepath):
+        """Determine the category for a file based on settings.
+        
+        Returns:
+            str: category name
+        """
+        import os
+        
+        if self.monitor_subdirectories:
+            # Use subfolder name as category
+            dirname = os.path.dirname(filepath)
+            if dirname.startswith(self.monitor_directory):
+                subdir = dirname[len(self.monitor_directory):].lstrip(os.sep)
+                if os.sep in subdir:
+                    # Get first subdirectory
+                    category = subdir.split(os.sep)[0]
+                else:
+                    category = subdir
+            else:
+                category = self.category or 'default'
+        else:
+            category = self.category or 'default'
+        
+        return category
+    
+    def send_to_downloader(self, filepath, file_type):
+        """Send a file to the appropriate downloader.
+        
+        Args:
+            filepath: Full path to the .nzb or .torrent file
+            file_type: 'nzb' or 'torrent'
+            
+        Returns:
+            (success: bool, download_id: str or None, message: str)
+        """
+        import os
+        import logging
+        import hashlib
+        from entities.models import Downloader
+        
+        logger = logging.getLogger(__name__)
+        
+        if file_type == 'nzb':
+            downloader = self.nzb_downloader
+        elif file_type == 'torrent':
+            downloader = self.torrent_downloader
+        else:
+            return False, None, f"Unknown file type: {file_type}"
+        
+        if not downloader:
+            return False, None, f"No {file_type} downloader configured"
+        
+        # Generate a unique hash for this download
+        # Use file path + timestamp for uniqueness
+        file_hash = hashlib.md5(f"{filepath}{os.path.getmtime(filepath)}".encode()).hexdigest()
+        
+        try:
+            # Get the downloader client
+            client = downloader.client
+            
+            # Add the file to the downloader
+            if file_type == 'nzb':
+                category = self.get_category_for_file(filepath)
+                nzo_id = client.add(filepath, category=category)
+                return True, nzo_id, f"Added to {downloader.name}"
+            elif file_type == 'torrent':
+                # For torrent, load the torrent file
+                result = client.load_torrent(filepath)
+                if result:
+                    # Get torrent hash
+                    torrent_hash = client.get_torrent_hash(filepath)
+                    return True, torrent_hash, f"Added to {downloader.name}"
+                return False, None, f"Failed to load torrent"
+            
+        except Exception as e:
+            logger.error(f"Error sending {filepath} to {downloader.name}: {e}")
+            return False, None, str(e)
+        
+        return False, None, "Unknown error"
+    
+    def should_skip_file(self, filename):
+        """Check if file should be skipped based on duplicate handling settings.
+        
+        Args:
+            filename: Name of the file to check
+            
+        Returns:
+            bool: True if file should be skipped
+        """
+        import os
+        
+        if self.duplicate_handling == 'skip':
+            # Check if we've already processed this file
+            from itemqueue.models import Item
+            # Use filename as part of hash to detect duplicates
+            existing = Item.objects.filter(name__icontains=filename).first()
+            return existing is not None
+        elif self.duplicate_handling == 'rename':
+            # TODO: Implement rename logic
+            return False
+        elif self.duplicate_handling == 'overwrite':
+            return False
+        
+        return False

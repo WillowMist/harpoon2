@@ -31,6 +31,11 @@ app.conf.beat_schedule = {
         'task': 'entities.tasks.poll_managers',
         'schedule': 60.0,  # Every 60 seconds
     },
+    # Poll Blackhole managers for new files
+    'poll-blackhole-managers': {
+        'task': 'entities.tasks.poll_blackhole_managers',
+        'schedule': 60.0,  # Every 60 seconds
+    },
     # Assign items to downloaders
     'assign-items': {
         'task': 'entities.tasks.assign_items_to_downloaders',

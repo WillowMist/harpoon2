@@ -156,6 +156,160 @@ def queue_cronjob():
 
 
 @shared_task
+def poll_blackhole_managers():
+    """Poll all Blackhole managers for new .nzb and .torrent files."""
+    from entities.models import Manager
+    import os
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    
+    for manager in Manager.objects.filter(managertype='Blackhole', enabled=True):
+        try:
+            poll_blackhole_manager(manager.id)
+        except Exception as e:
+            logger.error(f"Error polling Blackhole manager {manager.name}: {e}")
+
+
+@shared_task
+def poll_blackhole_manager(manager_id):
+    """Poll a specific Blackhole manager for new files."""
+    from entities.models import Manager
+    from itemqueue.models import Item, ItemHistory
+    import os
+    import logging
+    import hashlib
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        manager = Manager.objects.get(id=manager_id, managertype='Blackhole')
+    except Manager.DoesNotExist:
+        return
+    
+    if not manager.enabled:
+        logger.debug(f"Blackhole manager {manager.name} is disabled, skipping")
+        return
+    
+    # Get the Blackhole client
+    client = manager.client
+    
+    # Test the connection first
+    test_result, test_message = client.test()
+    if not test_result:
+        logger.warning(f"Blackhole manager {manager.name} test failed: {test_message}")
+        return
+    
+    # Get files to process
+    files = client.get_files_to_process()
+    
+    processed_count = 0
+    
+    # Process .torrent files
+    for filepath in files.get('torrent', []):
+        filename = os.path.basename(filepath)
+        
+        # Check if we should skip this file
+        if client.should_skip_file(filename):
+            logger.debug(f"Skipping duplicate file: {filename}")
+            continue
+        
+        # Check if torrent downloader is configured
+        if not client.torrent_downloader:
+            logger.info(f"No torrent downloader configured, skipping: {filename}")
+            # TODO: Send notification about skipped file
+            continue
+        
+        # Send to downloader
+        success, download_id, message = client.send_to_downloader(filepath, 'torrent')
+        
+        if success and download_id:
+            # Create item in our database
+            item, created = Item.objects.get_or_create(
+                hash=download_id,
+                defaults={
+                    'name': filename,
+                    'size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+                    'status': 'Grabbed',
+                    'manager': manager,
+                    'downloader': client.torrent_downloader,
+                }
+            )
+            
+            if created:
+                ItemHistory.objects.create(
+                    item=item,
+                    details=f'Blackhole grabbed torrent: {filename}'
+                )
+                logger.info(f"Grabbed torrent from Blackhole: {filename}")
+            
+            # Delete source file if configured
+            if client.delete_source and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    logger.debug(f"Deleted source file: {filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete source file {filepath}: {e}")
+            
+            processed_count += 1
+        else:
+            logger.warning(f"Failed to send torrent to downloader: {filename} - {message}")
+    
+    # Process .nzb files
+    for filepath in files.get('nzb', []):
+        filename = os.path.basename(filepath)
+        
+        # Check if we should skip this file
+        if client.should_skip_file(filename):
+            logger.debug(f"Skipping duplicate file: {filename}")
+            continue
+        
+        # Check if nzb downloader is configured
+        if not client.nzb_downloader:
+            logger.info(f"No NZB downloader configured, skipping: {filename}")
+            # TODO: Send notification about skipped file
+            continue
+        
+        # Send to downloader
+        success, download_id, message = client.send_to_downloader(filepath, 'nzb')
+        
+        if success and download_id:
+            # Create item in our database
+            item, created = Item.objects.get_or_create(
+                hash=download_id,
+                defaults={
+                    'name': filename,
+                    'size': os.path.getsize(filepath) if os.path.exists(filepath) else 0,
+                    'status': 'Grabbed',
+                    'manager': manager,
+                    'downloader': client.nzb_downloader,
+                }
+            )
+            
+            if created:
+                ItemHistory.objects.create(
+                    item=item,
+                    details=f'Blackhole grabbed NZB: {filename}'
+                )
+                logger.info(f"Grabbed NZB from Blackhole: {filename}")
+            
+            # Delete source file if configured
+            if client.delete_source and os.path.exists(filepath):
+                try:
+                    os.remove(filepath)
+                    logger.debug(f"Deleted source file: {filepath}")
+                except Exception as e:
+                    logger.warning(f"Failed to delete source file {filepath}: {e}")
+            
+            processed_count += 1
+        else:
+            logger.warning(f"Failed to send NZB to downloader: {filename} - {message}")
+    
+    if processed_count > 0:
+        logger.info(f"Blackhole manager {manager.name} processed {processed_count} files")
+
+
+@shared_task
 def assign_items_to_downloaders():
     """Assign items to downloaders based on the download client they use."""
     from itemqueue.models import Item
