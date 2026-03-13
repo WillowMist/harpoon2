@@ -1,1 +1,1 @@
-/data/settings.py
+/home/willow/development/harpoon2/harpoon2/settings_template.py
