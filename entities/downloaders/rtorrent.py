@@ -192,10 +192,10 @@ class RTorrentDownloader(BaseDownloader):
                     b32_bytes = info_hash.encode()
                     b32_decoded = base64.b32decode(b32_bytes)
                     info_hash = b32_decoded.hex().upper()
-                # Load magnet - use load.magnet method
-                self.client.load.magnet(file_path, info_hash)
+                # Load magnet using load.magnet method
+                self.client.load_magnet(file_path, info_hash)
                 if self.start_on_load:
-                    self.client.d.start(info_hash)
+                    self.client.d_start(info_hash)
                 return info_hash
             raise ValueError("Invalid magnet link")
         else:
