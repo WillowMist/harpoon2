@@ -520,6 +520,9 @@ class Blackhole:
         try:
             # Get the downloader client
             client = downloader.client
+            logger.debug(f"Sending {filepath} to {downloader.name}")
+            logger.debug(f"Downloader client: {client}")
+            logger.debug(f"Downloader client.client: {client.client}")
             
             # Add the file to the downloader
             if file_type == 'nzb':
@@ -528,7 +531,9 @@ class Blackhole:
                 return True, nzo_id, f"Added to {downloader.name}"
             elif file_type == 'torrent':
                 # For torrent, use the add method
+                logger.debug(f"Calling client.add for torrent")
                 torrent_hash = client.add(filepath)
+                logger.debug(f"Torrent hash returned: {torrent_hash}")
                 if torrent_hash:
                     return True, torrent_hash, f"Added to {downloader.name}"
                 return False, None, f"Failed to load torrent"

@@ -1,9 +1,10 @@
 from .base import BaseDownloader
 import xmlrpc.client
+import urllib.parse
 
 
 class RTorrentXMLRPC:
-    """Direct XML-RPC client for rTorrent using Python's built-in xmlrpc.client."""
+    """Direct XML-RPC client for rTorrent using HTTP(S) transport via rutorrent web interface."""
     
     def __init__(self, address: str, timeout: float = 30.0):
         self.address = address
@@ -12,7 +13,8 @@ class RTorrentXMLRPC:
         
     def _get_client(self):
         if self._client is None:
-            # Use Python's built-in xmlrpc.client with embedded credentials
+            # Use Python's built-in xmlrpc.client with the full HTTP(S) URL
+            # Address format: http://user:pass@host:port/path or https://...
             self._client = xmlrpc.client.ServerProxy(self.address)
         return self._client
     
@@ -146,10 +148,10 @@ class RTorrentDownloader(BaseDownloader):
 
     def _init_client(self):
         opts = self.options
-        protocol = 'https' if opts.get('use_ssl', False) else 'http'
+        protocol = 'https' if opts.get('use_ssl', True) else 'http'
         host = opts.get('host', '')
         port = opts.get('port', 443)
-        url_path = opts.get('url_path', 'RPC2')
+        url_path = opts.get('url_path', 'destron23/RPC1')
         username = opts.get('username', '')
         password = opts.get('password', '')
 
