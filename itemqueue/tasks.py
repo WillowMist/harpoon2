@@ -894,6 +894,8 @@ def check_stalled_transfers():
             oldest_transfer = item_transfers.order_by('modified').first()
             if oldest_transfer and oldest_transfer.modified < stall_threshold:
                 logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
+                # Delete old failed/pending transfers so they can be recreated fresh
+                item_transfers.filter(status__in=['failed', 'pending']).delete()
                 item.status = 'Grabbed'
                 item.save()
                 stalled_count += 1
