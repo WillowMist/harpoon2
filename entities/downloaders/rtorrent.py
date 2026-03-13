@@ -202,17 +202,27 @@ class RTorrentDownloader(BaseDownloader):
             raise ValueError("Invalid magnet link")
         else:
             # Local torrent file - use load_start to load and optionally start
-            if self.start_on_load:
-                self.client.load_start(file_path)
-            else:
-                self.client.load_torrent(file_path)
-            
-            # Get the torrent hash by reading the file
             import bencoder
             import hashlib
+            import logging
+            
+            logger = logging.getLogger(__name__)
+            
+            # Read file first to compute hash (before sending to rtorrent)
             with open(file_path, 'rb') as f:
                 data = bencoder.decode(f.read())
             info_hash = hashlib.sha1(bencoder.encode(data[b'info'])).hexdigest().upper()
+            
+            # Now send to rtorrent
+            try:
+                if self.start_on_load:
+                    result = self.client.load_start(file_path)
+                else:
+                    result = self.client.load_torrent(file_path)
+                logger.debug(f"RTorrent load result: {result}")
+            except Exception as e:
+                logger.error(f"Failed to load torrent to rtorrent: {e}")
+                raise
             
             return info_hash
 
