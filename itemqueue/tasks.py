@@ -187,18 +187,26 @@ def transfer_files_async(item_hash):
     This runs in the background and can take a long time for large files.
     Creates all FileTransfer records UPFRONT, then transfers them.
     """
+    logger.info(f"[transfer_files_async] Starting file transfer for item {item_hash}")
     try:
         item = Item.objects.get(hash=item_hash)
     except Item.DoesNotExist:
-        logger.error(f"Item {item_hash} not found for async transfer")
+        logger.error(f"[transfer_files_async] Item {item_hash} not found in database")
         return
     
-    if not item.downloader or not item.downloader.seedbox:
-        logger.error(f"Item {item_hash} has no downloader/seedbox")
+    logger.info(f"[transfer_files_async] Transferring files for {item.name} (status={item.status})")
+    
+    if not item.downloader:
+        logger.error(f"[transfer_files_async] No downloader assigned to {item.name}")
+        return
+    
+    if not item.downloader.seedbox:
+        logger.error(f"[transfer_files_async] No seedbox configured for {item.name}")
         return
     
     downloader = item.downloader
     seedbox = downloader.seedbox
+    logger.info(f"[transfer_files_async] Downloader: {downloader.name}, Seedbox: {seedbox.name}, Auth: {seedbox.auth_type}")
     
     try:
         # Get the download path from the downloader
@@ -208,51 +216,75 @@ def transfer_files_async(item_hash):
         
         # Get torrent/download info to know what files to copy
         if downloader.downloadertype == 'RTorrent':
+            logger.debug(f"[transfer_files_async] Fetching RTorrent info for hash {hash_value}")
             torrent_info = client.find(hash_value)
             if not torrent_info:
+                logger.error(f"[transfer_files_async] RTorrent info not found for hash {hash_value}")
                 return
             
             remote_dir = torrent_info.get('directory', '')
             torrent_name = torrent_info.get('name', '')
+            logger.info(f"[transfer_files_async] RTorrent - remote_dir={remote_dir}, torrent_name={torrent_name}")
             
             if not remote_dir:
+                logger.error(f"[transfer_files_async] RTorrent - no remote directory found")
                 return
             
             # Check if this is a single-file torrent
             # (torrent name ends with a file extension like .mkv, .mp4, etc.)
             is_single_file = torrent_name and ('.' in torrent_name.split('/')[-1])
+            logger.info(f"[transfer_files_async] RTorrent - is_single_file={is_single_file}")
             
             # For single-file torrents, transfer just that file
             # For multi-file torrents, transfer all files from the directory
             files_to_copy = None
             
         elif downloader.downloadertype == 'SABNzbd':
+            logger.debug(f"[transfer_files_async] Fetching SABNzbd info for hash {hash_value}")
             status_info = client.get_status(hash_value)
-            if not status_info or not status_info.get('completed'):
+            if not status_info:
+                logger.error(f"[transfer_files_async] SABNzbd status info not found for hash {hash_value}")
+                return
+            
+            if not status_info.get('completed'):
+                logger.error(f"[transfer_files_async] SABNzbd download not completed for hash {hash_value}")
                 return
             
             storage_path = status_info.get('storage', '')
+            logger.info(f"[transfer_files_async] SABNzbd - storage_path={storage_path}")
             if not storage_path:
+                logger.error(f"[transfer_files_async] SABNzbd - no storage path found")
                 return
             
             remote_dir = storage_path
             files_to_copy = None
             is_single_file = False  # SABnzbd doesn't have single-file concept
         else:
+            logger.error(f"[transfer_files_async] Unknown downloader type: {downloader.downloadertype}")
             return
         
         # Connect to seedbox via SFTP
+        logger.info(f"[transfer_files_async] Connecting to seedbox {seedbox.host}:{seedbox.port} as {seedbox.username} (auth={seedbox.auth_type})")
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
-        if seedbox.auth_type == 'password':
-            ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
-        else:
-            pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
-            ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
+        try:
+            if seedbox.auth_type == 'password':
+                logger.debug(f"[transfer_files_async] Using password auth")
+                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
+            else:
+                logger.debug(f"[transfer_files_async] Using SSH key auth")
+                pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
+                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
+            logger.info(f"[transfer_files_async] Successfully connected to seedbox")
+        except Exception as e:
+            logger.error(f"[transfer_files_async] Failed to connect to seedbox: {e}", exc_info=True)
+            raise
         
+        logger.debug(f"[transfer_files_async] Opening SFTP channel")
         sftp = ssh.open_sftp()
         sftp.get_channel().settimeout(60)
+        logger.info(f"[transfer_files_async] SFTP channel open")
         
         # For SABnzbd, check if remote_dir is a file or folder
         if downloader.downloadertype == 'SABNzbd':
@@ -640,13 +672,17 @@ def transfer_files_async(item_hash):
 @shared_task
 def postprocess_item(item_hash):
     """Post-process a completed download: mark as completed and queue async file transfer."""
+    logger.info(f"[postprocess_item] Starting post-processing for item {item_hash}")
     try:
         item = Item.objects.get(hash=item_hash)
     except Item.DoesNotExist:
-        logger.error(f"Item {item_hash} not found")
+        logger.error(f"[postprocess_item] Item {item_hash} not found in database")
         return
     
+    logger.info(f"[postprocess_item] Processing {item.name} (current_status={item.status})")
+    
     if not item.downloader:
+        logger.error(f"[postprocess_item] No downloader assigned to {item.name}")
         ItemHistory.objects.create(item=item, details='No downloader assigned')
         item.status = 'Failed'
         item.save()
@@ -654,62 +690,82 @@ def postprocess_item(item_hash):
     
     downloader = item.downloader
     seedbox = downloader.seedbox
+    logger.info(f"[postprocess_item] Downloader: {downloader.name} ({downloader.downloadertype}), Seedbox: {seedbox.name if seedbox else 'None'}")
     
     if not seedbox:
+        logger.error(f"[postprocess_item] No seedbox configured for downloader {downloader.name}")
         ItemHistory.objects.create(item=item, details='No seedbox configured for downloader')
         item.status = 'Failed'
         item.save()
         return
     
     try:
+        logger.debug(f"[postprocess_item] Connecting to {downloader.downloadertype} client")
         client = downloader.client
         client._ensure_client()
         hash_value = item.hash
         
         if downloader.downloadertype == 'RTorrent':
+            logger.debug(f"[postprocess_item] Verifying torrent completion on RTorrent")
             torrent_info = client.find(hash_value)
             if not torrent_info:
-                ItemHistory.objects.create(item=item, details='Torrent not found')
+                logger.error(f"[postprocess_item] Torrent {hash_value} not found on RTorrent")
+                ItemHistory.objects.create(item=item, details='Torrent not found on RTorrent')
                 item.status = 'Failed'
                 item.save()
                 return
             
+            logger.debug(f"[postprocess_item] RTorrent torrent info: completed={torrent_info.get('completed')}")
             if not torrent_info.get('completed'):
-                ItemHistory.objects.create(item=item, details='Torrent not complete')
+                logger.error(f"[postprocess_item] Torrent {hash_value} not complete on RTorrent")
+                ItemHistory.objects.create(item=item, details='Torrent not complete on RTorrent')
                 item.status = 'Failed'
                 item.save()
                 return
                 
         elif downloader.downloadertype == 'SABNzbd':
+            logger.debug(f"[postprocess_item] Verifying download completion on SABNzbd")
             status_info = client.get_status(hash_value)
-            if not status_info or not status_info.get('completed'):
-                ItemHistory.objects.create(item=item, details='Download not complete')
+            if not status_info:
+                logger.error(f"[postprocess_item] Download {hash_value} not found on SABNzbd")
+                ItemHistory.objects.create(item=item, details='Download not found on SABNzbd')
+                item.status = 'Failed'
+                item.save()
+                return
+            
+            logger.debug(f"[postprocess_item] SABNzbd status info: completed={status_info.get('completed')}")
+            if not status_info.get('completed'):
+                logger.error(f"[postprocess_item] Download {hash_value} not complete on SABNzbd")
+                ItemHistory.objects.create(item=item, details='Download not complete on SABNzbd')
                 item.status = 'Failed'
                 item.save()
                 return
         else:
-            ItemHistory.objects.create(item=item, details='Unknown downloader type')
+            logger.error(f"[postprocess_item] Unknown downloader type: {downloader.downloadertype}")
+            ItemHistory.objects.create(item=item, details=f'Unknown downloader type: {downloader.downloadertype}')
             item.status = 'Failed'
             item.save()
             return
         
         # Download is complete on the downloader - transition to PostProcessing (file transfer)
         # Don't mark as Completed yet - that happens after transfer completes
+        logger.info(f"[postprocess_item] Download verified complete, setting status to PostProcessing for {item.name}")
         item.status = 'PostProcessing'
         item.save()
-        ItemHistory.objects.create(item=item, details='Download complete on downloader, starting file transfer')
-        logger.info(f"Item {item.name} ready for file transfer")
+        ItemHistory.objects.create(item=item, details='Download complete on downloader, queuing file transfer')
+        logger.info(f"[postprocess_item] {item.name} ready for file transfer")
         
         try:
-            logger.info(f"Queuing async file transfer for {item.name}")
+            logger.info(f"[postprocess_item] Queuing async file transfer for {item.name} with 5-second countdown")
             transfer_files_async.apply_async(args=[item_hash], countdown=5)
-            ItemHistory.objects.create(item=item, details='Queued async file transfer')
+            ItemHistory.objects.create(item=item, details='Queued async file transfer (5s countdown)')
+            logger.info(f"[postprocess_item] Successfully queued transfer_files_async for {item.name}")
         except Exception as e:
-            logger.warning(f"Could not queue async transfer (will retry later): {e}")
-            ItemHistory.objects.create(item=item, details=f'File transfer queued (async): {str(e)}')
+            logger.error(f"[postprocess_item] Failed to queue async transfer: {e}", exc_info=True)
+            ItemHistory.objects.create(item=item, details=f'Failed to queue transfer: {str(e)}')
         
     except Exception as e:
-        logger.error(f"Error post-processing {item_hash}: {e}")
+        logger.error(f"[postprocess_item] Error post-processing {item_hash}: {e}", exc_info=True)
         ItemHistory.objects.create(item=item, details=f'Post-processing failed: {str(e)}')
         item.status = 'Failed'
         item.save()
@@ -718,23 +774,33 @@ def postprocess_item(item_hash):
 @shared_task
 def check_downloaders():
     """Check all configured downloaders for completed downloads."""
+    logger.debug(f"[check_downloaders] Starting downloader check")
     downloaders = Downloader.objects.all()
+    logger.debug(f"[check_downloaders] Found {len(downloaders)} downloader(s)")
+    
     for downloader in downloaders:
         try:
+            logger.debug(f"[check_downloaders] Checking {downloader.downloadertype} downloader: {downloader.name}")
             client = downloader.client
             client._ensure_client()
             
             if downloader.downloadertype == 'RTorrent':
                 # Check for completed torrents
                 completed = client.get_completed()
+                logger.debug(f"[check_downloaders] RTorrent: Found {len(completed)} completed torrent(s)")
                 for torrent_info in completed:
                     hash_value = torrent_info.get('hash')
                     try:
                         item = Item.objects.get(hash=hash_value)
+                        logger.debug(f"[check_downloaders] RTorrent: Found item {item.name} (hash={hash_value}, status={item.status})")
                         # Only call postprocess if not already processed/completed/failed
                         if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                            logger.info(f"[check_downloaders] RTorrent: Queueing postprocess_item for {item.name} (status={item.status})")
                             postprocess_item.delay(hash_value)
+                        else:
+                            logger.debug(f"[check_downloaders] RTorrent: Skipping {item.name} - already in status {item.status}")
                     except Item.DoesNotExist:
+                        logger.debug(f"[check_downloaders] RTorrent: Hash {hash_value} not in database")
                         pass
                         
             elif downloader.downloadertype == 'SABNzbd':
@@ -743,20 +809,27 @@ def check_downloaders():
                 # If the manager re-grabs with a new NZO ID after a failure, we won't know
                 # about it unless the manager reports the failure event. Ideally, the manager
                 # should report all failures via downloadFailed events.
+                logger.debug(f"[check_downloaders] SABNzbd: Fetching history")
                 client._ensure_client()
                 history_result = client._api_call('history', {'limit': 500})
                 if 'history' in history_result:
-                    for item_info in history_result['history'].get('slots', []):
+                    slots = history_result['history'].get('slots', [])
+                    logger.debug(f"[check_downloaders] SABNzbd: Found {len(slots)} item(s) in history")
+                    for item_info in slots:
                         nzo_id = item_info.get('nzo_id')
                         status = item_info.get('status', '')
                         
                         try:
                             item = Item.objects.get(hash=nzo_id)
+                            logger.debug(f"[check_downloaders] SABNzbd: Found item {item.name} (nzo_id={nzo_id}, downloader_status={status}, item_status={item.status})")
                             
                             if status == 'Completed':
                                 # Only call postprocess if not already processed/completed/failed
                                 if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                                    logger.info(f"[check_downloaders] SABNzbd: Queueing postprocess_item for {item.name} (status={item.status})")
                                     postprocess_item.delay(nzo_id)
+                                else:
+                                    logger.debug(f"[check_downloaders] SABNzbd: Skipping {item.name} - already in status {item.status}")
                             
                             elif status == 'Failed':
                                 # Download failed on downloader - mark as failed if not already
@@ -768,12 +841,13 @@ def check_downloaders():
                                         item=item,
                                         details=f'Download failed on {downloader.name}: {fail_message}'
                                     )
-                                    logger.warning(f"Marked {item.name} as failed: {fail_message}")
+                                    logger.warning(f"[check_downloaders] SABNzbd: Marked {item.name} as failed: {fail_message}")
                         
                         except Item.DoesNotExist:
+                            logger.debug(f"[check_downloaders] SABNzbd: NZO ID {nzo_id} not in database")
                             pass
         except Exception as e:
-            logger.error(f"Error checking downloader {downloader.name}: {e}")
+            logger.error(f"[check_downloaders] Error checking downloader {downloader.name}: {e}", exc_info=True)
 
 
 @shared_task
