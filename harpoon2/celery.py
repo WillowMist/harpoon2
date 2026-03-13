@@ -25,6 +25,7 @@ app.conf.update(
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()
 
+# Set beat schedule
 app.conf.beat_schedule = {
     # Poll managers every minute for newly grabbed items
     'poll-managers': {
@@ -57,3 +58,6 @@ app.conf.beat_schedule = {
         'schedule': 300.0,  # Every 5 minutes
     },
 }
+
+# Also set as CELERY_BEAT_SCHEDULE for backwards compatibility
+app.conf.CELERY_BEAT_SCHEDULE = app.conf.beat_schedule
