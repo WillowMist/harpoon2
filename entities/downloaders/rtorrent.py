@@ -189,11 +189,19 @@ class RTorrentDownloader(BaseDownloader):
                 return info_hash
             raise ValueError("Invalid magnet link")
         else:
-            # Local torrent file
-            torrent = self.client.load_torrent(file_path, start=self.start_on_load)
-            if torrent:
-                return torrent.info_hash
-            raise ValueError("Failed to load torrent")
+            # Local torrent file - load without start param, then start if needed
+            self.client.load_torrent(file_path)
+            # Get the torrent hash by reading the file
+            import bencode
+            with open(file_path, 'rb') as f:
+                torrent_data = bencode.bdecode(f.read())
+            info_hash = torrent_data['info'].hexdigest().upper()
+            
+            # Start the torrent if configured
+            if self.start_on_load:
+                self.client.start_torrents([info_hash])
+            
+            return info_hash
 
     def find(self, hash: str):
         """Find a torrent by its info hash.
