@@ -862,10 +862,11 @@ def check_stalled_transfers():
     from django.utils import timezone
     from datetime import timedelta
     
-    transferring = FileTransfer.objects.filter(status='transferring')
     stall_threshold = timezone.now() - timedelta(minutes=5)
     stalled_count = 0
     
+    # Check for transferring transfers that are stalled
+    transferring = FileTransfer.objects.filter(status='transferring')
     for transfer in transferring:
         if transfer.modified < stall_threshold:
             logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]}")
@@ -879,20 +880,27 @@ def check_stalled_transfers():
                 item=transfer.item,
                 details=f'Stalled transfer detected and failed: {transfer.filename}'
             )
-            
-            item = transfer.item
-            item_transfers = FileTransfer.objects.filter(item=item)
-            all_failed = all(t.status in ['failed', 'completed'] for t in item_transfers)
-            
-            # Reset item if all transfers are failed/completed AND item is in PostProcessing or Completed
-            if all_failed and item.status in ['Completed', 'PostProcessing']:
-                logger.info(f"All transfers failed for {item.name}, resetting to Grabbed for retry")
+    
+    # Check for items in PostProcessing with failed or pending transfers
+    post_processing_items = Item.objects.filter(status='PostProcessing')
+    for item in post_processing_items:
+        item_transfers = FileTransfer.objects.filter(item=item)
+        has_failed = any(t.status == 'failed' for t in item_transfers)
+        has_pending = any(t.status == 'pending' for t in item_transfers)
+        
+        # If item has failed or pending transfers that are old, reset it
+        if has_failed or has_pending:
+            # For items with issues, check the oldest transfer's age
+            oldest_transfer = item_transfers.order_by('modified').first()
+            if oldest_transfer and oldest_transfer.modified < stall_threshold:
+                logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
                 item.status = 'Grabbed'
                 item.save()
+                stalled_count += 1
                 
                 ItemHistory.objects.create(
                     item=item,
-                    details='All transfers failed/stalled, resetting for retry'
+                    details='Transfers have failed/pending, resetting for retry'
                 )
     
     if stalled_count > 0:
