@@ -47,17 +47,17 @@ def home(request):
                 result = wrapper._api_call('queue')
                 if 'queue' in result:
                     slots = result['queue'].get('slots', [])
-                    for slot in slots[:10]:  # Limit to 10 items
-                        if slot.get('status') != 'Completed':
-                            grabbing_downloads.append({
-                                'name': slot.get('name', ''),
-                                'hash': slot.get('nzo_id', ''),
-                                'size': slot.get('mb', 0) * 1024 * 1024,
-                                'completed': 0,
-                                'percent': float(slot.get('percentage', 0)),
-                                'downloader': downloader.name,
-                                'status': 'Grabbing',
-                            })
+                     for slot in slots[:10]:  # Limit to 10 items
+                         if slot.get('status') != 'Completed':
+                             grabbing_downloads.append({
+                                 'name': slot.get('nzb_name', slot.get('name', '')),
+                                 'hash': slot.get('nzo_id', ''),
+                                 'size': slot.get('mb', 0) * 1024 * 1024,
+                                 'completed': 0,
+                                 'percent': float(slot.get('percentage', 0)),
+                                 'downloader': downloader.name,
+                                 'status': 'Grabbing',
+                             })
         except Exception as e:
             pass
     

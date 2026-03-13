@@ -132,7 +132,7 @@ class SABnzbdDownloader(BaseDownloader):
                 if slot.get('nzo_id') == nzo_id:
                     return {
                         'id': nzo_id,
-                        'name': slot.get('name', ''),
+                        'name': slot.get('nzb_name', slot.get('name', '')),
                         'status': slot.get('status', ''),
                         'category': slot.get('category', ''),
                         'size': slot.get('size', 0),
