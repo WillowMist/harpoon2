@@ -206,10 +206,11 @@ class RTorrentDownloader(BaseDownloader):
                 self.client.load_torrent(file_path)
             
             # Get the torrent hash by reading the file
-            import bencode
+            import bencoder
+            import hashlib
             with open(file_path, 'rb') as f:
-                torrent_data = bencode.bdecode(f.read())
-            info_hash = torrent_data['info'].hexdigest().upper()
+                data = bencoder.decode(f.read())
+            info_hash = hashlib.sha1(bencoder.encode(data[b'info'])).hexdigest().upper()
             
             return info_hash
 

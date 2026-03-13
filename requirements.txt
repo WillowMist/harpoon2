@@ -20,4 +20,4 @@ kombu>=5.4
 pytz>=2024.0
 cffi>=1.17
 cryptography>=44.0
-bencode>=1.0
+bencoder>=0.2
