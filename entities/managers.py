@@ -171,6 +171,9 @@ class Sonarr(Arr):
     def post_process(self, item, download_path):
         """Send DownloadedEpisodesScan command for TV shows."""
         try:
+            import logging
+            logger = logging.getLogger(__name__)
+            
             url = self.apiurl + '/command'
             payload = {
                 "name": "DownloadedEpisodesScan",
@@ -178,7 +181,12 @@ class Sonarr(Arr):
                 "downloadClientID": item.hash,
                 "importMode": "Move"
             }
+            logger.info(f"[Sonarr post_process] Sending command to {url}")
+            logger.info(f"[Sonarr post_process] Payload: {payload}")
+            
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+            logger.info(f"[Sonarr post_process] Response status: {response.status_code}")
+            logger.debug(f"[Sonarr post_process] Response body: {response.text}")
             
             if response.status_code in [200, 201]:
                 message = f"Post-processing initiated: {download_path}"
