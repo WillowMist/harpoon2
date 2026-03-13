@@ -527,11 +527,9 @@ class Blackhole:
                 nzo_id = client.add(filepath, category=category)
                 return True, nzo_id, f"Added to {downloader.name}"
             elif file_type == 'torrent':
-                # For torrent, load the torrent file
-                result = client.load_torrent(filepath)
-                if result:
-                    # Get torrent hash
-                    torrent_hash = client.get_torrent_hash(filepath)
+                # For torrent, use the add method
+                torrent_hash = client.add(filepath)
+                if torrent_hash:
                     return True, torrent_hash, f"Added to {downloader.name}"
                 return False, None, f"Failed to load torrent"
             
