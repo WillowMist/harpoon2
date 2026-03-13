@@ -104,17 +104,25 @@ class RTorrentXMLRPC:
         """Delete torrent."""
         return self._get_client().d.erase(info_hash)
     
+    def d_start(self, info_hash: str):
+        """Start a torrent."""
+        return self._get_client().d.start(info_hash)
+    
     def load_torrent(self, file_path: str):
         """Load a torrent file."""
         with open(file_path, 'rb') as f:
             data = xmlrpc.client.Binary(f.read())
-        return self._get_client().load_raw(data)
+        return self._get_client().load.raw(data)
     
     def load_start(self, file_path: str):
         """Load and start a torrent file."""
         with open(file_path, 'rb') as f:
             data = xmlrpc.client.Binary(f.read())
-        return self._get_client().load_raw_start(data)
+        return self._get_client().load.raw_start(data)
+    
+    def load_magnet(self, magnet_uri: str, info_hash: str):
+        """Load a magnet link."""
+        return self._get_client().load.magnet(magnet_uri, info_hash)
 
 
 class RTorrentDownloader(BaseDownloader):
@@ -170,7 +178,6 @@ class RTorrentDownloader(BaseDownloader):
             Torrent hash (info_hash)
         """
         self._ensure_client()
-        label = kwargs.get('label')
         
         # Determine if it's a magnet URL or file
         if file_path.startswith('magnet:'):
@@ -185,21 +192,24 @@ class RTorrentDownloader(BaseDownloader):
                     b32_bytes = info_hash.encode()
                     b32_decoded = base64.b32decode(b32_bytes)
                     info_hash = b32_decoded.hex().upper()
-                self.client.load_magnet(file_path, info_hash, start=self.start_on_load)
+                # Load magnet - use load.magnet method
+                self.client.load.magnet(file_path, info_hash)
+                if self.start_on_load:
+                    self.client.d.start(info_hash)
                 return info_hash
             raise ValueError("Invalid magnet link")
         else:
-            # Local torrent file - load without start param, then start if needed
-            self.client.load_torrent(file_path)
+            # Local torrent file - use load_start to load and optionally start
+            if self.start_on_load:
+                self.client.load_start(file_path)
+            else:
+                self.client.load_torrent(file_path)
+            
             # Get the torrent hash by reading the file
             import bencode
             with open(file_path, 'rb') as f:
                 torrent_data = bencode.bdecode(f.read())
             info_hash = torrent_data['info'].hexdigest().upper()
-            
-            # Start the torrent if configured
-            if self.start_on_load:
-                self.client.start_torrents([info_hash])
             
             return info_hash
 
