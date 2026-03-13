@@ -49,6 +49,12 @@ def home(request):
                     slots = result['queue'].get('slots', [])
                     for slot in slots[:10]:  # Limit to 10 items
                         if slot.get('status') != 'Completed':
+                            # Debug: log available fields
+                            import logging
+                            logger = logging.getLogger(__name__)
+                            logger.debug(f"SABNzbd slot fields: {slot.keys()}")
+                            logger.debug(f"SABNzbd slot: {slot}")
+                            
                             grabbing_downloads.append({
                                 'name': slot.get('nzb_name', slot.get('name', '')),
                                 'hash': slot.get('nzo_id', ''),
