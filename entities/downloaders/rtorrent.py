@@ -112,17 +112,17 @@ class RTorrentXMLRPC:
         """Load a torrent file."""
         with open(file_path, 'rb') as f:
             data = xmlrpc.client.Binary(f.read())
-        return self._get_client().load.raw(data)
+        return self._get_client().load.raw(data, '')
     
     def load_start(self, file_path: str):
         """Load and start a torrent file."""
         with open(file_path, 'rb') as f:
             data = xmlrpc.client.Binary(f.read())
-        return self._get_client().load.raw_start(data)
+        return self._get_client().load.raw_start(data, '')
     
     def load_magnet(self, magnet_uri: str, info_hash: str):
         """Load a magnet link."""
-        return self._get_client().load.magnet(magnet_uri, info_hash)
+        return self._get_client().load.magnet(magnet_uri, '', info_hash)
 
 
 class RTorrentDownloader(BaseDownloader):
