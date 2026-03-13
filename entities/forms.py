@@ -75,8 +75,8 @@ class ManagerModalForm(ModalModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Define which fields are for *arr managers vs Blackhole
-        arr_only_fields = {'url', 'apikey', 'folder', 'label'}
+        # Define which fields are for *arr managers only (not Blackhole)
+        arr_only_fields = {'url', 'apikey', 'label'}
         blackhole_only_fields = {
             'monitor_directory', 'monitor_subdirectories', 'category',
             'torrent_downloader', 'nzb_downloader', 'temp_folder',
