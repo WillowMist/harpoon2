@@ -884,7 +884,8 @@ def check_stalled_transfers():
             item_transfers = FileTransfer.objects.filter(item=item)
             all_failed = all(t.status in ['failed', 'completed'] for t in item_transfers)
             
-            if all_failed and item.status == 'Completed':
+            # Reset item if all transfers are failed/completed AND item is in PostProcessing or Completed
+            if all_failed and item.status in ['Completed', 'PostProcessing']:
                 logger.info(f"All transfers failed for {item.name}, resetting to Grabbed for retry")
                 item.status = 'Grabbed'
                 item.save()
