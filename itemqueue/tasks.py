@@ -793,10 +793,13 @@ def check_downloaders():
                     try:
                         item = Item.objects.get(hash=hash_value)
                         logger.debug(f"[check_downloaders] RTorrent: Found item {item.name} (hash={hash_value}, status={item.status})")
-                        # Only call postprocess if not already processed/completed/failed
+                        # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
                         if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                            logger.info(f"[check_downloaders] RTorrent: Queueing postprocess_item for {item.name} (status={item.status})")
-                            postprocess_item.delay(hash_value)
+                            if not item.downloader:
+                                logger.debug(f"[check_downloaders] RTorrent: Skipping {item.name} - no downloader assigned yet (will retry later)")
+                            else:
+                                logger.info(f"[check_downloaders] RTorrent: Queueing postprocess_item for {item.name} (status={item.status})")
+                                postprocess_item.delay(hash_value)
                         else:
                             logger.debug(f"[check_downloaders] RTorrent: Skipping {item.name} - already in status {item.status}")
                     except Item.DoesNotExist:
@@ -824,10 +827,13 @@ def check_downloaders():
                             logger.debug(f"[check_downloaders] SABNzbd: Found item {item.name} (nzo_id={nzo_id}, downloader_status={status}, item_status={item.status})")
                             
                             if status == 'Completed':
-                                # Only call postprocess if not already processed/completed/failed
+                                # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
                                 if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                                    logger.info(f"[check_downloaders] SABNzbd: Queueing postprocess_item for {item.name} (status={item.status})")
-                                    postprocess_item.delay(nzo_id)
+                                    if not item.downloader:
+                                        logger.debug(f"[check_downloaders] SABNzbd: Skipping {item.name} - no downloader assigned yet (will retry later)")
+                                    else:
+                                        logger.info(f"[check_downloaders] SABNzbd: Queueing postprocess_item for {item.name} (status={item.status})")
+                                        postprocess_item.delay(nzo_id)
                                 else:
                                     logger.debug(f"[check_downloaders] SABNzbd: Skipping {item.name} - already in status {item.status}")
                             
