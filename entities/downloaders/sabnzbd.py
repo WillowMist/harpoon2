@@ -95,16 +95,16 @@ class SABnzbdDownloader(BaseDownloader):
         
         # Check if it's a file or URL
         if os.path.isfile(file_path):
-            # Local file
+            # Local file - pass category as a parameter
             with open(file_path, 'rb') as f:
                 files = {'nzbfile': (os.path.basename(file_path), f)}
-                result = self._api_call('addlocalfile', files=files)
+                result = self._api_call('addlocalfile', files=files, params={'cat': category})
         elif file_path.startswith('http://') or file_path.startswith('https://'):
             # URL
-            result = self._api_call('addurl', {'name': file_path})
+            result = self._api_call('addurl', {'name': file_path, 'cat': category})
         else:
             raise ValueError("Invalid file path or URL")
-        
+
         if result.get('status') is True:
             nzo_ids = result.get('nzo_ids', [])
             if nzo_ids:
