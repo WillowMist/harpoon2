@@ -191,8 +191,9 @@ def poll_blackhole_manager(manager_id):
         logger.debug(f"Blackhole manager {manager.name} is disabled, skipping")
         return
     
-    # Get the Blackhole client
-    client = manager.client
+    # Get the Blackhole client instance
+    from entities.managers import Blackhole
+    client = Blackhole(manager)
     
     # Test the connection first
     test_result, test_message = client.test()
