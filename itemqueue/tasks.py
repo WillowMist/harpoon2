@@ -322,24 +322,41 @@ def transfer_files_async(item_hash):
         else:
             base_folder = '/tmp'
         
+        # Check if this is a Blackhole manager
+        is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
+        
         # Add category subfolder if available (from rtorrent label or manager settings)
-        if category:
+        # Only for Blackhole manager
+        if is_blackhole and category:
             base_folder = os.path.join(base_folder, category)
         
         # Create a subfolder for this item using a sanitized name
         import re
         sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
         sanitized_name = sanitized_name.strip()
-        item_folder = os.path.join(base_folder, sanitized_name)
         
-        os.makedirs(item_folder, exist_ok=True)
-        logger.info(f"Created folder for item: {item_folder}")
+        # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
+        if is_blackhole:
+            temp_folder = os.path.join(base_folder, '.tmp_' + sanitized_name)
+            final_folder = os.path.join(base_folder, sanitized_name)
+            
+            os.makedirs(temp_folder, exist_ok=True)
+            logger.info(f"Created temp folder for transfer: {temp_folder}")
+        else:
+            temp_folder = None
+            final_folder = os.path.join(base_folder, sanitized_name)
+            
+            os.makedirs(final_folder, exist_ok=True)
+            logger.info(f"Created folder for transfer: {final_folder}")
         
         # Build transfer list
         # For single-file torrents, only transfer that specific file
         # For multi-file torrents, recursively transfer all files from the directory
         transfer_list = []  # List of (remote_path, relative_path) tuples
         import stat as stat_module_list
+        
+        # Use temp_folder for transfer if Blackhole, else use final_folder
+        item_folder = temp_folder if temp_folder else final_folder
         
         if is_single_file and downloader.downloadertype == 'RTorrent':
             # Single-file torrent: find and transfer the actual media file
@@ -591,6 +608,21 @@ def transfer_files_async(item_hash):
         
         logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
         ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
+        
+        # Move from temp folder to final destination (Blackhole manager only)
+        if is_blackhole and failed_count == 0 and temp_folder and os.path.exists(temp_folder):
+            try:
+                # If final folder exists, remove it first
+                if os.path.exists(final_folder):
+                    import shutil
+                    shutil.rmtree(final_folder)
+                # Rename temp to final (atomic on same filesystem)
+                os.rename(temp_folder, final_folder)
+                logger.info(f"Moved temp folder to final: {final_folder}")
+                ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
+            except Exception as e:
+                logger.error(f"Failed to move temp folder to final: {e}")
+                ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
         
         # Mark item as Completed now that transfer is done
         item.status = 'Completed'
