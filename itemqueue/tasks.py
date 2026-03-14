@@ -1114,6 +1114,25 @@ def check_stalled_transfers():
                         if first_transfer and first_transfer.local_path:
                             local_folder = os.path.dirname(first_transfer.local_path)
                             
+                            # Check if files are in temp folder and need to be moved to final
+                            if item.manager and item.manager.managertype == 'Blackhole':
+                                import re
+                                sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name).strip()
+                                temp_base = item.manager.temp_folder if item.manager.temp_folder else '/tmp'
+                                final_base = item.manager.folder.folder if item.manager.folder else '/tmp'
+                                category = getattr(item, 'category', '') or ''
+                                if category:
+                                    final_base = os.path.join(final_base, category)
+                                final_folder = os.path.join(final_base, sanitized_name)
+                                temp_folder = os.path.join(temp_base, sanitized_name)
+                                
+                                # Move from temp to final if needed
+                                if os.path.exists(temp_folder) and not os.path.exists(final_folder):
+                                    os.makedirs(final_base, exist_ok=True)
+                                    os.rename(temp_folder, final_folder)
+                                    local_folder = final_folder
+                                    logger.info(f"Moved from temp to final: {final_folder}")
+                            
                             # Process ZIP archives
                             success_zip, msg_zip = process_zip_archives(local_folder, item)
                             logger.info(f"ZIP processing: {msg_zip}")
