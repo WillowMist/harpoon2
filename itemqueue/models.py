@@ -11,6 +11,7 @@ class Item(models.Model):
     received = models.BigIntegerField(default=0)
     status = models.CharField(max_length=50, default='Created')
     clientid = models.IntegerField(default=0)
+    category = models.CharField(max_length=100, default='', blank=True)  # Category/label from downloader
     created = models.DateTimeField(auto_now_add=True)
     modified = models.DateTimeField(auto_now=True)
     

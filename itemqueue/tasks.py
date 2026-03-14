@@ -1129,7 +1129,7 @@ def check_stalled_transfers():
                                 sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name).strip()
                                 temp_base = item.manager.temp_folder if item.manager.temp_folder else '/tmp'
                                 final_base = item.manager.folder.folder if item.manager.folder else '/tmp'
-                                category = getattr(item, 'category', '') or ''
+                                category = item.category or ''
                                 if category:
                                     final_base = os.path.join(final_base, category)
                                 final_folder = os.path.join(final_base, sanitized_name)

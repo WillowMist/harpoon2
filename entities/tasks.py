@@ -222,6 +222,7 @@ def poll_blackhole_manager(manager_id):
         
         # Send to downloader
         success, download_id, message = client.send_to_downloader(filepath, 'torrent')
+        category = client.get_category_for_file(filepath)
         
         if success and download_id:
             # Create item in our database
@@ -233,6 +234,7 @@ def poll_blackhole_manager(manager_id):
                     'status': 'Grabbed',
                     'manager': manager,
                     'downloader': client.torrent_downloader,
+                    'category': category,
                 }
             )
             
@@ -272,6 +274,7 @@ def poll_blackhole_manager(manager_id):
         
         # Send to downloader
         success, download_id, message = client.send_to_downloader(filepath, 'nzb')
+        category = client.get_category_for_file(filepath)
         
         if success and download_id:
             # Create item in our database
@@ -283,6 +286,7 @@ def poll_blackhole_manager(manager_id):
                     'status': 'Grabbed',
                     'manager': manager,
                     'downloader': client.nzb_downloader,
+                    'category': category,
                 }
             )
             
