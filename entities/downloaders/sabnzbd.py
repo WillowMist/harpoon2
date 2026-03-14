@@ -95,17 +95,17 @@ class SABnzbdDownloader(BaseDownloader):
         
         # Check if it's a file or URL
         if os.path.isfile(file_path):
-            # Local file - pass category as a parameter
-            logger.debug(f"Adding local file with category: {category}")
+            # Local file - try without category first to debug
+            logger.debug(f"Adding local file: {file_path}")
             with open(file_path, 'rb') as f:
                 files = {'nzbfile': (os.path.basename(file_path), f)}
                 api_params = {
                     'apikey': self.apikey,
                     'mode': 'addlocalfile',
                     'output': 'json',
-                    'cat': category,
                 }
                 result = self.client.post(self.api_url, data=api_params, files=files)
+                logger.debug(f"addlocalfile result: {result.text}")
                 result = result.json()
         elif file_path.startswith('http://') or file_path.startswith('https://'):
             # URL
