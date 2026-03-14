@@ -143,11 +143,16 @@ class RTorrentDownloader(BaseDownloader):
         logger = logging.getLogger(__name__)
         
         super().__init__(downloader)
-        logger.debug(f"RTorrentDownloader.__init__: downloader={downloader}, hasattr(client)={hasattr(downloader, 'client') if downloader else 'N/A'}")
-        if downloader and hasattr(downloader, 'client'):
-            self._init_client()
+        # Always initialize if we have options - the from_db method should set client on the model
+        # but we need to ensure the RTorrentXMLRPC client is created
+        if downloader and self.options:
+            try:
+                self._init_client()
+            except Exception as e:
+                logger.error(f"Failed to init RTorrent client: {e}")
+                self.reload = True
+                self.client = None
         else:
-            logger.debug(f"RTorrentDownloader.__init__: else branch taken")
             self.reload = True
             self.client = None
 
