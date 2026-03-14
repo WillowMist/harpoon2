@@ -95,25 +95,23 @@ class SABnzbdDownloader(BaseDownloader):
         
         # Check if it's a file or URL
         if os.path.isfile(file_path):
-            # Local file - try with apikey in URL, only nzbfile in files
+            # Local file - try including mode in files dict
             import requests
             import urllib.parse
             logger.debug(f"Adding local file: {file_path}")
             
-            # Build URL with apikey and other params
             url = f"{self.url.rstrip('/')}/api"
             basename = os.path.basename(file_path)
-            params = {
-                'apikey': self.apikey,
-                'mode': 'addlocalfile',
-                'output': 'json',
-                'nzbname': urllib.parse.quote(basename),
-            }
-            url_with_params = url + '?' + urllib.parse.urlencode(params)
             
+            # Try with mode as form field
             with open(file_path, 'rb') as f:
-                files = {'nzbfile': (basename, f)}
-                response = requests.post(url_with_params, files=files, verify=False)
+                files = {
+                    'nzbfile': (basename, f),
+                    'apikey': (None, self.apikey),
+                    'mode': (None, 'addlocalfile'),
+                    'output': (None, 'json'),
+                }
+                response = requests.post(url, files=files, verify=False, timeout=30)
                 logger.debug(f"addlocalfile result: {response.text}")
                 result = response.json()
         elif file_path.startswith('http://') or file_path.startswith('https://'):
