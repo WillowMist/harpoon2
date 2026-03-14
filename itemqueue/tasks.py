@@ -429,6 +429,12 @@ def transfer_files_async(item_hash):
         else:
             temp_base_folder = None
         
+        # Get category from item (stored from Blackhole manager based on subfolder)
+        # For SABNzbd, this is already stored in item.category when the item was created
+        # For RTorrent, use the label from torrent_info if available, otherwise use item.category
+        if not category:
+            category = item.category or ''
+        
         # Add category subfolder if available (from rtorrent label or manager settings)
         # Only for Blackhole manager
         if is_blackhole and category:
