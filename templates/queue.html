@@ -3,7 +3,6 @@
 {% block title %}Queue{% endblock %}
 
 {% block head %}
-<meta http-equiv="refresh" content="5">
 <style>
 .expand-icon {
     cursor: pointer;
@@ -91,10 +90,9 @@
 <h2 class="mb-4">Download Queue</h2>
 
 <!-- Post-Processing Card -->
-{% if postprocessing_items %}
-<div class="card bg-dark text-white mb-4">
+<div id="postprocessingCard" class="card bg-dark text-white mb-4" style="display: none;">
     <div class="card-header bg-warning">
-        <h5 class="card-title mb-0"><i class="fas fa-cog me-2"></i>Post-Processing ({{ postprocessing_items.count }})</h5>
+        <h5 class="card-title mb-0"><i class="fas fa-cog me-2"></i>Post-Processing (<span id="postprocessingCount">0</span>)</h5>
     </div>
     <div class="card-body p-0">
         <table class="table table-dark table-striped mb-0">
@@ -106,26 +104,16 @@
                     <th>Updated</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for item in postprocessing_items %}
-                <tr>
-                    <td>{{ item.name|truncatechars:50 }}</td>
-                    <td>{{ item.manager.name }}</td>
-                    <td>{{ item.downloader.name }}</td>
-                    <td>{{ item.modified|timesince }} ago</td>
-                </tr>
-                {% endfor %}
+            <tbody id="postprocessingList">
             </tbody>
         </table>
     </div>
 </div>
-{% endif %}
 
 <!-- Queued Items Card -->
-{% if grabbing_items %}
-<div class="card bg-dark text-white mb-4">
+<div id="queuedCard" class="card bg-dark text-white mb-4" style="display: none;">
     <div class="card-header bg-info">
-        <h5 class="card-title mb-0"><i class="fas fa-clock me-2"></i>Queued ({{ grabbing_items.count }})</h5>
+        <h5 class="card-title mb-0"><i class="fas fa-clock me-2"></i>Queued (<span id="queuedCount">0</span>)</h5>
     </div>
     <div class="card-body p-0">
         <table class="table table-dark table-striped mb-0">
@@ -139,87 +127,182 @@
                     <th style="width: 100px;">Actions</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for item in grabbing_items %}
-                <tr onclick="toggleDetails(this)" style="cursor: pointer;">
-                    <td><span class="expand-icon">▶</span></td>
-                    <td>{{ item.name|truncatechars:50 }}</td>
-                    <td>{{ item.manager.name }}</td>
-                    <td>{% if item.downloader %}{{ item.downloader.name }}{% else %}<span class="text-warning">Pending</span>{% endif %}</td>
-                    <td>{{ item.created|timesince }} ago</td>
-                    <td onclick="event.stopPropagation();">
-                        <form method="post" action="{% url 'cancel_download' item.hash %}" style="display:inline;">
-                            {% csrf_token %}
-                            <button type="submit" class="btn btn-danger btn-sm-compact" title="Cancel this download">Cancel</button>
-                        </form>
-                    </td>
-                </tr>
-                <tr class="details-row" data-item-id="{{ item.hash }}">
-                    <td colspan="6">
-                        <div class="details-cell-content">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <strong>Download Hash:</strong><br>
-                                    <code>{{ item.hash }}</code>
-                                </div>
-                                <div class="col-md-6">
-                                    <strong>Status:</strong><br>
-                                    <span class="badge bg-info">{{ item.status }}</span>
-                                </div>
-                            </div>
-                            <hr style="border-color: rgba(255, 255, 255, 0.1);">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <strong>Manager:</strong><br>
-                                    {{ item.manager.name }} ({{ item.manager.managertype }})
-                                </div>
-                                <div class="col-md-6">
-                                    <strong>Downloader:</strong><br>
-                                    {% if item.downloader %}
-                                        {{ item.downloader.name }} ({{ item.downloader.downloadertype }})
-                                    {% else %}
-                                        <span class="text-warning">Not assigned yet - waiting for available downloader</span>
-                                    {% endif %}
-                                </div>
-                            </div>
-                            {% if item.history.all %}
-                            <hr style="border-color: rgba(255, 255, 255, 0.1);">
-                            <div>
-                                <strong>History (recent):</strong><br>
-                                <small>
-                                {% for h in item.history.all|dictsort:"created" %}
-                                    {% if forloop.counter > item.history.all.count|add:"-4" %}
-                                    <div><i class="fas fa-info-circle me-1"></i>{{ h.details }}</div>
-                                    {% endif %}
-                                {% endfor %}
-                                </small>
-                            </div>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% endfor %}
+            <tbody id="queuedList">
             </tbody>
         </table>
     </div>
 </div>
 
+<div id="emptyAlert" class="alert alert-info" style="display: none;">
+    <i class="fas fa-info-circle me-2"></i>Queue is empty.
+</div>
+
 <script>
+let queuePollingInterval = null;
+let expandedRows = new Set();
+
+function timeSince(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const seconds = Math.floor((now - date) / 1000);
+    
+    if (seconds < 60) return seconds + ' seconds';
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return minutes + ' minutes';
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return hours + ' hours';
+    const days = Math.floor(hours / 24);
+    return days + ' days';
+}
+
 function toggleDetails(row) {
+    const itemId = row.dataset.itemId;
     const nextRow = row.nextElementSibling;
     if (nextRow && nextRow.classList.contains('details-row')) {
         nextRow.classList.toggle('show');
-        row.querySelector('.expand-icon').style.transform = 
-            nextRow.classList.contains('show') ? 'rotate(90deg)' : 'rotate(0deg)';
+        const icon = row.querySelector('.expand-icon');
+        if (nextRow.classList.contains('show')) {
+            icon.style.transform = 'rotate(90deg)';
+            expandedRows.add(itemId);
+        } else {
+            icon.style.transform = 'rotate(0deg)';
+            expandedRows.delete(itemId);
+        }
     }
 }
-</script>
-{% endif %}
 
-{% if not grabbing_items and not postprocessing_items %}
-<div class="alert alert-info">
-    <i class="fas fa-info-circle me-2"></i>Queue is empty.
-</div>
-{% endif %}
+function cancelDownload(hash) {
+    if (!confirm('Cancel this download?')) return;
+    fetch('/download/' + hash + '/cancel/', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''
+        }
+    })
+    .then(response => {
+        if (response.ok) {
+            loadQueueData();
+        } else {
+            alert('Failed to cancel download');
+        }
+    })
+    .catch(error => console.error('Error:', error));
+}
+
+function renderQueueItems(items) {
+    const tbody = document.getElementById('queuedList');
+    if (items.length === 0) {
+        return '';
+    }
+    
+    return items.map(item => `
+        <tr data-item-id="${item.hash}" onclick="toggleDetails(this)" style="cursor: pointer;">
+            <td><span class="expand-icon" style="transform: ${expandedRows.has(item.hash) ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span></td>
+            <td>${item.name.substring(0, 50)}</td>
+            <td>${item.manager}</td>
+            <td>${item.downloader || '<span class="text-warning">Pending</span>'}</td>
+            <td>${timeSince(item.created)} ago</td>
+            <td onclick="event.stopPropagation(); cancelDownload('${item.hash}');">
+                <button class="btn btn-danger btn-sm-compact" title="Cancel this download">Cancel</button>
+            </td>
+        </tr>
+        <tr class="details-row ${expandedRows.has(item.hash) ? 'show' : ''}" data-item-id="${item.hash}">
+            <td colspan="6">
+                <div class="details-cell-content">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Download Hash:</strong><br>
+                            <code>${item.hash}</code>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Status:</strong><br>
+                            <span class="badge bg-info">${item.status}</span>
+                        </div>
+                    </div>
+                    <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Manager:</strong><br>
+                            ${item.manager}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Downloader:</strong><br>
+                            ${item.downloader || '<span class="text-warning">Not assigned yet</span>'}
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function renderPostProcessingItems(items) {
+    const tbody = document.getElementById('postprocessingList');
+    if (items.length === 0) {
+        return '';
+    }
+    
+    return items.map(item => `
+        <tr>
+            <td>${item.name.substring(0, 50)}</td>
+            <td>${item.manager}</td>
+            <td>${item.downloader}</td>
+            <td>${timeSince(item.modified)} ago</td>
+        </tr>
+    `).join('');
+}
+
+function loadQueueData() {
+    fetch('/api/queue/')
+        .then(response => response.json())
+        .then(data => {
+            const ppCard = document.getElementById('postprocessingCard');
+            const queuedCard = document.getElementById('queuedCard');
+            const emptyAlert = document.getElementById('emptyAlert');
+            
+            const postprocessingItems = data.items.filter(i => i.status === 'PostProcessing');
+            const queuedItems = data.items.filter(i => i.status === 'Grabbed');
+            
+            // Render Post-Processing
+            if (postprocessingItems.length > 0) {
+                ppCard.style.display = 'block';
+                document.getElementById('postprocessingCount').textContent = postprocessingItems.length;
+                document.getElementById('postprocessingList').innerHTML = renderPostProcessingItems(postprocessingItems);
+            } else {
+                ppCard.style.display = 'none';
+            }
+            
+            // Render Queued
+            if (queuedItems.length > 0) {
+                queuedCard.style.display = 'block';
+                document.getElementById('queuedCount').textContent = queuedItems.length;
+                document.getElementById('queuedList').innerHTML = renderQueueItems(queuedItems);
+            } else {
+                queuedCard.style.display = 'none';
+            }
+            
+            // Show empty message
+            if (postprocessingItems.length === 0 && queuedItems.length === 0) {
+                emptyAlert.style.display = 'block';
+            } else {
+                emptyAlert.style.display = 'none';
+            }
+        })
+        .catch(error => console.error('Error loading queue:', error));
+}
+
+// Start polling when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadQueueData();
+    queuePollingInterval = setInterval(loadQueueData, 20000); // Poll every 20 seconds
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (queuePollingInterval) {
+        clearInterval(queuePollingInterval);
+    }
+});
+</script>
 
 {% endblock %}

@@ -3,7 +3,6 @@
 {% block title %}Home{% endblock %}
 
 {% block head %}
-<meta http-equiv="refresh" content="5">
 <style>
 .transfer-row {
     cursor: pointer;
@@ -25,169 +24,41 @@
 <h2 class="mb-4">Dashboard</h2>
 
 <!-- Grabbing Downloads Card -->
-{% if grabbing_downloads %}
-<div class="card bg-dark text-white mb-4">
+<div id="grabbingCard" class="card bg-dark text-white mb-4" style="display: none;">
     <div class="card-header bg-success">
         <h5 class="card-title mb-0"><i class="fas fa-download me-2"></i>Grabbing</h5>
     </div>
-    <div class="card-body">
-        {% for download in grabbing_downloads %}
-        <div class="row align-items-center mb-2">
-            <div class="col-md-4">
-                <strong>{{ download.name|truncatechars:40 }}</strong>
-                <br><small class="text-muted">{{ download.downloader }}</small>
-            </div>
-            <div class="col-md-6">
-                <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                         role="progressbar" 
-                         style="width: {{ download.percent }}%;"
-                         aria-valuenow="{{ download.percent }}" 
-                         aria-valuemin="0" 
-                         aria-valuemax="100">
-                        {{ download.percent|floatformat:1 }}%
-                    </div>
-                </div>
-                <small>{{ download.completed|filesizeformat }} / {{ download.size|filesizeformat }}</small>
-            </div>
-            <div class="col-md-2 text-end">
-                <span class="badge bg-success">{{ download.percent|floatformat:1 }}%</span>
-            </div>
-        </div>
-        {% endfor %}
+    <div class="card-body" id="grabbingList">
     </div>
 </div>
-{% endif %}
 
 <!-- Active SFTP Transfers Card -->
-{% if active_transfers %}
-<div class="card bg-dark text-white mb-4">
+<div id="transfersCard" class="card bg-dark text-white mb-4" style="display: none;">
     <div class="card-header bg-info">
         <div class="d-flex justify-content-between align-items-center">
             <h5 class="card-title mb-0"><i class="fas fa-exchange-alt me-2"></i>SFTP Transfers (Total Progress)</h5>
-            <small>Total Speed: <strong>{{ total_speed_mbps|floatformat:1 }} MB/s</strong></small>
+            <small>Total Speed: <strong id="totalSpeed">0.0</strong> MB/s</small>
         </div>
     </div>
-     <div class="card-body">
-          {% for transfer in active_transfers %}
-          <div class="row align-items-center mb-3 transfer-row" onclick="showTransferModal('{{ transfer.item_name|escapejs }}', {{ transfer.size }}, {{ transfer.completed }}, {{ transfer.file_count }}, {{ transfer.speed_mbps|floatformat:1 }})">
-               <div class="col-md-3">
-                   <strong>{{ transfer.name|truncatechars:35 }}</strong>
-                   <br><small class="text-muted">{{ transfer.file_count }} file{{ transfer.file_count|pluralize }}</small>
-                   <br><small class="text-warning">⚡ {{ transfer.speed_mbps|floatformat:1 }} MB/s</small>
-               </div>
-              <div class="col-md-4">
-                  <!-- SFTP Transfer Progress -->
-                  <div class="progress" style="height: 20px;">
-                      <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
-                           role="progressbar" 
-                           style="width: {{ transfer.percent }}%;"
-                           aria-valuenow="{{ transfer.percent }}" 
-                           aria-valuemin="0" 
-                           aria-valuemax="100">
-                          {{ transfer.percent }}%
-                      </div>
-                  </div>
-                  <small>{{ transfer.completed|filesizeformat }} / {{ transfer.size|filesizeformat }}</small>
-                 
-                 <!-- Extraction Progress (if extracting) -->
-                 {% if transfer.extraction_status %}
-                 <div style="margin-top: 8px;">
-                     <small class="text-light">
-                         {% if transfer.extraction_status == 'extracting' %}
-                             <i class="fas fa-box-open me-1"></i><strong>Extracting:</strong>
-                         {% elif transfer.extraction_status == 'completed' %}
-                             <i class="fas fa-check-circle me-1 text-success"></i><strong>Extraction Complete</strong>
-                         {% elif transfer.extraction_status == 'failed' %}
-                             <i class="fas fa-exclamation-circle me-1 text-danger"></i><strong>Extraction Failed</strong>
-                         {% endif %}
-                     </small>
-                     <div class="progress" style="height: 12px; margin-top: 2px;">
-                         {% if transfer.extraction_status == 'extracting' %}
-                             <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" 
-                                  role="progressbar" 
-                                  style="width: {{ transfer.extraction_progress }}%;"
-                                  aria-valuenow="{{ transfer.extraction_progress }}" 
-                                  aria-valuemin="0" 
-                                  aria-valuemax="100">
-                                 {{ transfer.extraction_progress }}%
-                             </div>
-                         {% elif transfer.extraction_status == 'completed' %}
-                             <div class="progress-bar bg-success" 
-                                  role="progressbar" 
-                                  style="width: 100%;"
-                                  aria-valuenow="100" 
-                                  aria-valuemin="0" 
-                                  aria-valuemax="100">
-                             </div>
-                         {% elif transfer.extraction_status == 'failed' %}
-                             <div class="progress-bar bg-danger" 
-                                  role="progressbar" 
-                                  style="width: 100%;"
-                                  aria-valuenow="100" 
-                                  aria-valuemin="0" 
-                                  aria-valuemax="100">
-                             </div>
-                         {% endif %}
-                     </div>
-                 </div>
-                 {% endif %}
-             </div>
-              <div class="col-md-3 text-end">
-                  <span class="badge bg-info me-2">{{ transfer.percent }}%</span>
-                  <button class="btn btn-sm btn-danger transfer-action-btn" 
-                          onclick="event.stopPropagation(); if(confirm('Cancel transfer for {{ transfer.name|escapejs }}?')) cancelTransfer('{{ transfer.item_name|escapejs }}');"
-                          title="Cancel this transfer">
-                      Cancel
-                  </button>
-              </div>
-          </div>
-         {% endfor %}
+     <div class="card-body" id="transfersList">
     </div>
 </div>
-{% endif %}
 
 <!-- Manager Summary Cards -->
-<div class="row mb-4">
-    {% for m in manager_summary %}
-    <div class="col-md-3 col-sm-6">
-        <div class="card bg-dark text-white">
-            <div class="card-header">
-                <h6 class="card-title mb-0">{{ m.name }}</h6>
-            </div>
-            <div class="card-body">
-                <div class="row text-center">
-                    <div class="col-6">
-                        <h3 class="mb-0">{{ m.grabbing }}</h3>
-                        <small>Queued</small>
-                    </div>
-                    <div class="col-6">
-                        <h3 class="mb-0">{{ m.postprocessing }}</h3>
-                        <small>Processing</small>
-                    </div>
-                </div>
-            </div>
-            <div class="card-footer text-center">
-                <small>{{ m.completed }} completed | {{ m.failed }} failed</small>
-            </div>
-        </div>
-    </div>
-    {% endfor %}
+<div class="row mb-4" id="managerSummary">
 </div>
 
 <!-- Summary -->
 <div class="alert alert-info">
     <i class="fas fa-info-circle me-2"></i>
-    Total queued: <strong>{{ total_queued }}</strong> | 
+    Total queued: <strong id="totalQueued">0</strong> | 
     <a href="/queue/" class="alert-link">View Queue</a> | 
     <a href="/history/" class="alert-link">View History</a>
 </div>
 
-{% if not active_downloads and total_queued == 0 %}
-<div class="alert alert-success">
+<div id="quietAlert" class="alert alert-success" style="display: none;">
     <i class="fas fa-check-circle me-2"></i>All quiet. No active downloads.
 </div>
-{% endif %}
 
 <!-- Transfer Detail Modal -->
 <div class="modal fade" id="transferModal" tabindex="-1">
@@ -240,12 +111,25 @@
 
 <script>
 let currentTransferItem = null;
+let dashboardPollingInterval = null;
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatSizeGB(bytes) {
+    return (bytes / (1024*1024*1024)).toFixed(2);
+}
 
 function showTransferModal(itemName, totalSize, completed, fileCount, speed) {
     currentTransferItem = itemName;
     const percent = Math.round((completed / totalSize) * 100);
-    const sizeCompleted = (completed / (1024*1024*1024)).toFixed(2);
-    const sizeTotal = (totalSize / (1024*1024*1024)).toFixed(2);
+    const sizeCompleted = formatSizeGB(completed);
+    const sizeTotal = formatSizeGB(totalSize);
     
     document.getElementById('modalItemName').textContent = itemName;
     document.getElementById('modalProgress').textContent = percent;
@@ -270,7 +154,7 @@ function cancelTransfer(itemName) {
     .then(response => {
         if (response.ok) {
             alert('Transfer cancelled: ' + itemName);
-            location.reload();
+            loadDashboardData();
         } else {
             alert('Failed to cancel transfer');
         }
@@ -284,6 +168,187 @@ function cancelTransferFromModal() {
         cancelTransfer(currentTransferItem);
     }
 }
+
+function renderGrabbingDownloads(data) {
+    const card = document.getElementById('grabbingCard');
+    const list = document.getElementById('grabbingList');
+    
+    if (data.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    
+    card.style.display = 'block';
+    list.innerHTML = data.map(download => `
+        <div class="row align-items-center mb-2">
+            <div class="col-md-4">
+                <strong>${download.name.substring(0, 40)}</strong>
+                <br><small class="text-muted">${download.downloader}</small>
+            </div>
+            <div class="col-md-6">
+                <div class="progress" style="height: 20px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: ${download.percent}%;"
+                         aria-valuenow="${download.percent}" 
+                         aria-valuemin="0" 
+                         aria-valuemax="100">
+                        ${download.percent.toFixed(1)}%
+                    </div>
+                </div>
+                <small>${formatBytes(download.completed)} / ${formatBytes(download.size)}</small>
+            </div>
+            <div class="col-md-2 text-end">
+                <span class="badge bg-success">${download.percent.toFixed(1)}%</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderTransfers(data, totalSpeed) {
+    const card = document.getElementById('transfersCard');
+    const list = document.getElementById('transfersList');
+    const speedEl = document.getElementById('totalSpeed');
+    
+    speedEl.textContent = totalSpeed.toFixed(1);
+    
+    if (data.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    
+    card.style.display = 'block';
+    list.innerHTML = data.map(transfer => {
+        let extractionHtml = '';
+        if (transfer.extraction_status === 'extracting') {
+            extractionHtml = `
+                <div style="margin-top: 8px;">
+                    <small class="text-light">
+                        <i class="fas fa-box-open me-1"></i><strong>Extracting:</strong>
+                    </small>
+                    <div class="progress" style="height: 12px; margin-top: 2px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-warning" 
+                             role="progressbar" 
+                             style="width: ${transfer.extraction_progress}%;"
+                             aria-valuenow="${transfer.extraction_progress}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            ${transfer.extraction_progress}%
+                        </div>
+                    </div>
+                </div>
+            `;
+        } else if (transfer.extraction_status === 'completed') {
+            extractionHtml = `
+                <div style="margin-top: 8px;">
+                    <small class="text-light">
+                        <i class="fas fa-check-circle me-1 text-success"></i><strong>Extraction Complete</strong>
+                    </small>
+                </div>
+            `;
+        } else if (transfer.extraction_status === 'failed') {
+            extractionHtml = `
+                <div style="margin-top: 8px;">
+                    <small class="text-light">
+                        <i class="fas fa-exclamation-circle me-1 text-danger"></i><strong>Extraction Failed</strong>
+                    </small>
+                </div>
+            `;
+        }
+        
+        return `
+            <div class="row align-items-center mb-3 transfer-row" onclick="showTransferModal('${transfer.item_name.replace(/'/g, "\\'")}', ${transfer.size}, ${transfer.completed}, ${transfer.file_count}, ${transfer.speed_mbps})">
+                <div class="col-md-3">
+                    <strong>${transfer.name.substring(0, 35)}</strong>
+                    <br><small class="text-muted">${transfer.file_count} file${transfer.file_count !== 1 ? 's' : ''}</small>
+                    <br><small class="text-warning">⚡ ${transfer.speed_mbps.toFixed(1)} MB/s</small>
+                </div>
+                <div class="col-md-4">
+                    <div class="progress" style="height: 20px;">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" 
+                             role="progressbar" 
+                             style="width: ${transfer.percent}%;"
+                             aria-valuenow="${transfer.percent}" 
+                             aria-valuemin="0" 
+                             aria-valuemax="100">
+                            ${transfer.percent}%
+                        </div>
+                    </div>
+                    <small>${formatBytes(transfer.completed)} / ${formatBytes(transfer.size)}</small>
+                    ${extractionHtml}
+                </div>
+                <div class="col-md-3 text-end">
+                    <span class="badge bg-info me-2">${transfer.percent}%</span>
+                    <button class="btn btn-sm btn-danger transfer-action-btn" 
+                            onclick="event.stopPropagation(); if(confirm('Cancel transfer?')) cancelTransfer('${transfer.item_name.replace(/'/g, "\\'")}');"
+                            title="Cancel this transfer">
+                        Cancel
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function renderManagerSummary(data) {
+    const container = document.getElementById('managerSummary');
+    container.innerHTML = data.map(m => `
+        <div class="col-md-3 col-sm-6">
+            <div class="card bg-dark text-white">
+                <div class="card-header">
+                    <h6 class="card-title mb-0">${m.name}</h6>
+                </div>
+                <div class="card-body">
+                    <div class="row text-center">
+                        <div class="col-6">
+                            <h3 class="mb-0">${m.grabbing}</h3>
+                            <small>Queued</small>
+                        </div>
+                        <div class="col-6">
+                            <h3 class="mb-0">${m.postprocessing}</h3>
+                            <small>Processing</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer text-center">
+                    <small>${m.completed} completed | ${m.failed} failed</small>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function loadDashboardData() {
+    fetch('/api/dashboard/')
+        .then(response => response.json())
+        .then(data => {
+            renderGrabbingDownloads(data.grabbing_downloads);
+            renderTransfers(data.active_transfers, data.total_speed_mbps);
+            renderManagerSummary(data.manager_summary);
+            document.getElementById('totalQueued').textContent = data.total_queued;
+            
+            const quietAlert = document.getElementById('quietAlert');
+            if (data.grabbing_downloads.length === 0 && data.active_transfers.length === 0 && data.total_queued === 0) {
+                quietAlert.style.display = 'block';
+            } else {
+                quietAlert.style.display = 'none';
+            }
+        })
+        .catch(error => console.error('Error loading dashboard:', error));
+}
+
+// Start polling when page loads
+document.addEventListener('DOMContentLoaded', function() {
+    loadDashboardData();
+    dashboardPollingInterval = setInterval(loadDashboardData, 20000); // Poll every 20 seconds
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (dashboardPollingInterval) {
+        clearInterval(dashboardPollingInterval);
+    }
+});
 </script>
 
 {% endblock %}
