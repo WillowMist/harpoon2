@@ -191,6 +191,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         
+        label = kwargs.get('label', '')
+        
         # Determine if it's a magnet URL or file
         if file_path.startswith('magnet:'):
             # For magnets, we need to extract the info hash
@@ -208,6 +210,9 @@ class RTorrentDownloader(BaseDownloader):
                 self.client.load_magnet(file_path, info_hash)
                 if self.start_on_load:
                     self.client.d_start(info_hash)
+                # Set label if provided
+                if label:
+                    self._set_label(info_hash, label)
                 return info_hash
             raise ValueError("Invalid magnet link")
         else:
@@ -230,11 +235,26 @@ class RTorrentDownloader(BaseDownloader):
                 else:
                     result = self.client.load_torrent(file_path)
                 logger.debug(f"RTorrent load result: {result}")
+                
+                # Set label if provided
+                if label:
+                    self._set_label(info_hash, label)
+                    
             except Exception as e:
                 logger.error(f"Failed to load torrent to rtorrent: {e}")
                 raise
             
             return info_hash
+    
+    def _set_label(self, info_hash: str, label: str):
+        """Set a label on a torrent."""
+        try:
+            self.client.d.custom1.set(info_hash, label)
+        except Exception:
+            try:
+                self.client.d.custom1(info_hash, label)
+            except Exception:
+                pass  # Label not supported on this rtorrent
 
     def find(self, hash: str):
         """Find a torrent by its info hash.

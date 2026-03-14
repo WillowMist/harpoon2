@@ -531,8 +531,9 @@ class Blackhole:
                 return True, nzo_id, f"Added to {downloader.name}"
             elif file_type == 'torrent':
                 # For torrent, use the add method
-                logger.debug(f"Calling client.add for torrent")
-                torrent_hash = client.add(filepath)
+                category = self.get_category_for_file(filepath)
+                logger.debug(f"Calling client.add for torrent with category: {category}")
+                torrent_hash = client.add(filepath, label=category)
                 logger.debug(f"Torrent hash returned: {torrent_hash}")
                 if torrent_hash:
                     return True, torrent_hash, f"Added to {downloader.name}"
