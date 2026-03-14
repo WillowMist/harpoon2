@@ -1069,12 +1069,14 @@ def check_stalled_transfers():
                         details='Transfers have failed/pending, resetting for retry'
                     )
         
-        # Check for items in PostProcessing without any FileTransfer records
+        # Check for items in PostProcessing and handle appropriately
         # This handles cases where status was manually set to PostProcessing
-        pp_without_transfers = Item.objects.filter(status='PostProcessing')
-        for item in pp_without_transfers:
-            has_transfers = FileTransfer.objects.filter(item=item).exists()
-            if not has_transfers:
+        pp_items = Item.objects.filter(status='PostProcessing')
+        for item in pp_items:
+            transfers = FileTransfer.objects.filter(item=item)
+            
+            if not transfers.exists():
+                # No transfers - queue a new transfer
                 logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
                 try:
                     transfer_files_async.delay(item.hash)
@@ -1085,22 +1087,50 @@ def check_stalled_transfers():
                     logger.info(f"Successfully queued transfer for {item.name}")
                 except Exception as e:
                     logger.error(f"Failed to queue transfer for {item.name}: {e}")
-        
-        # Check for items in PostProcessing where ALL transfers are completed
-        # This handles cases where transfer finished but status wasn't updated
-        pp_with_completed = Item.objects.filter(status='PostProcessing')
-        for item in pp_with_completed:
-            transfers = FileTransfer.objects.filter(item=item)
-            if transfers.exists():
+            else:
+                # Transfers exist - check their status
+                has_failed = any(t.status == 'failed' for t in transfers)
+                has_pending = any(t.status == 'pending' for t in transfers)
                 all_completed = all(t.status == 'completed' for t in transfers)
-                if all_completed:
-                    logger.info(f"Item {item.name} is PostProcessing but all transfers completed, marking as Completed")
-                    item.status = 'Completed'
-                    item.save()
-                    ItemHistory.objects.create(
-                        item=item,
-                        details='All transfers completed, marked as Completed'
-                    )
+                
+                if has_failed or has_pending:
+                    # Has failed/pending transfers - requeue the transfer
+                    logger.info(f"Item {item.name} has failed/pending transfers, requeueing transfer")
+                    transfers.delete()  # Clear old transfers
+                    try:
+                        transfer_files_async.delay(item.hash)
+                        ItemHistory.objects.create(
+                            item=item,
+                            details='Requeuing file transfer (had failed/pending transfers)'
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to requeue transfer for {item.name}: {e}")
+                elif all_completed:
+                    # All transfers completed - this might be a re-run of post-processing
+                    # Run the post-processing (extraction) now
+                    logger.info(f"Item {item.name} all transfers completed, running post-processing")
+                    try:
+                        first_transfer = transfers.filter(status='completed').first()
+                        if first_transfer and first_transfer.local_path:
+                            local_folder = os.path.dirname(first_transfer.local_path)
+                            
+                            # Process ZIP archives
+                            success_zip, msg_zip = process_zip_archives(local_folder, item)
+                            logger.info(f"ZIP processing: {msg_zip}")
+                            
+                            # Process RAR archives
+                            success_rar, msg_rar = process_rar_archives(local_folder, item)
+                            logger.info(f"RAR processing: {msg_rar}")
+                            
+                            # Mark as completed after post-processing
+                            item.status = 'Completed'
+                            item.save()
+                            ItemHistory.objects.create(
+                                item=item,
+                                details='Post-processing (extraction) completed, marked as Completed'
+                            )
+                    except Exception as e:
+                        logger.error(f"Failed post-processing for {item.name}: {e}")
         
         if stalled_count > 0:
             logger.info(f"Detected and failed {stalled_count} stalled transfers")
