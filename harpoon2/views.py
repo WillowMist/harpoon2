@@ -455,128 +455,140 @@ def retry_failed_item(request, item_hash):
 
 def api_dashboard(request):
     """JSON API for dashboard data - used for AJAX polling."""
-    from django.http import JsonResponse
-    from django.utils import timezone
-    from datetime import timedelta
+    import logging
+    logger = logging.getLogger(__name__)
     
-    managers = Manager.objects.all()
-    
-    # Get counts by manager
-    manager_summary = []
-    for m in managers:
-        grabbing = Item.objects.filter(status='Grabbed', manager=m, archived=False).count()
-        postprocessing = Item.objects.filter(status='PostProcessing', manager=m, archived=False).count()
-        completed = Item.objects.filter(status='Completed', manager=m, archived=False).count()
-        failed = Item.objects.filter(status='Failed', manager=m, archived=False).count()
-        manager_summary.append({
-            'name': m.name,
-            'grabbing': grabbing,
-            'postprocessing': postprocessing,
-            'completed': completed,
-            'failed': failed,
-            'total': grabbing + postprocessing,
-        })
-    
-    # Get active downloads
-    grabbing_downloads = []
-    for downloader in Downloader.objects.all():
-        try:
-            wrapper = downloader.client
-            if downloader.downloadertype == 'RTorrent':
-                active_torrents = wrapper.get_active_downloads(limit=10)
-                for torrent in active_torrents:
-                    grabbing_downloads.append({
-                        'name': torrent.get('name', ''),
-                        'hash': torrent.get('hash', ''),
-                        'size': torrent.get('size', 0),
-                        'completed': torrent.get('completed', 0),
-                        'percent': torrent.get('percent', 0),
-                        'downloader': downloader.name,
-                        'status': 'Grabbing',
-                    })
-            elif downloader.downloadertype == 'SABNzbd':
-                wrapper._ensure_client()
-                result = wrapper._api_call('queue')
-                if 'queue' in result:
-                    slots = result['queue'].get('slots', [])
-                    for slot in slots[:10]:
-                        if slot.get('status') != 'Completed':
-                            grabbing_downloads.append({
-                                'name': slot.get('filename', ''),
-                                'hash': slot.get('nzo_id', ''),
-                                'size': float(slot.get('mb', 0)) * 1024 * 1024,
-                                'completed': 0,
-                                'percent': float(slot.get('percentage', 0)),
-                                'downloader': downloader.name,
-                                'status': 'Grabbing',
-                            })
-        except Exception:
-            pass
-    
-    # Get active transfers
-    active_transfers_query = FileTransfer.objects.filter(status__in=['pending', 'transferring', 'completed']).select_related('item')
-    
-    item_total_sizes = {}
-    for transfer in active_transfers_query:
-        item_hash = transfer.item.hash
-        if item_hash not in item_total_sizes:
-            all_transfers = active_transfers_query.filter(item__hash=item_hash)
-            item_total_sizes[item_hash] = sum(t.file_size for t in all_transfers)
-    
-    transfers_by_item = {}
-    for transfer in active_transfers_query:
-        item_hash = transfer.item.hash
-        if item_hash not in transfers_by_item:
-            transfers_by_item[item_hash] = {
-                'item_name': transfer.item.name,
-                'total_size': item_total_sizes[item_hash],
-                'total_completed': 0,
-                'file_count': 0,
-            }
+    try:
+        from django.http import JsonResponse
+        from django.utils import timezone
+        from datetime import timedelta
         
-        transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
-        transfers_by_item[item_hash]['file_count'] += 1
-    
-    active_transfers = []
-    total_speed = 0
-    for item_hash, data in transfers_by_item.items():
-        if data['total_completed'] < data['total_size']:
-            percent = int((data['total_completed'] / data['total_size']) * 100) if data['total_size'] > 0 else 0
-            active_transfers.append({
-                'name': data['item_name'],
-                'item_name': data['item_name'],
-                'size': data['total_size'],
-                'completed': data['total_completed'],
-                'percent': percent,
-                'file_count': data['file_count'],
-                'speed_mbps': 0,
-                'extraction_status': '',
-                'extraction_progress': 0,
+        managers = Manager.objects.all()
+        
+        # Get counts by manager
+        manager_summary = []
+        for m in managers:
+            grabbing = Item.objects.filter(status='Grabbed', manager=m, archived=False).count()
+            postprocessing = Item.objects.filter(status='PostProcessing', manager=m, archived=False).count()
+            completed = Item.objects.filter(status='Completed', manager=m, archived=False).count()
+            failed = Item.objects.filter(status='Failed', manager=m, archived=False).count()
+            manager_summary.append({
+                'name': m.name,
+                'grabbing': grabbing,
+                'postprocessing': postprocessing,
+                'completed': completed,
+                'failed': failed,
+                'total': grabbing + postprocessing,
             })
-    
-    # Get item extraction statuses
-    items_with_transfers = Item.objects.filter(filetransfer__status__in=['pending', 'transferring']).distinct()
-    for item in items_with_transfers:
-        if item.hash in transfers_by_item:
-            transfers_by_item[item.hash]['extraction_status'] = item.extraction_status
-            transfers_by_item[item.hash]['extraction_progress'] = item.extraction_progress
-    
-    for t in active_transfers:
-        item_hash = next((k for k, v in transfers_by_item.items() if v['item_name'] == t['item_name']), None)
-        if item_hash:
-            t['extraction_status'] = transfers_by_item[item_hash].get('extraction_status', '')
-            t['extraction_progress'] = transfers_by_item[item_hash].get('extraction_progress', 0)
-    
-    total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
-    total_speed = 0
-    
-    return JsonResponse({
-        'manager_summary': manager_summary,
-        'grabbing_downloads': grabbing_downloads,
-        'active_transfers': active_transfers,
-        'total_speed_mbps': total_speed,
-        'total_queued': total_queued,
-    })
+        
+        # Get active downloads
+        grabbing_downloads = []
+        for downloader in Downloader.objects.all():
+            try:
+                wrapper = downloader.client
+                if downloader.downloadertype == 'RTorrent':
+                    active_torrents = wrapper.get_active_downloads(limit=10)
+                    for torrent in active_torrents:
+                        grabbing_downloads.append({
+                            'name': torrent.get('name', ''),
+                            'hash': torrent.get('hash', ''),
+                            'size': torrent.get('size', 0),
+                            'completed': torrent.get('completed', 0),
+                            'percent': torrent.get('percent', 0),
+                            'downloader': downloader.name,
+                            'status': 'Grabbing',
+                        })
+                elif downloader.downloadertype == 'SABNzbd':
+                    wrapper._ensure_client()
+                    result = wrapper._api_call('queue')
+                    if 'queue' in result:
+                        slots = result['queue'].get('slots', [])
+                        for slot in slots[:10]:
+                            if slot.get('status') != 'Completed':
+                                grabbing_downloads.append({
+                                    'name': slot.get('filename', ''),
+                                    'hash': slot.get('nzo_id', ''),
+                                    'size': float(slot.get('mb', 0)) * 1024 * 1024,
+                                    'completed': 0,
+                                    'percent': float(slot.get('percentage', 0)),
+                                    'downloader': downloader.name,
+                                    'status': 'Grabbing',
+                                })
+            except Exception as e:
+                logger.warning(f"Error fetching downloads from {downloader.name}: {e}")
+        
+        # Get active transfers
+        active_transfers_query = FileTransfer.objects.filter(
+            status__in=['pending', 'transferring', 'completed']
+        ).select_related('item')
+        
+        item_total_sizes = {}
+        for transfer in active_transfers_query:
+            if not transfer.item:
+                continue
+            item_hash = transfer.item.hash
+            if item_hash not in item_total_sizes:
+                all_transfers = active_transfers_query.filter(item__hash=item_hash)
+                item_total_sizes[item_hash] = sum(t.file_size for t in all_transfers)
+        
+        transfers_by_item = {}
+        for transfer in active_transfers_query:
+            if not transfer.item:
+                continue
+            item_hash = transfer.item.hash
+            if item_hash not in transfers_by_item:
+                transfers_by_item[item_hash] = {
+                    'item_name': transfer.item.name,
+                    'total_size': item_total_sizes.get(item_hash, 0),
+                    'total_completed': 0,
+                    'file_count': 0,
+                }
+            
+            transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
+            transfers_by_item[item_hash]['file_count'] += 1
+        
+        active_transfers = []
+        for item_hash, data in transfers_by_item.items():
+            if data['total_completed'] < data['total_size']:
+                percent = int((data['total_completed'] / data['total_size']) * 100) if data['total_size'] > 0 else 0
+                active_transfers.append({
+                    'name': data['item_name'],
+                    'item_name': data['item_name'],
+                    'size': data['total_size'],
+                    'completed': data['total_completed'],
+                    'percent': percent,
+                    'file_count': data['file_count'],
+                    'speed_mbps': 0,
+                    'extraction_status': '',
+                    'extraction_progress': 0,
+                })
+        
+        # Get item extraction statuses
+        items_with_transfers = Item.objects.filter(filetransfer__status__in=['pending', 'transferring']).distinct()
+        for item in items_with_transfers:
+            if item.hash in transfers_by_item:
+                transfers_by_item[item.hash]['extraction_status'] = item.extraction_status
+                transfers_by_item[item.hash]['extraction_progress'] = item.extraction_progress
+        
+        for t in active_transfers:
+            item_hash = next((k for k, v in transfers_by_item.items() if v['item_name'] == t['item_name']), None)
+            if item_hash:
+                t['extraction_status'] = transfers_by_item[item_hash].get('extraction_status', '')
+                t['extraction_progress'] = transfers_by_item[item_hash].get('extraction_progress', 0)
+        
+        total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
+        
+        return JsonResponse({
+            'manager_summary': manager_summary,
+            'grabbing_downloads': grabbing_downloads,
+            'active_transfers': active_transfers,
+            'total_speed_mbps': 0,
+            'total_queued': total_queued,
+        })
+    except Exception as e:
+        import traceback
+        logger.error(f"api_dashboard error: {e}\n{traceback.format_exc()}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 def api_queue(request):
