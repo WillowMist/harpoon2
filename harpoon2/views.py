@@ -564,7 +564,7 @@ def api_dashboard(request):
                 })
         
         # Get item extraction statuses
-        items_with_transfers = Item.objects.filter(filetransfer__status__in=['pending', 'transferring']).distinct()
+        items_with_transfers = Item.objects.filter(transfers__status__in=['pending', 'transferring']).distinct()
         for item in items_with_transfers:
             if item.hash in transfers_by_item:
                 transfers_by_item[item.hash]['extraction_status'] = item.extraction_status
