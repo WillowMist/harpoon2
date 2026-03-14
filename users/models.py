@@ -35,3 +35,34 @@ class CustomUser(AbstractUser):
 
     def get_link(self):
         return f'<a href={self.get_absolute_url()}>{self.username}</a>'
+
+
+class Notification(models.Model):
+    """User notifications for manual intervention required."""
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='notifications')
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.username}: {self.message[:50]}..."
+    
+    @classmethod
+    def create_for_admin(cls, message):
+        """Create a notification for the admin user."""
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        # Get the first superuser as admin
+        admin = User.objects.filter(is_superuser=True).order_by('id').first()
+        if admin:
+            cls.objects.create(user=admin, message=message)
+    
+    @classmethod
+    def get_unread_count(cls, user):
+        """Get unread notification count for a user."""
+        if user.is_authenticated and user.is_superuser:
+            return cls.objects.filter(user=user, is_read=False).count()
+        return 0

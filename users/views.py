@@ -1,10 +1,11 @@
 from django.urls import reverse_lazy, reverse
 from django.views.generic.edit import CreateView
 from django.shortcuts import get_object_or_404, render
-from django.http import HttpResponseRedirect, HttpResponse
+from django.http import HttpResponseRedirect, HttpResponse, JsonResponse
 from .forms import CustomUserCreationForm, UserPrefsForm
-from .models import CustomUser
+from .models import CustomUser, Notification
 from django.contrib import messages
+
 
 def userprefs(request):
     if request.method == 'POST':
@@ -34,4 +35,52 @@ def detail(request, userid):
     except CustomUser.DoesNotExist:
         raise Http404("User does not exist")
     return render(request, 'users/detail.html', {'thisuser': user})
+
+
+def api_notifications(request):
+    """JSON API for notifications - returns notifications for superusers."""
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    
+    notifications = Notification.objects.filter(user=request.user)[:20]
+    data = [{
+        'id': n.id,
+        'message': n.message,
+        'created_at': n.created_at.isoformat(),
+        'is_read': n.is_read,
+    } for n in notifications]
+    
+    return JsonResponse({'notifications': data})
+
+
+def api_notifications_unread_count(request):
+    """JSON API for unread notification count."""
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        return JsonResponse({'count': 0})
+    
+    count = Notification.objects.filter(user=request.user, is_read=False).count()
+    return JsonResponse({'count': count})
+
+
+def api_notifications_mark_read(request, notification_id):
+    """Mark a notification as read."""
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    
+    try:
+        notification = Notification.objects.get(id=notification_id, user=request.user)
+        notification.is_read = True
+        notification.save()
+        return JsonResponse({'success': True})
+    except Notification.DoesNotExist:
+        return JsonResponse({'error': 'Notification not found'}, status=404)
+
+
+def api_notifications_mark_all_read(request):
+    """Mark all notifications as read."""
+    if not request.user.is_authenticated or not request.user.is_superuser:
+        return JsonResponse({'error': 'Unauthorized'}, status=403)
+    
+    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+    return JsonResponse({'success': True})
 

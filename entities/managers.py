@@ -596,4 +596,10 @@ class Blackhole:
             details=f"MANUAL INTERVENTION REQUIRED: {reason}. Please check the download manually."
         )
         
+        # Create a notification for the admin
+        from users.models import Notification
+        Notification.create_for_admin(
+            f"Manual intervention required for '{item.name}': {reason}"
+        )
+        
         return True, f"Manual intervention required: {reason}"
