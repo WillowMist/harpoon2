@@ -251,13 +251,16 @@ class RTorrentDownloader(BaseDownloader):
         import logging
         logger = logging.getLogger(__name__)
         
+        # Get the raw XMLRPC client
+        rpc = self._get_client()
+        
         try:
-            self.client.d.custom1.set(info_hash, label)
+            rpc.d.custom1.set(info_hash, label)
             logger.debug(f"Set label '{label}' on torrent {info_hash}")
         except Exception as e:
             logger.debug(f"Label set method 1 failed: {e}")
             try:
-                self.client.d.custom1(info_hash, label)
+                rpc.d.custom1(info_hash, label)
                 logger.debug(f"Set label via method 2")
             except Exception as e2:
                 logger.debug(f"Label set method 2 failed: {e2}")
