@@ -248,12 +248,19 @@ class RTorrentDownloader(BaseDownloader):
     
     def _set_label(self, info_hash: str, label: str):
         """Set a label on a torrent."""
+        import logging
+        logger = logging.getLogger(__name__)
+        
         try:
             self.client.d.custom1.set(info_hash, label)
-        except Exception:
+            logger.debug(f"Set label '{label}' on torrent {info_hash}")
+        except Exception as e:
+            logger.debug(f"Label set method 1 failed: {e}")
             try:
                 self.client.d.custom1(info_hash, label)
-            except Exception:
+                logger.debug(f"Set label via method 2")
+            except Exception as e2:
+                logger.debug(f"Label set method 2 failed: {e2}")
                 pass  # Label not supported on this rtorrent
 
     def find(self, hash: str):
