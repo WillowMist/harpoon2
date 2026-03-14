@@ -143,20 +143,21 @@ class RTorrentDownloader(BaseDownloader):
         logger = logging.getLogger(__name__)
         
         super().__init__(downloader)
-        # Always initialize if we have options - the from_db method should set client on the model
-        # but we need to ensure the RTorrentXMLRPC client is created
+        self._rtorrent = None
+        
         if downloader and self.options:
             try:
                 self._init_client()
             except Exception as e:
                 logger.error(f"Failed to init RTorrent client: {e}")
-                self.reload = True
-                self.client = None
+                self._rtorrent = None
         else:
-            self.reload = True
-            self.client = None
+            self._rtorrent = None
 
     def _init_client(self):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         opts = self.options
         protocol = 'https' if opts.get('use_ssl', True) else 'http'
         host = opts.get('host', '')
@@ -171,13 +172,31 @@ class RTorrentDownloader(BaseDownloader):
             auth = ''
 
         address = f"{protocol}://{auth}{host}:{port}/{url_path}"
-        self.client = RTorrentXMLRPC(address=address, timeout=30.0)
-        self.reload = False
+        
+        # Use lib/rtorrent like v1 does
+        from lib.rtorrent import RTorrent
+        try:
+            self._rtorrent = RTorrent(address)
+            logger.debug(f"RTorrent client initialized: {self._rtorrent}")
+        except Exception as e:
+            logger.error(f"Failed to create RTorrent client: {e}")
+            self._rtorrent = None
+        
         self.start_on_load = opts.get('startonload', True)
 
     def _ensure_client(self):
-        if self.reload or self.client is None:
+        if self._rtorrent is None:
             self._init_client()
+
+    @property
+    def client(self):
+        """Return self for compatibility."""
+        return self
+    
+    def _get_rtorrent(self):
+        """Get the lib/rtorrent RTorrent instance."""
+        self._ensure_client()
+        return self._rtorrent
 
     def add(self, file_path: str, **kwargs) -> str:
         """Add a torrent file or URL to rTorrent.
@@ -189,70 +208,52 @@ class RTorrentDownloader(BaseDownloader):
         Returns:
             Torrent hash (info_hash)
         """
+        import logging
+        import os
+        
+        logger = logging.getLogger(__name__)
+        
         self._ensure_client()
+        
+        if self._rtorrent is None:
+            raise Exception("RTorrent client not initialized")
         
         label = kwargs.get('label', '')
         
-        # Determine if it's a magnet URL or file
-        if file_path.startswith('magnet:'):
-            # For magnets, we need to extract the info hash
-            import re
-            match = re.search(r'xt=urn:btih:([a-zA-Z0-9]+)', file_path)
-            if match:
-                info_hash = match.group(1).upper()
-                if len(info_hash) == 32:
-                    # Base32 hash needs conversion
-                    import base64
-                    b32_bytes = info_hash.encode()
-                    b32_decoded = base64.b32decode(b32_bytes)
-                    info_hash = b32_decoded.hex().upper()
-                # Load magnet using load.magnet method
-                self.client.load_magnet(file_path, info_hash)
-                if self.start_on_load:
-                    self.client.d_start(info_hash)
-                # Set label if provided
-                if label:
-                    self._set_label(info_hash, label)
-                return info_hash
-            raise ValueError("Invalid magnet link")
-        else:
-            # Local torrent file - use load_start to load and optionally start
-            import bencoder
-            import hashlib
-            import logging
+        # Use lib/rtorrent like v1 does - with verify_load=True
+        try:
+            # load_torrent returns a Torrent object if successful
+            torrent = self._rtorrent.load_torrent(file_path, start=self.start_on_load, verify_load=True)
             
-            logger = logging.getLogger(__name__)
+            if torrent is None:
+                raise Exception("Failed to load torrent - verify_load returned None")
             
-            # Read file first to compute hash (before sending to rtorrent)
-            with open(file_path, 'rb') as f:
-                data = bencoder.decode(f.read())
-            info_hash = hashlib.sha1(bencoder.encode(data[b'info'])).hexdigest().upper()
+            info_hash = torrent.info_hash
+            logger.debug(f"Successfully loaded torrent: {info_hash}")
             
-            # Now send to rtorrent
-            try:
-                if self.start_on_load:
-                    result = self.client.load_start(file_path)
-                else:
-                    result = self.client.load_torrent(file_path)
-                logger.debug(f"RTorrent load result: {result}")
-                
-                # Set label if provided
-                if label:
-                    self._set_label(info_hash, label)
-                    
-            except Exception as e:
-                logger.error(f"Failed to load torrent to rtorrent: {e}")
-                raise
+            # Set label after loading (like v1 does)
+            if label:
+                try:
+                    torrent.set_custom(1, label)
+                    logger.debug(f"Set label '{label}' on torrent {info_hash}")
+                except Exception as e:
+                    logger.debug(f"Failed to set label: {e}")
             
             return info_hash
+            
+        except AssertionError as e:
+            logger.error(f"Torrent was not added successfully: {e}")
+            raise Exception(f"Failed to add torrent: {e}")
+        except Exception as e:
+            logger.error(f"Error adding torrent: {e}")
+            raise
     
     def _set_label(self, info_hash: str, label: str):
         """Set a label on a torrent."""
         import logging
         logger = logging.getLogger(__name__)
         
-        # Get the raw XMLRPC client from RTorrentXMLRPC
-        rpc = self.client._get_client()
+        rpc = self._rtorrent.client
         
         try:
             rpc.d.custom1.set(info_hash, label)
@@ -264,7 +265,6 @@ class RTorrentDownloader(BaseDownloader):
                 logger.debug(f"Set label via method 2")
             except Exception as e2:
                 logger.debug(f"Label set method 2 failed: {e2}")
-                pass  # Label not supported on this rtorrent
 
     def find(self, hash: str):
         """Find a torrent by its info hash.
@@ -277,19 +277,17 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            # Get list of all torrents - each is a list like ['hash']
-            torrents = self.client.download_list() or []
-            # Flatten to get actual hashes
+            rpc = self._rtorrent.client
+            torrents = rpc.download_list() or []
             torrent_hashes = [t[0].upper() if isinstance(t, list) else t.upper() for t in torrents]
             
             if hash.upper() in torrent_hashes:
-                # Get torrent details using the RTorrentXMLRPC methods
-                name = self.client.d_name(hash)
-                size_bytes = self.client.d_size_bytes(hash)
-                completed_bytes = self.client.d_completed_bytes(hash)
-                is_complete = self.client.d_is_complete(hash)
-                ratio = self.client.d_ratio(hash)
-                directory = self.client.d_directory(hash)
+                name = rpc.d.name(hash)
+                size_bytes = rpc.d.size_bytes(hash)
+                completed_bytes = rpc.d.completed_bytes(hash)
+                is_complete = rpc.d.complete(hash)
+                ratio = rpc.d.ratio(hash)
+                directory = rpc.d.directory(hash)
                 
                 return {
                     'name': name,
@@ -297,7 +295,7 @@ class RTorrentDownloader(BaseDownloader):
                     'completed': is_complete,
                     'size_bytes': size_bytes,
                     'bytes_downloaded': completed_bytes,
-                    'ratio': ratio / 1000.0 if ratio else 0,  # Convert from permille
+                    'ratio': ratio / 1000.0 if ratio else 0,
                     'directory': directory,
                 }
         except Exception as e:
@@ -336,9 +334,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            # Use multicall2 to get all torrents with their details in one call
-            # This is much more efficient than individual calls
-            result = self.client._get_client().d.multicall2('', 'main',
+            rpc = self._rtorrent.client
+            result = rpc.d.multicall2('', 'main',
                 'd.hash=',
                 'd.name=',
                 'd.size_bytes=',
@@ -353,7 +350,6 @@ class RTorrentDownloader(BaseDownloader):
                 
                 hash_val, name, size, is_complete, directory = torrent_data[:5]
                 
-                # Only include completed torrents
                 if is_complete:
                     completed_torrents.append({
                         'hash': hash_val.upper() if hash_val else '',
@@ -380,8 +376,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            # Get directory for the torrent
-            directory = self.client.d_directory(hash)
+            rpc = self._rtorrent.client
+            directory = rpc.d.directory(hash)
             if directory:
                 return [{'path': directory}]
         except Exception:
@@ -400,7 +396,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            self.client.d_erase(hash)
+            rpc = self._rtorrent.client
+            rpc.d.erase(hash)
             return True
         except Exception:
             pass
@@ -414,7 +411,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            torrents = self.client.download_list() or []
+            rpc = self._rtorrent.client
+            torrents = rpc.download_list() or []
             return (True, f"Connected. {len(torrents)} torrents in queue.")
         except Exception as e:
             return (False, f"Connection failed: {str(e)}")
@@ -427,7 +425,8 @@ class RTorrentDownloader(BaseDownloader):
         """
         self._ensure_client()
         try:
-            torrents = self.client.download_list() or []
+            rpc = self._rtorrent.client
+            torrents = rpc.download_list() or []
             torrent_hashes = [t[0].upper() if isinstance(t, list) else t.upper() for t in torrents]
             if hash.upper() in torrent_hashes:
                 return hash
@@ -445,7 +444,45 @@ class RTorrentDownloader(BaseDownloader):
             List of active download info dicts
         """
         self._ensure_client()
-        return self.client.active_downloads(limit=limit)
+        try:
+            rpc = self._rtorrent.client
+            result = rpc.d.multicall2('', 'main',
+                'd.hash=',
+                'd.name=',
+                'd.size_bytes=',
+                'd.completed_bytes=',
+                'd.complete=',
+                'd.ratio=',
+                'd.directory='
+            )
+            
+            active = []
+            for torrent_data in result:
+                if not isinstance(torrent_data, list) or len(torrent_data) < 5:
+                    continue
+                
+                h, name, size, completed, is_complete = torrent_data[:5]
+                ratio = torrent_data[5] if len(torrent_data) > 5 else 0
+                directory = torrent_data[6] if len(torrent_data) > 6 else ''
+                
+                if not is_complete:
+                    pct = (completed / size * 100) if size > 0 else 0
+                    active.append({
+                        'hash': h,
+                        'name': name,
+                        'size': size,
+                        'completed': completed,
+                        'percent': pct,
+                        'ratio': ratio / 1000.0 if ratio else 0,
+                        'directory': directory,
+                    })
+                    
+                    if len(active) >= limit:
+                        break
+            
+            return active
+        except Exception as e:
+            return []
 
 
 def RTorrent(downloader=None):
