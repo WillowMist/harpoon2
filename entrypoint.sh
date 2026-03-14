@@ -122,6 +122,10 @@ case "${1:-start}" in
     start)
         echo -e "${GREEN}Starting all services...${NC}"
         
+        # Create any missing migrations
+        echo -e "${YELLOW}Creating database migrations...${NC}"
+        python3 manage.py makemigrations --noinput || true
+        
         # Run migrations on every startup (Django is smart enough to only apply new ones)
         echo -e "${YELLOW}Checking database migrations...${NC}"
         python3 manage.py migrate --noinput || true
