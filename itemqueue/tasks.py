@@ -808,18 +808,23 @@ def transfer_files_async(item_hash):
                     except Exception as e:
                         logger.warning(f"Could not check for single video file: {e}")
                     
-                    logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
-                    client = item.manager.client
-                    success, pp_message = client.post_process(item, download_path)
-                    
-                    if success:
-                        logger.info(f"Manager post-processing initiated: {pp_message}")
-                    else:
-                        logger.error(f"Manager post-processing failed: {pp_message}")
-                        # Don't mark as Failed immediately - schedule retry
-                        ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
-                        # Schedule retry in 5 minutes
-                        logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
+                    # Only call post_process if the manager supports it
+                    if hasattr(client, 'post_process'):
+                        logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
+                        try:
+                            success, pp_message = client.post_process(item, download_path)
+                            
+                            if success:
+                                logger.info(f"Manager post-processing initiated: {pp_message}")
+                            else:
+                                logger.error(f"Manager post-processing failed: {pp_message}")
+                                # Don't mark as Failed immediately - schedule retry
+                                ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+                                # Schedule retry in 5 minutes
+                                logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
+                        except Exception as e:
+                            logger.error(f"Error calling post-processing: {e}")
+                            ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
                         retry_postprocessing.apply_async(args=[item_hash], countdown=300)
             except Exception as e:
                 logger.error(f"Error calling manager post-processing: {e}")
@@ -1217,19 +1222,25 @@ def retry_postprocessing(item_hash):
         except Exception as e:
             logger.warning(f"Could not check for single video file: {e}")
         
-        logger.info(f"Retrying post-processing for {item.name} at path: {download_path}")
+        # Only call post_process if the manager supports it
         client = item.manager.client
-        success, pp_message = client.post_process(item, download_path)
-        
-        if success:
-            logger.info(f"Retry post-processing succeeded for {item.name}: {pp_message}")
-            ItemHistory.objects.create(item=item, details=f'Post-processing retry succeeded: {pp_message}')
-        else:
-            logger.error(f"Retry post-processing failed for {item.name}: {pp_message}")
-            ItemHistory.objects.create(item=item, details=f'Post-processing retry failed: {pp_message}')
-            # Schedule another retry in 10 minutes
-            logger.info(f"Scheduling another retry for {item.name} in 10 minutes")
-            retry_postprocessing.apply_async(args=[item_hash], countdown=600)
+        if hasattr(client, 'post_process'):
+            logger.info(f"Retrying post-processing for {item.name} at path: {download_path}")
+            try:
+                success, pp_message = client.post_process(item, download_path)
+                
+                if success:
+                    logger.info(f"Retry post-processing succeeded for {item.name}: {pp_message}")
+                    ItemHistory.objects.create(item=item, details=f'Post-processing retry succeeded: {pp_message}')
+                else:
+                    logger.error(f"Retry post-processing failed for {item.name}: {pp_message}")
+                    ItemHistory.objects.create(item=item, details=f'Post-processing retry failed: {pp_message}')
+                    # Schedule another retry in 10 minutes
+                    logger.info(f"Scheduling another retry for {item.name} in 10 minutes")
+                    retry_postprocessing.apply_async(args=[item_hash], countdown=600)
+            except Exception as e:
+                logger.error(f"Error in retry post-processing: {e}")
+                ItemHistory.objects.create(item=item, details=f'Retry error: {str(e)}')
     
     except Exception as e:
         logger.error(f"Error in retry_postprocessing for {item_hash}: {e}")
