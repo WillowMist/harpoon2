@@ -21,6 +21,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libpq-dev \
     sqlite3 \
+    unrar \
     && rm -rf /var/lib/apt/lists/*
 
 # Create application directories

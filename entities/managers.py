@@ -569,3 +569,31 @@ class Blackhole:
             return False
         
         return False
+    
+    def reject_download(self, item, reason):
+        """Blackhole manager doesn't support rejecting downloads.
+        
+        For Blackhole, this logs a warning and creates a history entry
+        alerting the user that manual intervention is needed.
+        
+        Args:
+            item: Item object
+            reason: String explanation of why it failed
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.warning(f"Blackhole manager cannot reject downloads automatically. "
+                      f"Item '{item.name}' requires manual intervention. Reason: {reason}")
+        
+        # Create a history entry to alert the user
+        from itemqueue.models import ItemHistory
+        ItemHistory.objects.create(
+            item=item,
+            details=f"MANUAL INTERVENTION REQUIRED: {reason}. Please check the download manually."
+        )
+        
+        return True, f"Manual intervention required: {reason}"
