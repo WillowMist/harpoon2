@@ -122,15 +122,13 @@ case "${1:-start}" in
     start)
         echo -e "${GREEN}Starting all services...${NC}"
         
-        # Run migrations (only on first startup or when needed)
-        echo -e "${YELLOW}Checking database...${NC}"
-        if [ ! -f /data/harpoon2.db ]; then
-            echo -e "${YELLOW}Running initial database migrations...${NC}"
-            python3 manage.py migrate --noinput || true
-            
-            echo -e "${YELLOW}Collecting static files...${NC}"
-            python3 manage.py collectstatic --noinput --clear || true
-        fi
+        # Run migrations on every startup (Django is smart enough to only apply new ones)
+        echo -e "${YELLOW}Checking database migrations...${NC}"
+        python3 manage.py migrate --noinput || true
+        
+        # Collect static files if needed
+        echo -e "${YELLOW}Collecting static files...${NC}"
+        python3 manage.py collectstatic --noinput --clear || true
         
         # Start Redis
         echo -e "${YELLOW}Starting Redis server...${NC}"
