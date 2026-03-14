@@ -214,6 +214,11 @@ def transfer_files_async(item_hash):
         client._ensure_client()
         hash_value = item.hash
         
+        # Initialize variables
+        category = ''
+        remote_dir = ''
+        torrent_name = ''
+        
         # Get torrent/download info to know what files to copy
         if downloader.downloadertype == 'RTorrent':
             logger.debug(f"[transfer_files_async] Fetching RTorrent info for hash {hash_value}")
@@ -224,7 +229,8 @@ def transfer_files_async(item_hash):
             
             remote_dir = torrent_info.get('directory', '')
             torrent_name = torrent_info.get('name', '')
-            logger.info(f"[transfer_files_async] RTorrent - remote_dir={remote_dir}, torrent_name={torrent_name}")
+            category = torrent_info.get('label', '')  # Get category from rtorrent label
+            logger.info(f"[transfer_files_async] RTorrent - remote_dir={remote_dir}, torrent_name={torrent_name}, category={category}")
             
             if not remote_dir:
                 logger.error(f"[transfer_files_async] RTorrent - no remote directory found")
@@ -315,6 +321,10 @@ def transfer_files_async(item_hash):
             base_folder = item.manager.folder.folder
         else:
             base_folder = '/tmp'
+        
+        # Add category subfolder if available (from rtorrent label or manager settings)
+        if category:
+            base_folder = os.path.join(base_folder, category)
         
         # Create a subfolder for this item using a sanitized name
         import re

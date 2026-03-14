@@ -288,6 +288,7 @@ class RTorrentDownloader(BaseDownloader):
                 is_complete = rpc.d.complete(hash)
                 ratio = rpc.d.ratio(hash)
                 directory = rpc.d.directory(hash)
+                label = rpc.d.custom1(hash) if hasattr(rpc.d, 'custom1') else ''
                 
                 return {
                     'name': name,
@@ -297,6 +298,7 @@ class RTorrentDownloader(BaseDownloader):
                     'bytes_downloaded': completed_bytes,
                     'ratio': ratio / 1000.0 if ratio else 0,
                     'directory': directory,
+                    'label': label,
                 }
         except Exception as e:
             pass
