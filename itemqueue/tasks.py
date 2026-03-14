@@ -713,32 +713,8 @@ def transfer_files_async(item_hash):
         logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
         ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
         
-        # Move from temp folder to final destination (Blackhole manager only)
-        if is_blackhole and failed_count == 0 and temp_folder and os.path.exists(temp_folder):
-            try:
-                # Create category folder if it doesn't exist
-                if not os.path.exists(final_base_folder):
-                    os.makedirs(final_base_folder)
-                    logger.info(f"Created category folder: {final_base_folder}")
-                
-                # If final folder exists, remove it first
-                if os.path.exists(final_folder):
-                    import shutil
-                    shutil.rmtree(final_folder)
-                # Rename temp to final (atomic on same filesystem)
-                os.rename(temp_folder, final_folder)
-                logger.info(f"Moved temp folder to final: {final_folder}")
-                ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
-            except Exception as e:
-                logger.error(f"Failed to move temp folder to final: {e}")
-                ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
-        
-        # Mark item as Completed now that transfer is done
-        item.status = 'Completed'
-        item.save()
-        ItemHistory.objects.create(item=item, details='File transfer completed, item marked as Completed')
-        
-        # Post-transfer processing: extract ZIP and RAR archives if present
+        # Post-transfer processing: extract ZIP and RAR archives FIRST
+        # (before moving to final folder so extraction happens in temp location)
         local_folder = None
         if copied_count > 0:
             try:
@@ -763,7 +739,32 @@ def transfer_files_async(item_hash):
                         logger.info(f"RAR processing completed: {message}")
             except Exception as e:
                 logger.error(f"Error during archive processing: {e}")
-                ItemHistory.objects.create(item=item, details=f'Archive processing error: {str(e)}')
+        
+        # THEN move from temp folder to final destination (Blackhole manager only)
+        # This happens AFTER extraction
+        if is_blackhole and failed_count == 0 and temp_folder and os.path.exists(temp_folder):
+            try:
+                # Create category folder if it doesn't exist
+                if not os.path.exists(final_base_folder):
+                    os.makedirs(final_base_folder)
+                    logger.info(f"Created category folder: {final_base_folder}")
+                
+                # If final folder exists, remove it first
+                if os.path.exists(final_folder):
+                    import shutil
+                    shutil.rmtree(final_folder)
+                # Rename temp to final (atomic on same filesystem)
+                os.rename(temp_folder, final_folder)
+                logger.info(f"Moved temp folder to final: {final_folder}")
+                ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
+            except Exception as e:
+                logger.error(f"Failed to move temp folder to final: {e}")
+                ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
+        
+        # Mark item as Completed after transfer AND extraction AND move are done
+        item.status = 'Completed'
+        item.save()
+        ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
         
         # Call manager post-processing regardless of whether RAR extraction occurred
         if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
