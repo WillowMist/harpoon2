@@ -180,6 +180,104 @@ def process_rar_archives(directory, item):
         return True, f"Extracted but cleanup failed: {str(e)}"
 
 
+def find_zip_archives(directory):
+    """Find all ZIP archive files in a directory.
+    
+    Returns a list of paths to ZIP files (.zip).
+    """
+    zip_files = []
+    pattern_zip = os.path.join(directory, '*.zip')
+    zip_files.extend(glob.glob(pattern_zip))
+    return sorted(zip_files)
+
+
+def extract_zip_archive(zip_file_path, extract_to_dir):
+    """Extract a ZIP archive to the specified directory.
+    
+    Uses Python's zipfile module.
+    Validates that extraction actually produced files.
+    
+    Returns (success: bool, message: str)
+    """
+    import zipfile
+    try:
+        files_before = set(os.listdir(extract_to_dir))
+        
+        with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_to_dir)
+        
+        files_after = set(os.listdir(extract_to_dir))
+        new_files = files_after - files_before
+        
+        if new_files:
+            logger.info(f"Successfully extracted {len(new_files)} file(s) from {os.path.basename(zip_file_path)}")
+            return True, f"Extracted {len(new_files)} files"
+        else:
+            logger.error(f"ZIP archive contains no extractable files")
+            return False, "Archive empty or corrupted"
+            
+    except Exception as e:
+        logger.error(f"Error extracting ZIP archive: {e}")
+        return False, str(e)
+
+
+def process_zip_archives(directory, item):
+    """Process all ZIP archives in a directory.
+    
+    Extracts all ZIP files, then removes them.
+    """
+    zip_files = find_zip_archives(directory)
+    
+    if not zip_files:
+        return True, "No ZIP archives found"
+    
+    logger.info(f"Found {len(zip_files)} ZIP archive(s) in {directory}")
+    
+    item.extraction_status = 'extracting'
+    item.extraction_started = django.utils.timezone.now()
+    item.extraction_progress = 0
+    item.save()
+    
+    ItemHistory.objects.create(item=item, details=f'Starting ZIP extraction ({len(zip_files)} files)')
+    
+    all_success = True
+    for idx, zip_file in enumerate(zip_files):
+        logger.info(f"Extracting ZIP archive: {zip_file}")
+        success, message = extract_zip_archive(zip_file, directory)
+        
+        if not success:
+            error_msg = f"ZIP extraction failed: {message}"
+            logger.error(error_msg)
+            item.extraction_status = 'failed'
+            item.extraction_progress = 0
+            item.save()
+            ItemHistory.objects.create(item=item, details=error_msg)
+            return False, message
+        
+        progress = int((idx + 1) / len(zip_files) * 90)
+        item.extraction_progress = progress
+        item.save()
+    
+    # Remove all ZIP archive files after successful extraction
+    for idx, zip_file in enumerate(zip_files):
+        try:
+            os.remove(zip_file)
+            logger.info(f"Removed ZIP archive: {os.path.basename(zip_file)}")
+        except Exception as e:
+            logger.warning(f"Failed to remove ZIP archive {zip_file}: {e}")
+    
+    item.extraction_status = 'completed'
+    item.extraction_progress = 100
+    item.extraction_completed = django.utils.timezone.now()
+    item.save()
+    
+    success_msg = f"Successfully extracted and removed {len(zip_files)} ZIP file(s)"
+    logger.info(success_msg)
+    ItemHistory.objects.create(item=item, details=success_msg)
+    
+    return True, success_msg
+
+
 @shared_task(time_limit=3600, soft_time_limit=3300)
 def transfer_files_async(item_hash):
     """Async task to transfer files from seedbox to local storage.
@@ -618,6 +716,11 @@ def transfer_files_async(item_hash):
         # Move from temp folder to final destination (Blackhole manager only)
         if is_blackhole and failed_count == 0 and temp_folder and os.path.exists(temp_folder):
             try:
+                # Create category folder if it doesn't exist
+                if not os.path.exists(final_base_folder):
+                    os.makedirs(final_base_folder)
+                    logger.info(f"Created category folder: {final_base_folder}")
+                
                 # If final folder exists, remove it first
                 if os.path.exists(final_folder):
                     import shutil
@@ -635,23 +738,32 @@ def transfer_files_async(item_hash):
         item.save()
         ItemHistory.objects.create(item=item, details='File transfer completed, item marked as Completed')
         
-        # Post-transfer processing: extract RAR archives if present
+        # Post-transfer processing: extract ZIP and RAR archives if present
         local_folder = None
         if copied_count > 0:
             try:
                 first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
                 if first_transfer and first_transfer.local_path:
                     local_folder = os.path.dirname(first_transfer.local_path)
-                    logger.info(f"Processing RAR archives in: {local_folder}")
                     
+                    # Process ZIP archives first
+                    logger.info(f"Processing ZIP archives in: {local_folder}")
+                    success, message = process_zip_archives(local_folder, item)
+                    if not success:
+                        logger.warning(f"ZIP processing encountered issues: {message}")
+                    else:
+                        logger.info(f"ZIP processing completed: {message}")
+                    
+                    # Then process RAR archives (in case there were RARs inside ZIPs or alongside)
+                    logger.info(f"Processing RAR archives in: {local_folder}")
                     success, message = process_rar_archives(local_folder, item)
                     if not success:
                         logger.warning(f"RAR processing encountered issues: {message}")
                     else:
                         logger.info(f"RAR processing completed: {message}")
             except Exception as e:
-                logger.error(f"Error during RAR archive processing: {e}")
-                ItemHistory.objects.create(item=item, details=f'RAR processing error: {str(e)}')
+                logger.error(f"Error during archive processing: {e}")
+                ItemHistory.objects.create(item=item, details=f'Archive processing error: {str(e)}')
         
         # Call manager post-processing regardless of whether RAR extraction occurred
         if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
