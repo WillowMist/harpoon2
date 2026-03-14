@@ -139,10 +139,15 @@ class RTorrentDownloader(BaseDownloader):
     }
 
     def __init__(self, downloader=None):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         super().__init__(downloader)
+        logger.debug(f"RTorrentDownloader.__init__: downloader={downloader}, hasattr(client)={hasattr(downloader, 'client') if downloader else 'N/A'}")
         if downloader and hasattr(downloader, 'client'):
             self._init_client()
         else:
+            logger.debug(f"RTorrentDownloader.__init__: else branch taken")
             self.reload = True
             self.client = None
 
