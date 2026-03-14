@@ -318,17 +318,23 @@ def transfer_files_async(item_hash):
         
         # Determine destination folder - create subfolder for item
         if item.manager and item.manager.folder:
-            base_folder = item.manager.folder.folder
+            final_base_folder = item.manager.folder.folder
         else:
-            base_folder = '/tmp'
+            final_base_folder = '/tmp'
         
         # Check if this is a Blackhole manager
         is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
         
+        # Get temp folder from Blackhole manager config
+        if is_blackhole and item.manager and item.manager.temp_folder:
+            temp_base_folder = item.manager.temp_folder
+        else:
+            temp_base_folder = None
+        
         # Add category subfolder if available (from rtorrent label or manager settings)
         # Only for Blackhole manager
         if is_blackhole and category:
-            base_folder = os.path.join(base_folder, category)
+            final_base_folder = os.path.join(final_base_folder, category)
         
         # Create a subfolder for this item using a sanitized name
         import re
@@ -336,15 +342,15 @@ def transfer_files_async(item_hash):
         sanitized_name = sanitized_name.strip()
         
         # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
-        if is_blackhole:
-            temp_folder = os.path.join(base_folder, '.tmp_' + sanitized_name)
-            final_folder = os.path.join(base_folder, sanitized_name)
+        if is_blackhole and temp_base_folder:
+            temp_folder = os.path.join(temp_base_folder, sanitized_name)
+            final_folder = os.path.join(final_base_folder, sanitized_name)
             
             os.makedirs(temp_folder, exist_ok=True)
             logger.info(f"Created temp folder for transfer: {temp_folder}")
         else:
             temp_folder = None
-            final_folder = os.path.join(base_folder, sanitized_name)
+            final_folder = os.path.join(final_base_folder, sanitized_name)
             
             os.makedirs(final_folder, exist_ok=True)
             logger.info(f"Created folder for transfer: {final_folder}")
