@@ -1065,6 +1065,22 @@ def check_stalled_transfers():
                     details='Transfers have failed/pending, resetting for retry'
                 )
     
+    # Check for items in PostProcessing without any FileTransfer records
+    # This handles cases where status was manually set to PostProcessing
+    pp_without_transfers = Item.objects.filter(status='PostProcessing')
+    for item in pp_without_transfers:
+        has_transfers = FileTransfer.objects.filter(item=item).exists()
+        if not has_transfers:
+            logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
+            try:
+                transfer_files_async.delay(item.hash)
+                ItemHistory.objects.create(
+                    item=item,
+                    details='No transfer records found, queued file transfer'
+                )
+            except Exception as e:
+                logger.error(f"Failed to queue transfer for {item.name}: {e}")
+    
     if stalled_count > 0:
         logger.info(f"Detected and failed {stalled_count} stalled transfers")
 
