@@ -251,8 +251,8 @@ class RTorrentDownloader(BaseDownloader):
         import logging
         logger = logging.getLogger(__name__)
         
-        # Get the raw XMLRPC client
-        rpc = self._get_client()
+        # Get the raw XMLRPC client from RTorrentXMLRPC
+        rpc = self.client._get_client()
         
         try:
             rpc.d.custom1.set(info_hash, label)
