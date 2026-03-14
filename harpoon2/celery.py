@@ -27,30 +27,30 @@ app.autodiscover_tasks()
 
 # Set beat schedule
 app.conf.beat_schedule = {
-    # Poll managers every minute for newly grabbed items
+    # Poll managers every 20 seconds for newly grabbed items
     'poll-managers': {
         'task': 'entities.tasks.poll_managers',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 20.0,  # Every 20 seconds
     },
     # Poll Blackhole managers for new files
     'poll-blackhole-managers': {
         'task': 'entities.tasks.poll_blackhole_managers',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 20.0,  # Every 20 seconds
     },
     # Assign items to downloaders
     'assign-items': {
         'task': 'entities.tasks.assign_items_to_downloaders',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 20.0,  # Every 20 seconds
     },
-    # Check downloaders every minute for completed items
+    # Check downloaders every 20 seconds for completed items
     'check-downloaders': {
         'task': 'itemqueue.tasks.check_downloaders',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 20.0,  # Every 20 seconds
     },
-    # Check for stalled transfers every minute
+    # Check for stalled transfers every 20 seconds
     'check-stalled-transfers': {
         'task': 'itemqueue.tasks.check_stalled_transfers',
-        'schedule': 60.0,  # Every 60 seconds
+        'schedule': 20.0,  # Every 20 seconds
     },
     # Check downloader for failures and notify manager
     'check-downloader-failures': {
