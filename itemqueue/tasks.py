@@ -1086,6 +1086,22 @@ def check_stalled_transfers():
                 except Exception as e:
                     logger.error(f"Failed to queue transfer for {item.name}: {e}")
         
+        # Check for items in PostProcessing where ALL transfers are completed
+        # This handles cases where transfer finished but status wasn't updated
+        pp_with_completed = Item.objects.filter(status='PostProcessing')
+        for item in pp_with_completed:
+            transfers = FileTransfer.objects.filter(item=item)
+            if transfers.exists():
+                all_completed = all(t.status == 'completed' for t in transfers)
+                if all_completed:
+                    logger.info(f"Item {item.name} is PostProcessing but all transfers completed, marking as Completed")
+                    item.status = 'Completed'
+                    item.save()
+                    ItemHistory.objects.create(
+                        item=item,
+                        details='All transfers completed, marked as Completed'
+                    )
+        
         if stalled_count > 0:
             logger.info(f"Detected and failed {stalled_count} stalled transfers")
     except Exception as e:
