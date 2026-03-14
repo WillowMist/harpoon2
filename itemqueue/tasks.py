@@ -1019,70 +1019,77 @@ def check_downloaders():
 @shared_task
 def check_stalled_transfers():
     """Check for stalled transfers and restart them if they haven't progressed in 5+ minutes."""
-    from django.utils import timezone
-    from datetime import timedelta
+    import logging
+    logger = logging.getLogger(__name__)
     
-    stall_threshold = timezone.now() - timedelta(minutes=5)
-    stalled_count = 0
-    
-    # Check for transferring transfers that are stalled
-    transferring = FileTransfer.objects.filter(status='transferring')
-    for transfer in transferring:
-        if transfer.modified < stall_threshold:
-            logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]}")
-            
-            transfer.status = 'failed'
-            transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
-            transfer.save()
-            stalled_count += 1
-            
-            ItemHistory.objects.create(
-                item=transfer.item,
-                details=f'Stalled transfer detected and failed: {transfer.filename}'
-            )
-    
-    # Check for items in PostProcessing with failed or pending transfers
-    post_processing_items = Item.objects.filter(status='PostProcessing')
-    for item in post_processing_items:
-        item_transfers = FileTransfer.objects.filter(item=item)
-        has_failed = any(t.status == 'failed' for t in item_transfers)
-        has_pending = any(t.status == 'pending' for t in item_transfers)
+    try:
+        from django.utils import timezone
+        from datetime import timedelta
         
-        # If item has failed or pending transfers that are old, reset it
-        if has_failed or has_pending:
-            # For items with issues, check the oldest transfer's age
-            oldest_transfer = item_transfers.order_by('modified').first()
-            if oldest_transfer and oldest_transfer.modified < stall_threshold:
-                logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
-                # Delete old failed/pending transfers so they can be recreated fresh
-                item_transfers.filter(status__in=['failed', 'pending']).delete()
-                item.status = 'Grabbed'
-                item.save()
+        stall_threshold = timezone.now() - timedelta(minutes=5)
+        stalled_count = 0
+        
+        # Check for transferring transfers that are stalled
+        transferring = FileTransfer.objects.filter(status='transferring')
+        for transfer in transferring:
+            if transfer.modified < stall_threshold:
+                logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]}")
+                
+                transfer.status = 'failed'
+                transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
+                transfer.save()
                 stalled_count += 1
                 
                 ItemHistory.objects.create(
-                    item=item,
-                    details='Transfers have failed/pending, resetting for retry'
+                    item=transfer.item,
+                    details=f'Stalled transfer detected and failed: {transfer.filename}'
                 )
-    
-    # Check for items in PostProcessing without any FileTransfer records
-    # This handles cases where status was manually set to PostProcessing
-    pp_without_transfers = Item.objects.filter(status='PostProcessing')
-    for item in pp_without_transfers:
-        has_transfers = FileTransfer.objects.filter(item=item).exists()
-        if not has_transfers:
-            logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
-            try:
-                transfer_files_async.delay(item.hash)
-                ItemHistory.objects.create(
-                    item=item,
-                    details='No transfer records found, queued file transfer'
-                )
-            except Exception as e:
-                logger.error(f"Failed to queue transfer for {item.name}: {e}")
-    
-    if stalled_count > 0:
-        logger.info(f"Detected and failed {stalled_count} stalled transfers")
+        
+        # Check for items in PostProcessing with failed or pending transfers
+        post_processing_items = Item.objects.filter(status='PostProcessing')
+        for item in post_processing_items:
+            item_transfers = FileTransfer.objects.filter(item=item)
+            has_failed = any(t.status == 'failed' for t in item_transfers)
+            has_pending = any(t.status == 'pending' for t in item_transfers)
+            
+            # If item has failed or pending transfers that are old, reset it
+            if has_failed or has_pending:
+                # For items with issues, check the oldest transfer's age
+                oldest_transfer = item_transfers.order_by('modified').first()
+                if oldest_transfer and oldest_transfer.modified < stall_threshold:
+                    logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
+                    # Delete old failed/pending transfers so they can be recreated fresh
+                    item_transfers.filter(status__in=['failed', 'pending']).delete()
+                    item.status = 'Grabbed'
+                    item.save()
+                    stalled_count += 1
+                    
+                    ItemHistory.objects.create(
+                        item=item,
+                        details='Transfers have failed/pending, resetting for retry'
+                    )
+        
+        # Check for items in PostProcessing without any FileTransfer records
+        # This handles cases where status was manually set to PostProcessing
+        pp_without_transfers = Item.objects.filter(status='PostProcessing')
+        for item in pp_without_transfers:
+            has_transfers = FileTransfer.objects.filter(item=item).exists()
+            if not has_transfers:
+                logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
+                try:
+                    transfer_files_async.delay(item.hash)
+                    ItemHistory.objects.create(
+                        item=item,
+                        details='No transfer records found, queued file transfer'
+                    )
+                    logger.info(f"Successfully queued transfer for {item.name}")
+                except Exception as e:
+                    logger.error(f"Failed to queue transfer for {item.name}: {e}")
+        
+        if stalled_count > 0:
+            logger.info(f"Detected and failed {stalled_count} stalled transfers")
+    except Exception as e:
+        logger.error(f"Error in check_stalled_transfers: {e}")
 
 
 @shared_task
