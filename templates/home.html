@@ -344,7 +344,7 @@ function loadDashboardData() {
 // Start polling when page loads
 document.addEventListener('DOMContentLoaded', function() {
     loadDashboardData();
-    dashboardPollingInterval = setInterval(loadDashboardData, 20000); // Poll every 20 seconds
+    dashboardPollingInterval = setInterval(loadDashboardData, 3000); // Poll every 3 seconds
 });
 
 // Cleanup on page unload

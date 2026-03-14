@@ -294,7 +294,7 @@ function loadQueueData() {
 // Start polling when page loads
 document.addEventListener('DOMContentLoaded', function() {
     loadQueueData();
-    queuePollingInterval = setInterval(loadQueueData, 20000); // Poll every 20 seconds
+    queuePollingInterval = setInterval(loadQueueData, 3000); // Poll every 3 seconds
 });
 
 // Cleanup on page unload
