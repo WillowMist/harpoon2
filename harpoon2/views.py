@@ -568,6 +568,7 @@ def api_dashboard(request):
             t['extraction_progress'] = transfers_by_item[item_hash].get('extraction_progress', 0)
     
     total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
+    total_speed = 0
     
     return JsonResponse({
         'manager_summary': manager_summary,
