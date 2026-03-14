@@ -43,11 +43,19 @@ class EntitiesConfig(AppConfig):
                             logger.info(f"[Startup] Assigned downloader {item.downloader.name} to item {item.name}")
             
             # Also check for items in PostProcessing without any FileTransfer records
+            # and queue their transfers
             pp_items = Item.objects.filter(status='PostProcessing')
             for item in pp_items:
                 has_transfers = FileTransfer.objects.filter(item=item).exists()
                 if not has_transfers:
-                    logger.info(f"[Startup] Item {item.name} in PostProcessing but has no transfers, will be queued by check_stalled_transfers")
+                    logger.info(f"[Startup] Item {item.name} in PostProcessing but has no transfers, queueing transfer")
+                    try:
+                        # Import and queue the transfer task
+                        from itemqueue.tasks import transfer_files_async
+                        transfer_files_async.delay(item.hash)
+                        logger.info(f"[Startup] Queued transfer for {item.name}")
+                    except Exception as te:
+                        logger.warning(f"[Startup] Failed to queue transfer for {item.name}: {te}")
                     
         except Exception as e:
             logger.warning(f"[Startup] Error checking stuck items: {e}")
