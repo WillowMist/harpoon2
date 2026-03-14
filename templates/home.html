@@ -292,6 +292,10 @@ function renderTransfers(data, totalSpeed) {
 
 function renderManagerSummary(data) {
     const container = document.getElementById('managerSummary');
+    if (!data || data.length === 0) {
+        container.innerHTML = '<div class="col-12"><p class="text-muted">No managers configured</p></div>';
+        return;
+    }
     container.innerHTML = data.map(m => `
         <div class="col-md-3 col-sm-6">
             <div class="card bg-dark text-white">
