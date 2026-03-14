@@ -99,8 +99,8 @@ class SABnzbdDownloader(BaseDownloader):
             logger.debug(f"Adding local file: {file_path}")
             with open(file_path, 'rb') as f:
                 files = {'nzbfile': (os.path.basename(file_path), f)}
-                # Put apikey in URL, other params in data
-                url = f"{self.api_url}&mode=addlocalfile&output=json&nzbname={os.path.basename(file_path)}"
+                # Put apikey and other params in URL query string
+                url = f"{self.api_url}?apikey={self.apikey}&mode=addlocalfile&output=json&nzbname={os.path.basename(file_path)}"
                 result = self.client.post(url, files=files)
                 logger.debug(f"addlocalfile result: {result.text}")
                 result = result.json()
