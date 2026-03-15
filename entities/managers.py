@@ -139,13 +139,22 @@ class Arr(object):
             
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
                 
         except Exception as e:
@@ -188,13 +197,22 @@ class Sonarr(Arr):
             logger.info(f"[Sonarr post_process] Response status: {response.status_code}")
             logger.debug(f"[Sonarr post_process] Response body: {response.text}")
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
@@ -228,18 +246,28 @@ class Radarr(Arr):
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
+
 
 
 class Lidarr(Arr):
@@ -277,13 +305,22 @@ class Lidarr(Arr):
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
@@ -327,18 +364,28 @@ class Readarr(Arr):
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
+
 
 
 class Whisparr(Arr):
@@ -367,13 +414,22 @@ class Whisparr(Arr):
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
+            response_json = {}
+            try:
+                response_json = response.json()
+            except:
+                pass
+            
+            history_details = f"Command request: {payload['name']}, path: {download_path}"
             if response.status_code in [200, 201]:
+                history_details += f" | Response: id={response_json.get('id')}, name={response_json.get('name')}, status={response_json.get('status')}"
                 message = f"Post-processing initiated: {download_path}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return True, message
             else:
+                history_details += f" | Response failed: HTTP {response.status_code}, body: {response.text[:500]}"
                 message = f"Post-processing failed (HTTP {response.status_code}): {response.text}"
-                ItemHistory.objects.create(item=item, details=message)
+                ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
