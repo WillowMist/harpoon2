@@ -57,6 +57,11 @@ app.conf.beat_schedule = {
         'task': 'itemqueue.tasks.check_downloader_failures',
         'schedule': 300.0,  # Every 5 minutes
     },
+    # Cache downloader status for fast page loads
+    'cache-downloader-status': {
+        'task': 'entities.tasks.cache_downloader_status',
+        'schedule': 10.0,  # Every 10 seconds
+    },
 }
 
 # Also set as CELERY_BEAT_SCHEDULE for backwards compatibility

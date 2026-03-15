@@ -396,3 +396,51 @@ def assign_items_to_downloaders():
                         
         except Exception as e:
             logger.error(f"Error assigning item {item.hash}: {e}")
+
+
+@shared_task
+def cache_downloader_status():
+    """Poll all downloaders and cache their status for fast page loads."""
+    from entities.models import Downloader, CachedDownloaderStatus
+    
+    for downloader in Downloader.objects.all():
+        try:
+            client = downloader.client
+            active_downloads = []
+            
+            if downloader.downloadertype == 'RTorrent':
+                active_torrents = client.get_active_downloads(limit=50)
+                for torrent in active_torrents:
+                    active_downloads.append({
+                        'name': torrent.get('name', ''),
+                        'hash': torrent.get('hash', ''),
+                        'size': torrent.get('size', 0),
+                        'completed': torrent.get('completed', 0),
+                        'percent': torrent.get('percent', 0),
+                    })
+            elif downloader.downloadertype == 'SABNzbd':
+                client._ensure_client()
+                result = client._api_call('queue')
+                if 'queue' in result:
+                    slots = result['queue'].get('slots', [])
+                    for slot in slots:
+                        if slot.get('status') != 'Completed':
+                            active_downloads.append({
+                                'name': slot.get('filename', ''),
+                                'hash': slot.get('nzo_id', ''),
+                                'size': float(slot.get('mb', 0)) * 1024 * 1024,
+                                'completed': 0,
+                                'percent': float(slot.get('percentage', 0)),
+                            })
+            
+            # Update or create cache
+            cache, created = CachedDownloaderStatus.objects.get_or_create(
+                downloader=downloader,
+                defaults={'active_downloads': active_downloads}
+            )
+            if not created:
+                cache.active_downloads = active_downloads
+                cache.save()
+                
+        except Exception as e:
+            logger.error(f"Error caching downloader {downloader.name}: {e}")

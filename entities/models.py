@@ -100,3 +100,16 @@ class Seedbox(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class CachedDownloaderStatus(models.Model):
+    """Cache for downloader API responses to speed up page loads."""
+    downloader = models.ForeignKey(Downloader, on_delete=models.CASCADE, related_name='cached_status')
+    active_downloads = models.JSONField(default=list)
+    last_updated = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name_plural = 'Cached downloader statuses'
+    
+    def __str__(self):
+        return f"{self.downloader.name} - {self.last_updated}"

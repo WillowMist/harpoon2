@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
 from django.http import JsonResponse
-from entities.models import Manager, Downloader
+from entities.models import Manager, Downloader, CachedDownloaderStatus
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
 
@@ -27,42 +27,19 @@ def home(request):
             'total': grabbing + postprocessing,
         })
     
-    # Get active download info from downloaders - labeled as "Grabbing"
+    # Get active download info from cached downloader status (fast!)
     grabbing_downloads = []
-    for downloader in Downloader.objects.all():
-        try:
-            wrapper = downloader.client
-            if downloader.downloadertype == 'RTorrent':
-                # Use efficient multicall to get active downloads
-                active_torrents = wrapper.get_active_downloads(limit=10)
-                for torrent in active_torrents:
-                    grabbing_downloads.append({
-                        'name': torrent['name'],
-                        'hash': torrent['hash'],
-                        'size': torrent['size'],
-                        'completed': torrent['completed'],
-                        'percent': torrent['percent'],
-                        'downloader': downloader.name,
-                        'status': 'Grabbing',
-                    })
-            elif downloader.downloadertype == 'SABNzbd':
-                wrapper._ensure_client()
-                result = wrapper._api_call('queue')
-                if 'queue' in result:
-                    slots = result['queue'].get('slots', [])
-                    for slot in slots[:10]:  # Limit to 10 items
-                        if slot.get('status') != 'Completed':
-                            grabbing_downloads.append({
-                                'name': slot.get('filename', ''),
-                                'hash': slot.get('nzo_id', ''),
-                                'size': float(slot.get('mb', 0)) * 1024 * 1024,
-                                'completed': 0,
-                                'percent': float(slot.get('percentage', 0)),
-                                'downloader': downloader.name,
-                                'status': 'Grabbing',
-                            })
-        except Exception as e:
-            pass
+    for cache in CachedDownloaderStatus.objects.select_related('downloader').all():
+        for torrent in cache.active_downloads[:10]:
+            grabbing_downloads.append({
+                'name': torrent.get('name', ''),
+                'hash': torrent.get('hash', ''),
+                'size': torrent.get('size', 0),
+                'completed': torrent.get('completed', 0),
+                'percent': torrent.get('percent', 0),
+                'downloader': cache.downloader.name,
+                'status': 'Grabbing',
+            })
     
     # Get active SFTP file transfers - aggregate by item for total progress
     # Include completed files to show total size of entire transfer operation
@@ -523,41 +500,19 @@ def api_dashboard(request):
                 'total': grabbing + postprocessing,
             })
         
-        # Get active downloads
+        # Get active downloads from cache (fast!)
         grabbing_downloads = []
-        for downloader in Downloader.objects.all():
-            try:
-                wrapper = downloader.client
-                if downloader.downloadertype == 'RTorrent':
-                    active_torrents = wrapper.get_active_downloads(limit=10)
-                    for torrent in active_torrents:
-                        grabbing_downloads.append({
-                            'name': torrent.get('name', ''),
-                            'hash': torrent.get('hash', ''),
-                            'size': torrent.get('size', 0),
-                            'completed': torrent.get('completed', 0),
-                            'percent': torrent.get('percent', 0),
-                            'downloader': downloader.name,
-                            'status': 'Grabbing',
-                        })
-                elif downloader.downloadertype == 'SABNzbd':
-                    wrapper._ensure_client()
-                    result = wrapper._api_call('queue')
-                    if 'queue' in result:
-                        slots = result['queue'].get('slots', [])
-                        for slot in slots[:10]:
-                            if slot.get('status') != 'Completed':
-                                grabbing_downloads.append({
-                                    'name': slot.get('filename', ''),
-                                    'hash': slot.get('nzo_id', ''),
-                                    'size': float(slot.get('mb', 0)) * 1024 * 1024,
-                                    'completed': 0,
-                                    'percent': float(slot.get('percentage', 0)),
-                                    'downloader': downloader.name,
-                                    'status': 'Grabbing',
-                                })
-            except Exception as e:
-                logger.warning(f"Error fetching downloads from {downloader.name}: {e}")
+        for cache in CachedDownloaderStatus.objects.select_related('downloader').all():
+            for torrent in cache.active_downloads[:10]:
+                grabbing_downloads.append({
+                    'name': torrent.get('name', ''),
+                    'hash': torrent.get('hash', ''),
+                    'size': torrent.get('size', 0),
+                    'completed': torrent.get('completed', 0),
+                    'percent': torrent.get('percent', 0),
+                    'downloader': cache.downloader.name,
+                    'status': 'Grabbing',
+                })
         
         # Get active transfers
         active_transfers_query = FileTransfer.objects.filter(
