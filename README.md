@@ -1,59 +1,86 @@
-**Harpoon 2**
+# Harpoon 2
 
-***Modernization in Progress - Django 5.2 / Python 3.14***
+A modern Django-based download manager that monitors directories for torrents and NZBs, sends them to remote download clients (RTorrent, SABnzbd), and handles post-processing with media management clients (Sonarr, Radarr, Lidarr, Readarr, Whisparr).
 
-**Description**
----------
-A modern Django-based rewrite of the Harpoon application designed to automatically send and/or monitor torrents and nzb files to remote torrent/nzb clients, monitor for completion, and retrieve completed files back to the local machine for automatic post-processing with media management clients (Sonarr, Radarr, etc.).
+## Quick Start (Docker Compose)
 
-**Current Status**
-----------
-- ✅ Django 5.2.12 with Python 3.14 venv
-- ✅ Bootstrap 5 UI (Bootswatch Vapor theme)
-- ✅ Entity Management (Managers, Downloaders, Seedboxes, Download Folders)
-- ✅ AJAX Modal Forms for CRUD operations
-- 🔄 Queue System (in development)
-- ⏳ Download Integration & SFTP Retrieval
-- ⏳ History & Logging
-- ⏳ Task Scheduling
+```bash
+# Clone the repository
+git clone https://github.com/WillowMist/harpoon2
+cd harpoon2
 
-**Requirements**
-----------
-- LINUX only
-- Python 3.14+ (developed with 3.14.0)
-- Django 5.2.12+
-- pip
-- Virtual Environment
-- RTorrent client (optional, running remotely on seedbox)
-- SABNzbd client (optional, running remotely on seedbox)
-- Sonarr (optional)
-- Radarr (optional)
-- Lidarr (optional)
-- Readarr (optional)
-- Whisparr (optional)
+# Copy and configure docker-compose
+cp docker-compose.example.yml docker-compose.yml
 
-**Installation**
-Install Python 3.14+, pip, and create a virtual environment:
+# Create .env file with your settings
+cat > .env << EOF
+SECRET_KEY=your-secret-key-here
+DEBUG=False
+ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
+CSRF_TRUSTED_ORIGINS=https://your-domain.com
+EOF
 
-Download Harpoon2:
-`git clone https://github.com/WillowMist/harpoon2`
+# Start the application
+docker-compose up -d
 
-Go to harpoon2 folder: `cd harpoon2`
+# Access at http://localhost:4277
+```
 
-Create virtual environment:
-`python3.14 -m venv harpoon2-venv`
+## Features
 
-Activate virtual environment:
-`source harpoon2-venv/bin/activate`
+- **Blackhole Manager**: Monitor a folder for `.torrent` and `.nzb` files
+- **Multiple Downloaders**: RTorrent and SABnzbd support
+- **SFTP Transfer**: Automatically retrieve completed downloads
+- **Archive Extraction**: Built-in ZIP and RAR extraction
+- **Media Server Integration**: Post-process with Sonarr, Radarr, Lidarr, Readarr, Whisparr
+- **Real-time Dashboard**: AJAX polling for live status updates
 
-Install dependencies:
-`pip install -r requirements.txt`
+## Configuration
 
-Apply migrations:
-`python manage.py migrate`
+After starting, configure through the web UI:
 
-Run development server:
-`python manage.py runserver 0.0.0.0:8000`
+1. **Seedboxes**: Add your remote seedbox (SFTP credentials)
+2. **Downloaders**: Add RTorrent or SABnzbd instances
+3. **Managers**: Add Blackhole or *Arr instances (Sonarr, Radarr, etc.)
+4. **Download Folders**: Configure where files end up
 
+## Docker Compose Services
 
+- **Harpoon2**: Main application (port 4277)
+- **Redis**: Celery broker
 
+## Development Setup
+
+```bash
+# Clone and setup
+git clone https://github.com/WillowMist/harpoon2
+cd harpoon2
+
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Copy settings template
+cp harpoon2/settings_template.py harpoon2/settings.py
+
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+
+# Run server
+python manage.py runserver
+```
+
+## Requirements
+
+- Docker & Docker Compose (recommended)
+- OR Python 3.12+ with Django 5.2
+
+## License
+
+MIT
