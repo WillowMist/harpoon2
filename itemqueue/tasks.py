@@ -1134,6 +1134,20 @@ def check_stalled_transfers():
                             success_rar, msg_rar = process_rar_archives(local_folder, item)
                             logger.info(f"RAR processing: {msg_rar}")
                             
+                            # Run manager post-processing (send to Whisparr/Sonarr/etc)
+                            if item.manager:
+                                client = item.manager.client
+                                if hasattr(client, 'post_process'):
+                                    try:
+                                        logger.info(f"Calling manager post-processing for {item.name}")
+                                        success_pp, pp_message = client.post_process(item, local_folder)
+                                        if success_pp:
+                                            logger.info(f"Manager post-processing succeeded: {pp_message}")
+                                        else:
+                                            logger.warning(f"Manager post-processing failed: {pp_message}")
+                                    except Exception as e:
+                                        logger.error(f"Error calling post-processing: {e}")
+                            
                             # THEN move from temp to final folder for Blackhole
                             if item.manager and item.manager.managertype == 'Blackhole':
                                 import re
