@@ -21,6 +21,88 @@
     </div>
 </div>
 
+{% if user.is_superuser %}
+<div class="card-deck py-4">
+    <div class="card">
+        <div class="card-header"><h4 class="card-title">Notification Preferences</h4></div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <h6 class="card-subtitle mb-2 text-muted">Downloader Notifications</h6>
+                <div class="mb-3">
+                    <div class="form-check">
+                        {{ notif_form.notify_downloader_failure }}
+                        <label class="form-check-label" for="id_notify_downloader_failure">Downloader failures</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_torrent_not_found }}
+                        <label class="form-check-label" for="id_notify_torrent_not_found">Torrent not found on RTorrent</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_torrent_incomplete }}
+                        <label class="form-check-label" for="id_notify_torrent_incomplete">Torrent incomplete on RTorrent</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_sabnzbd_not_found }}
+                        <label class="form-check-label" for="id_notify_sabnzbd_not_found">Download not found on SABNzbd</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_sabnzbd_incomplete }}
+                        <label class="form-check-label" for="id_notify_sabnzbd_incomplete">Download incomplete on SABNzbd</label>
+                    </div>
+                </div>
+                
+                <h6 class="card-subtitle mb-2 text-muted">Transfer Notifications</h6>
+                <div class="mb-3">
+                    <div class="form-check">
+                        {{ notif_form.notify_transfer_failure }}
+                        <label class="form-check-label" for="id_notify_transfer_failure">Transfer failures</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_sftp_failure }}
+                        <label class="form-check-label" for="id_notify_sftp_failure">SFTP failures</label>
+                    </div>
+                </div>
+                
+                <h6 class="card-subtitle mb-2 text-muted">Extraction Notifications</h6>
+                <div class="mb-3">
+                    <div class="form-check">
+                        {{ notif_form.notify_zip_failure }}
+                        <label class="form-check-label" for="id_notify_zip_failure">ZIP extraction failures</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_rar_failure }}
+                        <label class="form-check-label" for="id_notify_rar_failure">RAR extraction failures</label>
+                    </div>
+                </div>
+                
+                <h6 class="card-subtitle mb-2 text-muted">Post-Processing Notifications</h6>
+                <div class="mb-3">
+                    <div class="form-check">
+                        {{ notif_form.notify_postprocess_failure }}
+                        <label class="form-check-label" for="id_notify_postprocess_failure">Post-processing failures</label>
+                    </div>
+                    <div class="form-check">
+                        {{ notif_form.notify_manual_intervention }}
+                        <label class="form-check-label" for="id_notify_manual_intervention">Manual intervention required</label>
+                    </div>
+                </div>
+                
+                <h6 class="card-subtitle mb-2 text-muted">Other Notifications</h6>
+                <div class="mb-3">
+                    <div class="form-check">
+                        {{ notif_form.notify_item_completed }}
+                        <label class="form-check-label" for="id_notify_item_completed">Item completed</label>
+                    </div>
+                </div>
+                
+                <button type="submit" class="btn btn-primary">Save Notifications</button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <div class="card-deck py-4">
     <div id="user_info" class="card bg-info text-white">
         <div class="card-header"><h4 class="card-title">Active Sessions</h4></div>

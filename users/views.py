@@ -2,14 +2,20 @@ from django.urls import reverse_lazy, reverse
 from django.views.generic.edit import CreateView
 from django.shortcuts import get_object_or_404, render
 from django.http import HttpResponseRedirect, HttpResponse, JsonResponse
-from .forms import CustomUserCreationForm, UserPrefsForm
-from .models import CustomUser, Notification
+from .forms import CustomUserCreationForm, UserPrefsForm, NotificationSettingsForm
+from .models import CustomUser, Notification, NotificationSettings
 from django.contrib import messages
 
 
 def userprefs(request):
+    user = get_object_or_404(CustomUser, id=request.user.id)
+    session = request.session
+    user_sessions = user.get_active_sessions()
+    
     if request.method == 'POST':
         form = UserPrefsForm(request.POST)
+        notif_form = NotificationSettingsForm(request.POST)
+        
         if form.is_valid():
             request.user.email = form.cleaned_data['email']
             request.user.interface = form.cleaned_data['interface']
@@ -18,15 +24,31 @@ def userprefs(request):
             request.user.timezone = form.cleaned_data['timezone']
             try:
                 request.user.save()
+            except Exception as e:
+                messages.error(request, "Error saving user: %s" % e)
+                return HttpResponseRedirect('/')
+        
+        if notif_form.is_valid():
+            try:
+                notif_settings = NotificationSettings.get_for_user(request.user)
+                notif_form = NotificationSettingsForm(request.POST, instance=notif_settings)
+                notif_form.save()
                 messages.success(request, "User preferences saved.")
             except Exception as e:
-                messages.error(request, "Error: %s" % e)
-            return HttpResponseRedirect('/')
-    user = get_object_or_404(CustomUser, id=request.user.id)
-    session = request.session
-    user_sessions = user.get_active_sessions()
+                messages.error(request, "Error saving notifications: %s" % e)
+        
+        return HttpResponseRedirect('/')
+    
     form = UserPrefsForm(instance=user)
-    return render(request, 'users/prefs.html', {'form': form, 'session': session, 'user_sessions': user_sessions})
+    notif_settings = NotificationSettings.get_for_user(user)
+    notif_form = NotificationSettingsForm(instance=notif_settings)
+    
+    return render(request, 'users/prefs.html', {
+        'form': form, 
+        'notif_form': notif_form,
+        'session': session, 
+        'user_sessions': user_sessions
+    })
 
 
 def detail(request, userid):
