@@ -4,6 +4,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: harpoon2-redis
+    restart: unless-stopped
     # Note: Only expose within Docker network, not to host (to avoid conflicts with host Redis)
     # ports:
     #   - "6379:6379"
@@ -26,6 +27,7 @@ services:
     #   context: .
     #   dockerfile: Dockerfile
     container_name: harpoon2
+    restart: unless-stopped
     command: start
     environment:
       - DEBUG=False
