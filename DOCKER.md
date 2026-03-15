@@ -26,6 +26,7 @@ cat > .env << EOF
 SECRET_KEY=your-secret-key-here
 DEBUG=False
 ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2,your-domain.com
+CSRF_TRUSTED_ORIGINS=https://your-domain.com
 EOF
 ```
 
@@ -69,9 +70,16 @@ docker-compose exec harpoon2 createsuperuser
 Create a `.env` file in the project root:
 
 ```bash
+# Required
 SECRET_KEY=your-secret-key-here
+
+# Optional (defaults shown)
 DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1,your-domain.com
+ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
+CSRF_TRUSTED_ORIGINS=https://your-domain.com
+REDIS_URL=redis://redis:6379/0
+REDIS_HOST=redis
+REDIS_PORT=6379
 ```
 
 ## Common Commands
