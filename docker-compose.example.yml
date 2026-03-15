@@ -19,15 +19,19 @@ services:
 
   # Harpoon2 main application
   harpoon2:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Use pre-built image from ghcr.io (recommended)
+    image: ghcr.io/willowmist/harpoon2:latest
+    # To build locally instead, uncomment the following:
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
     container_name: harpoon2
     command: start
     environment:
       - DEBUG=False
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,harpoon2}
+      - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
       - REDIS_URL=redis://redis:6379/0
     ports:
       # Harpoon2 runs on port 4277
