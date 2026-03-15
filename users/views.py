@@ -24,18 +24,32 @@ def userprefs(request):
         except Exception as e:
             messages.error(request, "Error saving user: %s" % e)
         
-        # Save notification settings
-        notif_form = NotificationSettingsForm(request.POST)
-        if notif_form.is_valid():
-            try:
-                notif_settings = NotificationSettings.get_for_user(request.user)
-                notif_form = NotificationSettingsForm(request.POST, instance=notif_settings)
-                notif_form.save()
-                messages.success(request, "User preferences saved.")
-            except Exception as e:
-                messages.error(request, "Error saving notifications: %s" % e)
-        else:
-            messages.error(request, "Error saving notifications")
+        # Save notification settings - handle unchecked checkboxes
+        try:
+            notif_settings = NotificationSettings.get_for_user(request.user)
+            # Get all checkbox field names from the form
+            checkbox_fields = [
+                'notify_downloader_failure',
+                'notify_torrent_not_found',
+                'notify_torrent_incomplete',
+                'notify_sabnzbd_not_found',
+                'notify_sabnzbd_incomplete',
+                'notify_transfer_not_found',
+                'notify_transfer_failure',
+                'notify_sftp_failure',
+                'notify_zip_failure',
+                'notify_rar_failure',
+                'notify_postprocess_failure',
+                'notify_manual_intervention',
+                'notify_item_completed',
+            ]
+            # Update each field based on POST data
+            for field in checkbox_fields:
+                setattr(notif_settings, field, field in request.POST)
+            notif_settings.save()
+            messages.success(request, "User preferences saved.")
+        except Exception as e:
+            messages.error(request, "Error saving notifications: %s" % e)
         
         return HttpResponseRedirect('/')
     
