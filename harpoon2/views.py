@@ -1,5 +1,6 @@
 from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
+from django.contrib.sessions.backends.db import SessionStore
 from entities.models import Manager, Downloader
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
@@ -90,6 +91,7 @@ def home(request):
                 'total_completed': 0,
                 'file_count': 0,
                 'earliest_start': None,
+                'latest_update': None,
             }
         
         transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
@@ -103,6 +105,16 @@ def home(request):
                 transfers_by_item[item_hash]['earliest_start'] = min(
                     transfers_by_item[item_hash]['earliest_start'],
                     transfer.started
+                )
+        
+        # Track latest update time for speed calculation
+        if transfer.modified:
+            if transfers_by_item[item_hash]['latest_update'] is None:
+                transfers_by_item[item_hash]['latest_update'] = transfer.modified
+            else:
+                transfers_by_item[item_hash]['latest_update'] = max(
+                    transfers_by_item[item_hash]['latest_update'],
+                    transfer.modified
                 )
     
     # Convert to list format for template
@@ -137,13 +149,28 @@ def home(request):
         else:
             percent = 0
         
-        # Calculate speed
+        # Calculate speed using session-based delta for accurate transfer speed
         speed_mbps = 0
-        if data['earliest_start']:
-            elapsed_seconds = (timezone.now() - data['earliest_start']).total_seconds()
+        prev_poll = request.session.get('transfer_poll_state', {})
+        prev_item = prev_poll.get(item_hash)
+        now = timezone.now()
+        
+        if prev_item and data['latest_update']:
+            prev_completed = prev_item.get('completed', 0)
+            prev_time = prev_item.get('timestamp')
+            if prev_time and data['total_completed'] > prev_completed:
+                delta_bytes = data['total_completed'] - prev_completed
+                delta_seconds = (now - prev_time).total_seconds()
+                if delta_seconds > 0:
+                    speed_mbps = (delta_bytes / delta_seconds) / (1024 * 1024)
+        
+        if speed_mbps == 0 and data['earliest_start']:
+            elapsed_seconds = (now - data['earliest_start']).total_seconds()
             if elapsed_seconds > 0 and data['total_completed'] > 0:
                 speed_mbps = (data['total_completed'] / elapsed_seconds) / (1024 * 1024)
-                total_speed_mbps += speed_mbps
+        
+        if speed_mbps > 0:
+            total_speed_mbps += speed_mbps
         
         transfer_info = {
             'name': data['item_name'],
@@ -158,6 +185,16 @@ def home(request):
             'extraction_progress': data['item'].extraction_progress if data['item'].extraction_status else 0,
         }
         transfers_list.append(transfer_info)
+    
+    # Update session with current poll state for next poll's speed calculation
+    poll_state = {}
+    for item_hash, data in transfers_by_item.items():
+        poll_state[item_hash] = {
+            'completed': data['total_completed'],
+            'timestamp': timezone.now(),
+        }
+    request.session['transfer_poll_state'] = poll_state
+    request.session.modified = True
     
     return render(request, 'home.html', {
         'managers': managers,

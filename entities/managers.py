@@ -356,11 +356,11 @@ class Whisparr(Arr):
             return False, e
 
     def post_process(self, item, download_path):
-        """Send DownloadedScenesScan command for adult content."""
+        """Send DownloadedEpisodesScan command for adult content."""
         try:
             url = self.apiurl + '/command'
             payload = {
-                "name": "DownloadedScenesScan",
+                "name": "DownloadedEpisodesScan",
                 "path": download_path,
                 "downloadClientID": item.hash,
                 "importMode": "Move"
