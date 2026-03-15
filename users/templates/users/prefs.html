@@ -55,6 +55,10 @@
                 <h6 class="card-subtitle mb-2 text-muted">Transfer Notifications</h6>
                 <div class="mb-3">
                     <div class="form-check">
+                        {{ notif_form.notify_transfer_not_found }}
+                        <label class="form-check-label" for="id_notify_transfer_not_found">Transfer - torrent/download not found</label>
+                    </div>
+                    <div class="form-check">
                         {{ notif_form.notify_transfer_failure }}
                         <label class="form-check-label" for="id_notify_transfer_failure">Transfer failures</label>
                     </div>

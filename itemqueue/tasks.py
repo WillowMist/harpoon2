@@ -334,6 +334,17 @@ def transfer_files_async(item_hash):
             torrent_info = client.find(hash_value)
             if not torrent_info:
                 logger.error(f"[transfer_files_async] RTorrent info not found for hash {hash_value}")
+                ItemHistory.objects.create(
+                    item=item,
+                    details=f"RTorrent info not found for hash - torrent may have been removed from RTorrent"
+                )
+                item.status = 'Failed'
+                item.save()
+                Notification.create_for_admin(
+                    f"Torrent not found in RTorrent for '{item.name}' - transfer cannot complete",
+                    notification_type='transfer_not_found',
+                    item_hash=item.hash
+                )
                 return
             
             remote_dir = torrent_info.get('directory', '')

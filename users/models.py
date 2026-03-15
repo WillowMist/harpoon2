@@ -47,6 +47,7 @@ class NotificationSettings(models.Model):
     notify_torrent_incomplete = models.BooleanField(default=True)
     notify_sabnzbd_not_found = models.BooleanField(default=True)
     notify_sabnzbd_incomplete = models.BooleanField(default=True)
+    notify_transfer_not_found = models.BooleanField(default=True)
     
     # Transfer notifications
     notify_transfer_failure = models.BooleanField(default=True)
@@ -123,6 +124,7 @@ class Notification(models.Model):
             'torrent_incomplete': settings.notify_torrent_incomplete,
             'sabnzbd_not_found': settings.notify_sabnzbd_not_found,
             'sabnzbd_incomplete': settings.notify_sabnzbd_incomplete,
+            'transfer_not_found': settings.notify_transfer_not_found,
             'transfer_failure': settings.notify_transfer_failure,
             'sftp_failure': settings.notify_sftp_failure,
             'zip_failure': settings.notify_zip_failure,
