@@ -124,6 +124,19 @@
                         System
                         <div class="sb-sidenav-collapse-arrow"><i class="fas fa-angle-down"></i></div>
                     </a>
+                    <div class="collapse" id="collapseSystem" aria-labelledby="headingSystem" data-parent="#sidenavAccordion">
+                        <nav class="sb-sidenav-menu-nested nav">
+                            <a class="nav-link" href="#" id="versionInfo" data-bs-toggle="modal" data-bs-target="#versionModal">
+                                <i class="fas fa-info-circle me-1"></i> Version
+                            </a>
+                            <a class="nav-link" href="https://github.com/WillowMist/harpoon2/releases" target="_blank">
+                                <i class="fab fa-github me-1"></i> GitHub
+                            </a>
+                            <a class="nav-link" href="https://github.com/WillowMist/harpoon2/pkgs/container/harpoon2" target="_blank">
+                                <i class="fab fa-docker me-1"></i> Docker Hub
+                            </a>
+                        </nav>
+                    </div>
                 </div>
 
 
@@ -183,6 +196,28 @@
         </div>
       </div>
     </div>
+    
+    <!-- Version Info Modal -->
+    <div class="modal fade" id="versionModal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title"><i class="fas fa-info-circle me-2"></i>Version Info</h5>
+            <button class="btn-close" type="button" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <div id="versionContent">
+              <div class="text-center p-4"><span class="spinner-border spinner-border-sm"></span> Loading...</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" type="button" data-bs-dismiss="modal">Close</button>
+            <a id="versionGithubLink" href="https://github.com/WillowMist/harpoon2/releases" target="_blank" class="btn btn-primary">View on GitHub</a>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     {%  endblock %}
     {% block basescripts %}
     <script src="https://code.jquery.com/jquery-3.7.1.min.js" crossorigin="anonymous"></script>
@@ -387,6 +422,42 @@
                         }
                     });
                 });
+            });
+        });
+        
+        // Version modal handler
+        $('#versionModal').on('show.bs.modal', function() {
+            $.ajax({
+                url: '/api/version/',
+                type: 'GET',
+                success: function(data) {
+                    var html = '<div class="mb-3">';
+                    html += '<div class="row mb-2"><div class="col-5 text-muted">Current Version:</div><div class="col-7"><strong>' + data.local_version + '</strong></div></div>';
+                    html += '<div class="row mb-2"><div class="col-5 text-muted">Docker Tag:</div><div class="col-7">' + (data.docker_tag || 'unknown') + '</div></div>';
+                    html += '<div class="row mb-2"><div class="col-5 text-muted">Latest on GitHub:</div><div class="col-7">' + (data.github_latest || 'unknown') + '</div></div>';
+                    
+                    if (data.update_available) {
+                        html += '<div class="alert alert-success mt-2"><i class="fas fa-arrow-up me-1"></i> Update available!</div>';
+                    } else if (data.github_latest && data.local_version === data.github_latest) {
+                        html += '<div class="alert alert-info mt-2"><i class="fas fa-check me-1"></i> You are up to date</div>';
+                    } else if (data.github_latest) {
+                        html += '<div class="alert alert-secondary mt-2">No update available</div>';
+                    }
+                    
+                    if (data.github_name) {
+                        html += '<div class="text-muted small mt-2">Latest release: ' + data.github_name + '</div>';
+                    }
+                    
+                    html += '</div>';
+                    $('#versionContent').html(html);
+                    
+                    if (data.github_url) {
+                        $('#versionGithubLink').attr('href', data.github_url);
+                    }
+                },
+                error: function() {
+                    $('#versionContent').html('<div class="alert alert-warning">Could not fetch version info</div>');
+                }
             });
         });
     </script>

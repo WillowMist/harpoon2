@@ -673,3 +673,46 @@ def api_history(request):
         })
     
     return JsonResponse({'items': history_items})
+
+
+def api_version_check(request):
+    """Check for latest version from GitHub and Docker."""
+    import os
+    from _version import __version__
+    
+    result = {
+        'local_version': __version__,
+        'docker_tag': os.environ.get('DOCKER_TAG', 'unknown'),
+        'github_latest': None,
+        'github_url': 'https://api.github.com/repos/WillowMist/harpoon2/releases/latest',
+        'update_available': False,
+    }
+    
+    try:
+        response = requests.get('https://api.github.com/repos/WillowMist/harpoon2/releases/latest', timeout=5)
+        if response.status_code == 200:
+            data = response.json()
+            result['github_latest'] = data.get('tag_name', '').lstrip('v')
+            result['github_url'] = data.get('html_url', 'https://github.com/WillowMist/harpoon2/releases')
+            result['github_name'] = data.get('name', '')
+            result['github_published'] = data.get('published_at', '')
+            
+            # Compare versions
+            if result['github_latest'] and result['local_version']:
+                try:
+                    local_parts = [int(x) for x in result['local_version'].split('.')]
+                    github_parts = [int(x) for x in result['github_latest'].split('.')]
+                    # Pad shorter list with zeros
+                    while len(local_parts) < len(github_parts):
+                        local_parts.append(0)
+                    while len(github_parts) < len(local_parts):
+                        github_parts.append(0)
+                    
+                    result['update_available'] = github_parts > local_parts
+                except (ValueError, AttributeError):
+                    # If version parsing fails, assume no update
+                    result['update_available'] = False
+    except Exception as e:
+        result['error'] = str(e)
+    
+    return JsonResponse(result)

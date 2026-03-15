@@ -27,6 +27,7 @@ urlpatterns = [
     path('api/dashboard/', views.api_dashboard, name='api_dashboard'),
     path('api/queue/', views.api_queue, name='api_queue'),
     path('api/history/', views.api_history, name='api_history'),
+    path('api/version/', views.api_version_check, name='api_version'),
     path('download/<str:item_hash>/cancel/', views.cancel_download, name='cancel_download'),
     path('transfer/<str:item_name>/cancel/', views.cancel_transfer, name='cancel_transfer'),
     path('item/<str:item_hash>/archive/', views.archive_item, name='archive_item'),
