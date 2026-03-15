@@ -13,21 +13,19 @@ def userprefs(request):
     user_sessions = user.get_active_sessions()
     
     if request.method == 'POST':
-        form = UserPrefsForm(request.POST)
+        # Save user profile fields directly from POST
+        user.email = request.POST.get('email', user.email)
+        user.interface = request.POST.get('interface', user.interface)
+        user.first_name = request.POST.get('first_name', user.first_name)
+        user.last_name = request.POST.get('last_name', user.last_name)
+        user.timezone = request.POST.get('timezone', user.timezone)
+        try:
+            user.save()
+        except Exception as e:
+            messages.error(request, "Error saving user: %s" % e)
+        
+        # Save notification settings
         notif_form = NotificationSettingsForm(request.POST)
-        
-        if form.is_valid():
-            request.user.email = form.cleaned_data['email']
-            request.user.interface = form.cleaned_data['interface']
-            request.user.first_name = form.cleaned_data['first_name']
-            request.user.last_name = form.cleaned_data['last_name']
-            request.user.timezone = form.cleaned_data['timezone']
-            try:
-                request.user.save()
-            except Exception as e:
-                messages.error(request, "Error saving user: %s" % e)
-                return HttpResponseRedirect('/')
-        
         if notif_form.is_valid():
             try:
                 notif_settings = NotificationSettings.get_for_user(request.user)
@@ -36,6 +34,8 @@ def userprefs(request):
                 messages.success(request, "User preferences saved.")
             except Exception as e:
                 messages.error(request, "Error saving notifications: %s" % e)
+        else:
+            messages.error(request, "Error saving notifications")
         
         return HttpResponseRedirect('/')
     
