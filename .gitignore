@@ -13,7 +13,9 @@ build/
 # Django
 *.log
 local_settings.py
-celerybeat-schedule
+celerybeat-schedule*
+celery_beat.log
+celery_worker.log
 
 # Virtual environments
 venv/
