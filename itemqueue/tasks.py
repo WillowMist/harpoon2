@@ -1,6 +1,7 @@
 from celery import shared_task
 from itemqueue.models import Item, ItemHistory, FileTransfer
 from entities.models import Downloader
+from users.models import Notification
 import logging
 import os
 import shutil
@@ -126,6 +127,11 @@ def process_rar_archives(directory, item):
         item.status = 'Failed'  # Mark item as failed
         item.save()
         ItemHistory.objects.create(item=item, details=error_msg)
+        Notification.create_for_admin(
+            f"RAR extraction failed for '{item.name}': {message[:100]}",
+            notification_type='rar_failure',
+            item_hash=item.hash
+        )
         
         # Notify manager to reject this download and search for alternative
         if item.manager:
@@ -252,6 +258,11 @@ def process_zip_archives(directory, item):
             item.extraction_progress = 0
             item.save()
             ItemHistory.objects.create(item=item, details=error_msg)
+            Notification.create_for_admin(
+                f"ZIP extraction failed for '{item.name}': {message[:100]}",
+                notification_type='zip_failure',
+                item_hash=item.hash
+            )
             return False, message
         
         progress = int((idx + 1) / len(zip_files) * 90)
@@ -710,6 +721,11 @@ def transfer_files_async(item_hash):
                         transfer.error_message = f"Transfer failed after {max_retries} retries: {str(e)}"
                         transfer.save()
                         ItemHistory.objects.create(item=item, details=f'Failed to copy {filename} after {max_retries} retries: {str(e)}')
+                        Notification.create_for_admin(
+                            f"SFTP transfer failed for '{item.name}': {str(e)[:100]}",
+                            notification_type='sftp_failure',
+                            item_hash=item.hash
+                        )
                         failed_count += 1
                         transfer_successful = True  # Exit retry loop
         
@@ -826,6 +842,11 @@ def transfer_files_async(item_hash):
                                 logger.error(f"Manager post-processing failed: {pp_message}")
                                 # Don't mark as Failed immediately - schedule retry
                                 ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+                                Notification.create_for_admin(
+                                    f"Post-processing failed for '{item.name}': {pp_message[:100]}",
+                                    notification_type='postprocess_failure',
+                                    item_hash=item.hash
+                                )
                                 # Schedule retry in 5 minutes
                                 logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
                         except Exception as e:
@@ -856,6 +877,11 @@ def postprocess_item(item_hash):
     if not item.downloader:
         logger.error(f"[postprocess_item] No downloader assigned to {item.name}")
         ItemHistory.objects.create(item=item, details='No downloader assigned')
+        Notification.create_for_admin(
+            f"No downloader assigned for '{item.name}'",
+            notification_type='downloader_failure',
+            item_hash=item.hash
+        )
         item.status = 'Failed'
         item.save()
         return
@@ -867,6 +893,11 @@ def postprocess_item(item_hash):
     if not seedbox:
         logger.error(f"[postprocess_item] No seedbox configured for downloader {downloader.name}")
         ItemHistory.objects.create(item=item, details='No seedbox configured for downloader')
+        Notification.create_for_admin(
+            f"No seedbox configured for downloader '{downloader.name}' - {item.name}",
+            notification_type='downloader_failure',
+            item_hash=item.hash
+        )
         item.status = 'Failed'
         item.save()
         return
@@ -883,6 +914,11 @@ def postprocess_item(item_hash):
             if not torrent_info:
                 logger.error(f"[postprocess_item] Torrent {hash_value} not found on RTorrent")
                 ItemHistory.objects.create(item=item, details='Torrent not found on RTorrent')
+                Notification.create_for_admin(
+                    f"Torrent not found on RTorrent: {item.name}",
+                    notification_type='torrent_not_found',
+                    item_hash=item.hash
+                )
                 item.status = 'Failed'
                 item.save()
                 return
@@ -891,6 +927,11 @@ def postprocess_item(item_hash):
             if not torrent_info.get('completed'):
                 logger.error(f"[postprocess_item] Torrent {hash_value} not complete on RTorrent")
                 ItemHistory.objects.create(item=item, details='Torrent not complete on RTorrent')
+                Notification.create_for_admin(
+                    f"Torrent incomplete on RTorrent: {item.name}",
+                    notification_type='torrent_incomplete',
+                    item_hash=item.hash
+                )
                 item.status = 'Failed'
                 item.save()
                 return
@@ -901,6 +942,11 @@ def postprocess_item(item_hash):
             if not status_info:
                 logger.error(f"[postprocess_item] Download {hash_value} not found on SABNzbd")
                 ItemHistory.objects.create(item=item, details='Download not found on SABNzbd')
+                Notification.create_for_admin(
+                    f"Download not found on SABNzbd: {item.name}",
+                    notification_type='sabnzbd_not_found',
+                    item_hash=item.hash
+                )
                 item.status = 'Failed'
                 item.save()
                 return
@@ -909,12 +955,22 @@ def postprocess_item(item_hash):
             if not status_info.get('completed'):
                 logger.error(f"[postprocess_item] Download {hash_value} not complete on SABNzbd")
                 ItemHistory.objects.create(item=item, details='Download not complete on SABNzbd')
+                Notification.create_for_admin(
+                    f"Download incomplete on SABNzbd: {item.name}",
+                    notification_type='sabnzbd_incomplete',
+                    item_hash=item.hash
+                )
                 item.status = 'Failed'
                 item.save()
                 return
         else:
             logger.error(f"[postprocess_item] Unknown downloader type: {downloader.downloadertype}")
             ItemHistory.objects.create(item=item, details=f'Unknown downloader type: {downloader.downloadertype}')
+            Notification.create_for_admin(
+                f"Unknown downloader type: {downloader.downloadertype} - {item.name}",
+                notification_type='downloader_failure',
+                item_hash=item.hash
+            )
             item.status = 'Failed'
             item.save()
             return

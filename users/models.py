@@ -37,10 +37,48 @@ class CustomUser(AbstractUser):
         return f'<a href={self.get_absolute_url()}>{self.username}</a>'
 
 
+class NotificationSettings(models.Model):
+    """Settings for which notification types to receive."""
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='notification_settings')
+    
+    # Downloader notifications
+    notify_downloader_failure = models.BooleanField(default=True)
+    notify_torrent_not_found = models.BooleanField(default=True)
+    notify_torrent_incomplete = models.BooleanField(default=True)
+    notify_sabnzbd_not_found = models.BooleanField(default=True)
+    notify_sabnzbd_incomplete = models.BooleanField(default=True)
+    
+    # Transfer notifications
+    notify_transfer_failure = models.BooleanField(default=True)
+    notify_sftp_failure = models.BooleanField(default=True)
+    
+    # Extraction notifications
+    notify_zip_failure = models.BooleanField(default=True)
+    notify_rar_failure = models.BooleanField(default=True)
+    
+    # Post-processing notifications
+    notify_postprocess_failure = models.BooleanField(default=True)
+    notify_manual_intervention = models.BooleanField(default=True)
+    
+    # Queue notifications
+    notify_item_completed = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return f"Notification settings for {self.user.username}"
+    
+    @classmethod
+    def get_for_user(cls, user):
+        """Get or create notification settings for a user."""
+        obj, _ = cls.objects.get_or_create(user=user)
+        return obj
+
+
 class Notification(models.Model):
     """User notifications for manual intervention required."""
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='notifications')
     message = models.TextField()
+    notification_type = models.CharField(max_length=50, blank=True)  # e.g., 'downloader_failure', 'transfer_failure'
+    item_hash = models.CharField(max_length=64, blank=True)  # Link to item if applicable
     created_at = models.DateTimeField(auto_now_add=True)
     is_read = models.BooleanField(default=False)
     
@@ -51,14 +89,49 @@ class Notification(models.Model):
         return f"{self.user.username}: {self.message[:50]}..."
     
     @classmethod
-    def create_for_admin(cls, message):
-        """Create a notification for the admin user."""
+    def create_for_admin(cls, message, notification_type='', item_hash=''):
+        """Create a notification for the admin user if notifications are enabled."""
         from django.contrib.auth import get_user_model
         User = get_user_model()
-        # Get the first superuser as admin
         admin = User.objects.filter(is_superuser=True).order_by('id').first()
-        if admin:
-            cls.objects.create(user=admin, message=message)
+        
+        if not admin:
+            return None
+        
+        # Check if notifications are enabled for this type
+        settings = NotificationSettings.get_for_user(admin)
+        should_notify = cls._should_notify(notification_type, settings)
+        
+        if should_notify:
+            return cls.objects.create(
+                user=admin, 
+                message=message,
+                notification_type=notification_type,
+                item_hash=item_hash
+            )
+        return None
+    
+    @classmethod
+    def _should_notify(cls, notification_type, settings):
+        """Check if notification is enabled for the given type."""
+        if not notification_type:
+            return True
+            
+        type_map = {
+            'downloader_failure': settings.notify_downloader_failure,
+            'torrent_not_found': settings.notify_torrent_not_found,
+            'torrent_incomplete': settings.notify_torrent_incomplete,
+            'sabnzbd_not_found': settings.notify_sabnzbd_not_found,
+            'sabnzbd_incomplete': settings.notify_sabnzbd_incomplete,
+            'transfer_failure': settings.notify_transfer_failure,
+            'sftp_failure': settings.notify_sftp_failure,
+            'zip_failure': settings.notify_zip_failure,
+            'rar_failure': settings.notify_rar_failure,
+            'postprocess_failure': settings.notify_postprocess_failure,
+            'manual_intervention': settings.notify_manual_intervention,
+            'item_completed': settings.notify_item_completed,
+        }
+        return type_map.get(notification_type, True)
     
     @classmethod
     def get_unread_count(cls, user):

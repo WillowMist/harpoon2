@@ -655,7 +655,9 @@ class Blackhole:
         # Create a notification for the admin
         from users.models import Notification
         Notification.create_for_admin(
-            f"Manual intervention required for '{item.name}': {reason}"
+            f"Manual intervention required for '{item.name}': {reason}",
+            notification_type='manual_intervention',
+            item_hash=item.hash
         )
         
         return True, f"Manual intervention required: {reason}"
