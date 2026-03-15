@@ -1,6 +1,7 @@
 from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
+from django.utils.dateparse import parse_datetime
 from entities.models import Manager, Downloader
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
@@ -157,12 +158,14 @@ def home(request):
         
         if prev_item and data['latest_update']:
             prev_completed = prev_item.get('completed', 0)
-            prev_time = prev_item.get('timestamp')
-            if prev_time and data['total_completed'] > prev_completed:
-                delta_bytes = data['total_completed'] - prev_completed
-                delta_seconds = (now - prev_time).total_seconds()
-                if delta_seconds > 0:
-                    speed_mbps = (delta_bytes / delta_seconds) / (1024 * 1024)
+            prev_time_str = prev_item.get('timestamp')
+            if prev_time_str:
+                prev_time = parse_datetime(prev_time_str)
+                if prev_time and data['total_completed'] > prev_completed:
+                    delta_bytes = data['total_completed'] - prev_completed
+                    delta_seconds = (now - prev_time).total_seconds()
+                    if delta_seconds > 0:
+                        speed_mbps = (delta_bytes / delta_seconds) / (1024 * 1024)
         
         if speed_mbps == 0 and data['earliest_start']:
             elapsed_seconds = (now - data['earliest_start']).total_seconds()
@@ -188,10 +191,11 @@ def home(request):
     
     # Update session with current poll state for next poll's speed calculation
     poll_state = {}
+    now = timezone.now()
     for item_hash, data in transfers_by_item.items():
         poll_state[item_hash] = {
             'completed': data['total_completed'],
-            'timestamp': timezone.now(),
+            'timestamp': now.isoformat(),
         }
     request.session['transfer_poll_state'] = poll_state
     request.session.modified = True
