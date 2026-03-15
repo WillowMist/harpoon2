@@ -2,6 +2,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
+from django.http import JsonResponse
 from entities.models import Manager, Downloader
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
