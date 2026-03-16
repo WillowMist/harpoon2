@@ -746,18 +746,6 @@ def transfer_files_async(item_hash):
         logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
         ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
         
-        # Cleanup: Delete completed download from SABnzbd if enabled
-        if item.downloader and item.downloader.downloadertype == 'SABNzbd':
-            cleanup_enabled = item.downloader.options.get('cleanup', False)
-            if cleanup_enabled and item.clientid:
-                try:
-                    client = item.downloader.client
-                    client.delete(item.clientid)
-                    logger.info(f"Cleaned up SABnzbd download: {item.clientid}")
-                    ItemHistory.objects.create(item=item, details=f'Cleaned up SABnzbd download: {item.clientid}')
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup SABnzbd download: {e}")
-        
         # Post-transfer processing: extract ZIP and RAR archives FIRST
         # (before moving to final folder so extraction happens in temp location)
         local_folder = None
@@ -817,6 +805,18 @@ def transfer_files_async(item_hash):
             notification_type='item_completed',
             item_hash=item.hash
         )
+        
+        # Cleanup: Delete completed download from SABnzbd after everything is done (if enabled)
+        if item.downloader and item.downloader.downloadertype == 'SABNzbd':
+            cleanup_enabled = item.downloader.options.get('cleanup', False)
+            if cleanup_enabled and item.clientid:
+                try:
+                    client = item.downloader.client
+                    client.delete(item.clientid)
+                    logger.info(f"Cleaned up SABnzbd download: {item.clientid}")
+                    ItemHistory.objects.create(item=item, details=f'Cleaned up SABnzbd download: {item.clientid}')
+                except Exception as e:
+                    logger.warning(f"Failed to cleanup SABnzbd download: {e}")
         
         # Call manager post-processing regardless of whether RAR extraction occurred
         if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
