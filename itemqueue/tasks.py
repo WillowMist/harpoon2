@@ -852,6 +852,7 @@ def transfer_files_async(item_hash):
                         logger.warning(f"Could not check for single video file: {e}")
                     
                     # Only call post_process if the manager supports it
+                    client = item.manager.client
                     if hasattr(client, 'post_process'):
                         logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
                         try:
