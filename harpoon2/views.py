@@ -254,6 +254,14 @@ def cancel_download(request, item_hash):
                 details=f'Download cancelled by user (was {old_status})'
             )
             
+            # Send notification
+            from users.models import Notification
+            Notification.create_for_admin(
+                f"Download cancelled by user: {item.name}",
+                notification_type='downloader_failure',
+                item_hash=item.hash
+            )
+            
             messages.success(request, f'Download cancelled: {item.name}')
         except Item.DoesNotExist:
             messages.error(request, 'Item not found')
@@ -285,6 +293,14 @@ def cancel_transfer(request, item_name):
             ItemHistory.objects.create(
                 item=item,
                 details=f'Transfer cancelled by user - {transfer_count} file(s) cancelled (was {old_status})'
+            )
+            
+            # Send notification
+            from users.models import Notification
+            Notification.create_for_admin(
+                f"Transfer cancelled by user: {item.name}",
+                notification_type='transfer_failure',
+                item_hash=item.hash
             )
             
             return redirect('home')

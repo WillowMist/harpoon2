@@ -141,6 +141,12 @@ def poll_manager(manager_id):
                             item=item,
                             details=f'Download failed: {error_message}'
                         )
+                        from users.models import Notification
+                        Notification.create_for_admin(
+                            f"Download failed for '{item.name}': {error_message[:100]}",
+                            notification_type='downloader_failure',
+                            item_hash=item.hash
+                        )
                         logger.warning(f"Item failed: {title} ({download_id}) - {error_message}")
                 except Item.DoesNotExist:
                     logger.debug(f"Received failed event for unknown item: {download_id}")

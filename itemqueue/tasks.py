@@ -1013,6 +1013,11 @@ def postprocess_item(item_hash):
     except Exception as e:
         logger.error(f"[postprocess_item] Error post-processing {item_hash}: {e}", exc_info=True)
         ItemHistory.objects.create(item=item, details=f'Post-processing failed: {str(e)}')
+        Notification.create_for_admin(
+            f"Post-processing failed for '{item.name}': {str(e)[:100]}",
+            notification_type='postprocess_failure',
+            item_hash=item.hash
+        )
         item.status = 'Failed'
         item.save()
 
