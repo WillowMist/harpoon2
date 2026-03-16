@@ -130,6 +130,10 @@ case "${1:-start}" in
         echo -e "${YELLOW}Checking database migrations...${NC}"
         python3 manage.py migrate --noinput || true
         
+        # Install Watson search index
+        echo -e "${YELLOW}Updating search index...${NC}"
+        python3 manage.py installwatson --verbosity=1 || true
+        
         # Collect static files if needed
         echo -e "${YELLOW}Collecting static files...${NC}"
         python3 manage.py collectstatic --noinput --clear || true
