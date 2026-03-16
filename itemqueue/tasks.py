@@ -799,6 +799,13 @@ def transfer_files_async(item_hash):
         item.save()
         ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
         
+        # Send completion notification
+        Notification.create_for_admin(
+            f"Item completed: {item.name}",
+            notification_type='item_completed',
+            item_hash=item.hash
+        )
+        
         # Call manager post-processing regardless of whether RAR extraction occurred
         if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
             try:
