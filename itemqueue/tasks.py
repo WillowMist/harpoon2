@@ -809,11 +809,14 @@ def transfer_files_async(item_hash):
         # Call manager post-processing regardless of whether RAR extraction occurred
         if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
             try:
+                # Get local_folder from first completed transfer if not set
                 if not local_folder:
-                    # If we didn't process RAR files, still get the local folder from first transfer
                     first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
                     if first_transfer and first_transfer.local_path:
                         local_folder = os.path.dirname(first_transfer.local_path)
+                
+                # Always try to call post_process - log even if local_folder is None
+                logger.info(f"Attempting manager post-processing for {item.name}, local_folder={local_folder}")
                 
                 if local_folder:
                     # Construct the download path with item folder name included
