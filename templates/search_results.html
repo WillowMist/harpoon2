@@ -20,8 +20,7 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for result in search_results %}
-                        {% with item=result.object %}
+                    {% for item in search_results %}
                         <tr class="{% if item.status == 'Failed' %}table-danger{% elif item.status == 'Completed' %}table-success{% elif item.archived %}table-secondary{% endif %}">
                             <td>
                                 <strong>{{ item.name }}</strong>
@@ -52,7 +51,6 @@
                                 <a href="{% url 'history' %}?q={{ item.hash }}" class="btn btn-sm btn-outline-info">History</a>
                             </td>
                         </tr>
-                        {% endwith %}
                     {% endfor %}
                 </tbody>
             </table>
@@ -69,6 +67,17 @@
         {% endif %}
     {% endif %}
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    $('#searchTable').DataTable({
+        "order": [[4, "desc"]],
+        "pageLength": 25
+    });
+});
+</script>
 {% endblock %}
 
 {% block scripts %}

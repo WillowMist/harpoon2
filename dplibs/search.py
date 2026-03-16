@@ -1,26 +1,30 @@
 from __future__ import unicode_literals
 
 from django.urls import re_path
-
-# from watson.views import search, search_json
-from watson.views import SearchView
+from django.views.generic import ListView
+from django.shortcuts import render
+from django.db.models import Q
+from itemqueue.models import Item
 
 def search(request, **kwargs):
-    """Renders a page of search results."""
-    return NewSearchView.as_view(**kwargs)(request)
+    """Renders a page of search results using Django ORM."""
+    query = request.GET.get('q', '')
+    items = []
+    
+    if query:
+        items = Item.objects.filter(
+            Q(name__icontains=query) |
+            Q(hash__icontains=query) |
+            Q(category__icontains=query)
+        ).order_by('-modified')[:100]
+    
+    return render(request, 'search_results.html', {
+        'search_results': items,
+        'query': query,
+    })
 
 
 app_name = 'watson'
 urlpatterns = [
-
     re_path("^$", search, name="search"),
-#    url("^json/$", search_json, name="search_json"),
-
 ]
-
-
-class NewSearchView(SearchView):
-
-    """View that performs a search and returns the search results."""
-
-    template_name = "search_results.html"
