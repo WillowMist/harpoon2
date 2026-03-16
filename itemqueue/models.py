@@ -61,8 +61,3 @@ class FileTransfer(models.Model):
         if self.file_size > 0:
             return int((self.bytes_transferred / self.file_size) * 100)
         return 0
-
-
-# Register with Watson for search
-import watson
-watson.register(Item)
