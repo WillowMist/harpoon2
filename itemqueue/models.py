@@ -1,5 +1,7 @@
 from django.db import models
-# from entities.models import Manager, Downloader
+from django.db.models import Q
+import watson
+
 # Create your models here.
 
 class Item(models.Model):
@@ -59,3 +61,8 @@ class FileTransfer(models.Model):
         if self.file_size > 0:
             return int((self.bytes_transferred / self.file_size) * 100)
         return 0
+
+
+# Register with Watson for search
+import watson
+watson.register(Item)
