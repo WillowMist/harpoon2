@@ -143,23 +143,17 @@ case "${1:-start}" in
         redis-server --daemonize yes --logfile /var/log/harpoon2/redis.log
         sleep 2
         
-        # Start Celery Beat
+        # Start Celery Beat in background (separate process)
         echo -e "${YELLOW}Starting Celery Beat scheduler...${NC}"
         celery -A harpoon2 beat -l info --logfile=/var/log/harpoon2/celery-beat.log &
-        BEAT_PID=$!
         
-        # Start Celery Worker (DEBUG level for detailed logging)
+        # Start Celery Worker in background (separate process)
         echo -e "${YELLOW}Starting Celery worker...${NC}"
         celery -A harpoon2 worker -l debug --logfile=/var/log/harpoon2/celery-worker.log &
-        WORKER_PID=$!
         
-        # Start Django development server
+        # Start Django development server in foreground
         echo -e "${GREEN}Starting Django development server on 0.0.0.0:4277${NC}"
         python3 manage.py runserver 0.0.0.0:4277
-        
-        # Trap signals to gracefully shutdown
-        trap "kill $BEAT_PID $WORKER_PID; exit" SIGTERM SIGINT
-        wait
         ;;
         
     django)
