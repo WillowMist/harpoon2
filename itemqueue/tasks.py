@@ -500,13 +500,17 @@ def transfer_files_async(item_hash):
         # Use temp_folder for transfer if Blackhole, else use final_folder
         item_folder = temp_folder if temp_folder else final_folder
         
+        logger.info(f"[transfer_files_async] About to list files from remote_dir={remote_dir}")
+        
         if is_single_file and downloader.downloadertype == 'RTorrent':
             # Single-file torrent: find and transfer the actual media file
             # The torrent_name should be the actual filename (e.g., "Movie.mkv")
             try:
                 # For single-file torrents, the torrent name IS the filename
                 # But check in the directory to be safe (in case structure changed)
+                logger.info(f"[transfer_files_async] Listing files in {remote_dir}")
                 remote_files = sftp.listdir(remote_dir)
+                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in remote_dir")
                 media_file = None
                 
                 # First, try to match the exact torrent name
@@ -551,7 +555,9 @@ def transfer_files_async(item_hash):
         else:
             # Multi-file torrent: recursively traverse directories
             try:
+                logger.info(f"[transfer_files_async] Listing files in multi-file dir {remote_dir}")
                 remote_files = sftp.listdir(remote_dir)
+                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in multi-file dir")
             except Exception as e:
                 logger.error(f"Cannot access remote directory {remote_dir}: {e}")
                 sftp.close()
