@@ -539,9 +539,8 @@ def transfer_files_async(item_hash):
                 
                 if not media_file:
                     logger.warning(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name} - will transfer all files")
-                    # Instead of failing, fall through to transfer all files
-                    # Treat it as multi-file
-                    is_single_file = False
+                    # Fall through to transfer ALL files in directory
+                    logger.info(f"[transfer_files_async] Falling through to transfer all files from {remote_dir}")
                 else:
                     full_remote_path = os.path.join(remote_dir, media_file)
                     # Verify the file exists
@@ -554,7 +553,10 @@ def transfer_files_async(item_hash):
                 sftp.close()
                 ssh.close()
                 return
-        else:
+        
+        # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
+        # Only run if transfer_list is still empty
+        if len(transfer_list) == 0 and not is_single_file:
             # Multi-file torrent: recursively traverse directories
             try:
                 logger.info(f"[transfer_files_async] Listing files in multi-file dir {remote_dir}")
