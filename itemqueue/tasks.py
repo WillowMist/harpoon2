@@ -1163,7 +1163,6 @@ def check_downloaders():
 
 
 @shared_task
-@shared_task
 def check_stalled_transfers():
     """Check for stalled transfers and restart them if they haven't progressed in 5+ minutes."""
     import logging
