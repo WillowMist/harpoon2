@@ -220,13 +220,13 @@ def history(request):
         completed_items = list(completed_base.filter(archived=False).order_by('-modified')[:50])
         failed_items = list(failed_base.filter(archived=False).order_by('-modified')[:50])
     
-    # Attach history/transfers counts to items
+    # Attach history/transfers counts to items (use len() to avoid DB hits on prefetched data)
     for item in completed_items:
-        item.history_count = item.history.count()
-        item.transfers_count = item.transfers.count()
+        item.history_count = len(item.history.all())
+        item.transfers_count = len(item.transfers.all())
     for item in failed_items:
-        item.history_count = item.history.count()
-        item.transfers_count = item.transfers.count()
+        item.history_count = len(item.history.all())
+        item.transfers_count = len(item.transfers.all())
     
     # Get counts for display
     completed_count = Item.objects.filter(status='Completed', archived=False).count()
