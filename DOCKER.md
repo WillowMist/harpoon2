@@ -10,11 +10,11 @@ This guide explains how to run Harpoon2 in Docker containers.
 
 ## Quick Start
 
-### 1. Setup docker-compose.yml
+### 1. Setup docker compose.yml
 
 ```bash
 # Copy the example configuration
-cp docker-compose.example.yml docker-compose.yml
+cp docker compose.example.yml docker compose.yml
 ```
 
 ### 2. Configure Environment Variables (Optional)
@@ -33,7 +33,7 @@ EOF
 ### 3. Build and Start
 
 ```bash
-docker-compose up -d
+docker compose up -d
 ```
 
 This will:
@@ -50,7 +50,7 @@ Open your browser to: `http://localhost:4277`
 ### 3. Create Superuser (First Time Only)
 
 ```bash
-docker-compose exec harpoon2 createsuperuser
+docker compose exec harpoon2 createsuperuser
 ```
 
 ## Directory Structure
@@ -88,48 +88,48 @@ REDIS_PORT=6379
 
 ```bash
 # All services
-docker-compose logs -f
+docker compose logs -f
 
 # Specific service
-docker-compose logs -f harpoon2
-docker-compose logs -f redis
+docker compose logs -f harpoon2
+docker compose logs -f redis
 ```
 
 ### Access Django Shell
 
 ```bash
-docker-compose exec harpoon2 shell
+docker compose exec harpoon2 shell
 ```
 
 ### Run Migrations Manually
 
 ```bash
-docker-compose exec harpoon2 migrate
+docker compose exec harpoon2 migrate
 ```
 
 ### Start Individual Services
 
 ```bash
 # Django only
-docker-compose exec harpoon2 django
+docker compose exec harpoon2 django
 
 # Celery worker only
-docker-compose exec harpoon2 worker
+docker compose exec harpoon2 worker
 
 # Celery beat only
-docker-compose exec harpoon2 beat
+docker compose exec harpoon2 beat
 
 # Redis only
-docker-compose exec harpoon2 redis
+docker compose exec harpoon2 redis
 
 # Bash shell
-docker-compose exec harpoon2 bash
+docker compose exec harpoon2 bash
 ```
 
 ### Collect Static Files
 
 ```bash
-docker-compose exec harpoon2 python manage.py collectstatic --noinput
+docker compose exec harpoon2 python manage.py collectstatic --noinput
 ```
 
 ### Create Backup
@@ -176,12 +176,12 @@ RUN pip install gunicorn
 ### 2. Use Gunicorn
 
 ```bash
-docker-compose exec harpoon2 gunicorn harpoon2.wsgi:application --bind 0.0.0.0:8000
+docker compose exec harpoon2 gunicorn harpoon2.wsgi:application --bind 0.0.0.0:8000
 ```
 
 ### 3. Add Nginx Reverse Proxy
 
-Uncomment the nginx service in `docker-compose.yml` and configure:
+Uncomment the nginx service in `docker compose.yml` and configure:
 
 ```nginx
 upstream harpoon2 {
@@ -213,7 +213,7 @@ Use Certbot with Nginx for SSL certificates.
 ### Port Already in Use
 
 ```bash
-# Change port in docker-compose.yml
+# Change port in docker compose.yml
 # Or free up the port
 lsof -i :8000  # Find process using port
 kill -9 <PID>
@@ -223,17 +223,17 @@ kill -9 <PID>
 
 ```bash
 # Check database integrity
-docker-compose exec harpoon2 python manage.py showmigrations
+docker compose exec harpoon2 python manage.py showmigrations
 
 # Apply pending migrations
-docker-compose exec harpoon2 migrate
+docker compose exec harpoon2 migrate
 ```
 
 ### Redis Connection Issues
 
 ```bash
 # Check Redis health
-docker-compose exec redis redis-cli ping
+docker compose exec redis redis-cli ping
 # Should return: PONG
 ```
 
@@ -241,10 +241,10 @@ docker-compose exec redis redis-cli ping
 
 ```bash
 # Check Celery worker logs
-docker-compose logs -f harpoon2
+docker compose logs -f harpoon2
 
 # Verify Redis broker connectivity
-docker-compose exec redis redis-cli
+docker compose exec redis redis-cli
 > KEYS *
 ```
 
@@ -252,7 +252,7 @@ docker-compose exec redis redis-cli
 
 ```bash
 # Increase Docker memory allocation
-# Edit docker-compose.yml and add:
+# Edit docker compose.yml and add:
 # mem_limit: 2g
 ```
 
@@ -283,20 +283,20 @@ docker volume inspect harpoon2_harpoon2-data
 ### Remove Stopped Containers
 
 ```bash
-docker-compose down
+docker compose down
 ```
 
 ### Remove All Data (Destructive!)
 
 ```bash
-docker-compose down -v  # Removes volumes too
+docker compose down -v  # Removes volumes too
 ```
 
 ## Performance Tuning
 
 ### Increase Celery Concurrency
 
-Edit docker-compose.yml:
+Edit docker compose.yml:
 
 ```bash
 command: start  # Add concurrency flag
@@ -305,14 +305,14 @@ command: start  # Add concurrency flag
 
 ### Enable Redis Persistence
 
-Redis is configured to save data. For more control, edit the Redis configuration in docker-compose.yml.
+Redis is configured to save data. For more control, edit the Redis configuration in docker compose.yml.
 
 ## Monitoring
 
 ### Check Container Status
 
 ```bash
-docker-compose ps
+docker compose ps
 ```
 
 ### Monitor Resource Usage
@@ -324,7 +324,7 @@ docker stats harpoon2 redis
 ### Check Logs for Errors
 
 ```bash
-docker-compose logs --tail=100 harpoon2
+docker compose logs --tail=100 harpoon2
 ```
 
 ## Further Documentation

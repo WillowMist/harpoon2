@@ -9,7 +9,7 @@ A modern Django-based download manager that monitors directories for torrents an
 git clone https://github.com/WillowMist/harpoon2
 cd harpoon2
 
-# Copy and configure docker-compose
+# Copy and configure docker compose
 cp docker-compose.example.yml docker-compose.yml
 
 # Create .env file with your settings
@@ -21,7 +21,7 @@ CSRF_TRUSTED_ORIGINS=https://your-domain.com
 EOF
 
 # Start the application
-docker-compose up -d
+docker compose up -d
 
 # Access at http://localhost:4277
 ```
