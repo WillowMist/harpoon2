@@ -1189,11 +1189,6 @@ def check_stalled_transfers():
                 transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
                 transfer.save()
                 stalled_count += 1
-                
-                ItemHistory.objects.create(
-                    item=transfer.item,
-                    details=f'Stalled transfer detected and failed: {transfer.filename}'
-                )
         
         # Check for items in PostProcessing with failed or pending transfers
         post_processing_items = Item.objects.filter(status='PostProcessing')
@@ -1213,11 +1208,6 @@ def check_stalled_transfers():
                     item.status = 'Grabbed'
                     item.save()
                     stalled_count += 1
-                    
-                    ItemHistory.objects.create(
-                        item=item,
-                        details='Transfers have failed/pending, resetting for retry'
-                    )
         
         # Check for items in PostProcessing and handle appropriately
         # This handles cases where status was manually set to PostProcessing
@@ -1230,11 +1220,9 @@ def check_stalled_transfers():
                 logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
                 try:
                     transfer_files_async.delay(item.hash)
-                    ItemHistory.objects.create(
-                        item=item,
-                        details='No transfer records found, queued file transfer'
-                    )
                     logger.info(f"Successfully queued transfer for {item.name}")
+                except Exception as e:
+                    logger.error(f"Failed to queue transfer for {item.name}: {e}")
                 except Exception as e:
                     logger.error(f"Failed to queue transfer for {item.name}: {e}")
             else:
@@ -1249,10 +1237,6 @@ def check_stalled_transfers():
                     transfers.delete()  # Clear old transfers
                     try:
                         transfer_files_async.delay(item.hash)
-                        ItemHistory.objects.create(
-                            item=item,
-                            details='Requeuing file transfer (had failed/pending transfers)'
-                        )
                     except Exception as e:
                         logger.error(f"Failed to requeue transfer for {item.name}: {e}")
                 elif all_completed:
