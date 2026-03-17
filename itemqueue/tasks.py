@@ -894,9 +894,13 @@ def transfer_files_async(item_hash):
                 ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
         
         # Mark item as Completed after transfer AND extraction AND move AND post-processing are done
-        item.status = 'Completed'
-        item.save()
-        ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
+        # Only if not already marked as Failed by extraction
+        if item.status != 'Failed':
+            item.status = 'Completed'
+            item.save()
+            ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
+        else:
+            logger.warning(f"Item {item.name} marked as Failed during extraction, not marking as Completed")
         
         # Send completion notification
         Notification.create_for_admin(
