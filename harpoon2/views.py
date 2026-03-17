@@ -208,20 +208,17 @@ def history(request):
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    # Filter by archive status first (without prefetch)
-    if show_archived:
-        completed_items_qs = Item.objects.filter(status='Completed', archived=True).order_by('-archived_at')[:50]
-        failed_items_qs = Item.objects.filter(status='Failed', archived=True).order_by('-archived_at')[:50]
-    else:
-        completed_items_qs = Item.objects.filter(status='Completed', archived=False).order_by('-modified')[:50]
-        failed_items_qs = Item.objects.filter(status='Failed', archived=False).order_by('-modified')[:50]
-    
-    # Now apply prefetch to the already-filtered results
+    # Prefetch limited history and transfers
     history_prefetch = Prefetch('history', queryset=ItemHistory.objects.order_by('-created')[:5])
     transfers_prefetch = Prefetch('transfers', queryset=FileTransfer.objects.order_by('-created')[:10])
     
-    completed_items = list(completed_items_qs.select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch))
-    failed_items = list(failed_items_qs.select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch))
+    # Build querysets with select/prefetch BEFORE slicing
+    if show_archived:
+        completed_items = list(Item.objects.filter(status='Completed', archived=True).select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch).order_by('-archived_at')[:50])
+        failed_items = list(Item.objects.filter(status='Failed', archived=True).select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch).order_by('-archived_at')[:50])
+    else:
+        completed_items = list(Item.objects.filter(status='Completed', archived=False).select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch).order_by('-modified')[:50])
+        failed_items = list(Item.objects.filter(status='Failed', archived=False).select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch).order_by('-modified')[:50])
     
     # Attach history/transfers counts to items (use len() to avoid DB hits on prefetched data)
     for item in completed_items:
