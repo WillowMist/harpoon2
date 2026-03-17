@@ -804,24 +804,67 @@ def transfer_files_async(item_hash):
                     if first_transfer and first_transfer.local_path:
                         local_folder = os.path.dirname(first_transfer.local_path)
                 
+                # Always try to call post_process - log even if local_folder is None
                 logger.info(f"Attempting manager post-processing for {item.name}, local_folder={local_folder}")
                 
                 if local_folder:
+                    # Construct the download path with item folder name included
+                    # Get the sanitized item name (same logic as during transfer)
+                    sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+                    sanitized_item_name = sanitized_item_name.strip()
+                    
+                    # Get base folder (local version for extraction check, remote for API)
+                    if item.manager.folder:
+                        # Construct remote path with item folder name
+                        if item.manager.folder.remote_folder_name:
+                            base_remote_path = item.manager.folder.remote_folder_name
+                        else:
+                            base_remote_path = item.manager.folder.folder
+                        download_path = os.path.join(base_remote_path, sanitized_item_name)
+                    else:
+                        download_path = local_folder
+                    
+                    # Check if there's only one video file in the directory - if so, use that file path
+                    video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
+                    try:
+                        local_item_path = os.path.join(local_folder, sanitized_item_name)
+                        if os.path.isdir(local_item_path):
+                            video_files = [f for f in os.listdir(local_item_path) 
+                                         if os.path.isfile(os.path.join(local_item_path, f)) 
+                                         and os.path.splitext(f)[1].lower() in video_extensions]
+                            if len(video_files) == 1:
+                                # Single video file - use it instead of directory
+                                video_file = video_files[0]
+                                download_path = os.path.join(download_path, video_file)
+                                logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
+                    except Exception as e:
+                        logger.warning(f"Could not check for single video file: {e}")
+                    
+                    # Only call post_process if the manager supports it
                     client = item.manager.client
                     if hasattr(client, 'post_process'):
-                        logger.info(f"Calling manager post-processing for {item.name}")
+                        logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
                         try:
-                            success, pp_message = client.post_process(item, local_folder)
+                            success, pp_message = client.post_process(item, download_path)
+                            
                             if success:
                                 logger.info(f"Manager post-processing initiated: {pp_message}")
                             else:
-                                logger.warning(f"Manager post-processing failed: {pp_message}")
+                                logger.error(f"Manager post-processing failed: {pp_message}")
                                 ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+                                Notification.create_for_admin(
+                                    f"Post-processing failed for '{item.name}': {pp_message[:100]}",
+                                    notification_type='postprocess_failure',
+                                    item_hash=item.hash
+                                )
+                                logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
                         except Exception as e:
                             logger.error(f"Error calling post-processing: {e}")
                             ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
+                        retry_postprocessing.apply_async(args=[item_hash], countdown=300)
             except Exception as e:
-                logger.error(f"Error in post-processing step: {e}")
+                logger.error(f"Error calling manager post-processing: {e}")
+                ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
         
         # Mark item as Completed after transfer AND extraction AND move AND post-processing are done
         item.status = 'Completed'
@@ -846,9 +889,20 @@ def transfer_files_async(item_hash):
                     ItemHistory.objects.create(item=item, details=f'Cleaned up SABnzbd download: {item.clientid}')
                 except Exception as e:
                     logger.warning(f"Failed to cleanup SABnzbd download: {e}")
-        
-        # REMOVED: Old post_process code that was here (now above)
-        
+
+    except Exception as e:
+        logger.error(f"Error in async file transfer {item_hash}: {e}")
+        ItemHistory.objects.create(item=item, details=f'Async transfer failed: {str(e)}')
+
+
+@shared_task
+def postprocess_item(item_hash):
+    """Post-process a completed download: mark as completed and queue async file transfer."""
+    logger.info(f"[postprocess_item] Starting post-processing for item {item_hash}")
+    try:
+        item = Item.objects.get(hash=item_hash)
+    except Item.DoesNotExist:
+        logger.error(f"[postprocess_item] Item {item_hash} not found in database")
         return
     
     logger.info(f"[postprocess_item] Processing {item.name} (current_status={item.status})")
@@ -1173,6 +1227,20 @@ def check_stalled_transfers():
                             # Process RAR archives SECOND
                             success_rar, msg_rar = process_rar_archives(local_folder, item)
                             logger.info(f"RAR processing: {msg_rar}")
+                            
+                            # Run manager post-processing (send to Whisparr/Sonarr/etc)
+                            if item.manager:
+                                client = item.manager.client
+                                if hasattr(client, 'post_process'):
+                                    try:
+                                        logger.info(f"Calling manager post-processing for {item.name}")
+                                        success_pp, pp_message = client.post_process(item, local_folder)
+                                        if success_pp:
+                                            logger.info(f"Manager post-processing succeeded: {pp_message}")
+                                        else:
+                                            logger.warning(f"Manager post-processing failed: {pp_message}")
+                                    except Exception as e:
+                                        logger.error(f"Error calling post-processing: {e}")
                             
                             # THEN move from temp to final folder for Blackhole
                             if item.manager and item.manager.managertype == 'Blackhole':
