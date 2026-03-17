@@ -23,6 +23,14 @@ def poll_manager(manager_id):
     except Manager.DoesNotExist:
         return
     
+    # Blackhole managers don't have an API - they poll a folder instead
+    if manager.managertype == 'Blackhole':
+        return
+    
+    if not manager.url:
+        logger.warning(f"Manager {manager.name} has no URL configured, skipping poll")
+        return
+    
     headers = {'X-Api-Key': manager.apikey, 'Accept': 'application/json'}
     
     # Determine API version
