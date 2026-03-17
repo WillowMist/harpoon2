@@ -204,9 +204,9 @@ def history(request):
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    # Base queryset
-    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader')
-    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader')
+    # Base queryset with prefetch to avoid N+1 queries
+    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
+    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
     
     # Filter by archive status
     if show_archived:
