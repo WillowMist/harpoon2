@@ -26,12 +26,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
-        id: version
+      - name: Extract version and repository name
+        id: vars
         run: |
           VERSION=$(python3 -c "import _version; print(_version.__version__)" 2>/dev/null || echo "0.0.0")
+          REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          echo "REPOSITORY=$REPO" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION, Repository: $REPO"
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -39,7 +41,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.actor }}/harpoon2:latest
-            ghcr.io/${{ github.actor }}/harpoon2:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ steps.vars.outputs.REPOSITORY }}:latest
+            ghcr.io/${{ steps.vars.outputs.REPOSITORY }}:${{ steps.vars.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
