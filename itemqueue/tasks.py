@@ -296,7 +296,16 @@ def transfer_files_async(item_hash):
     This runs in the background and can take a long time for large files.
     Creates all FileTransfer records UPFRONT, then transfers them.
     """
-    logger.info(f"[transfer_files_async] Starting file transfer for item {item_hash}")
+    logger.info(f"[transfer_files_async] ================= STARTING ================= for item {item_hash}")
+    try:
+        item = Item.objects.get(hash=item_hash)
+    except Item.DoesNotExist:
+        logger.error(f"[transfer_files_async] Item {item_hash} not found in database")
+        return
+    
+    logger.info(f"[transfer_files_async] ========== Processing item: {item.name} ({item.status}) ==========")
+    logger.info(f"[transfer_files_async] Downloader: {item.downloader}, Seedbox: {item.downloader.seedbox if item.downloader else 'None'}")
+    
     try:
         item = Item.objects.get(hash=item_hash)
     except Item.DoesNotExist:
@@ -411,7 +420,7 @@ def transfer_files_async(item_hash):
         logger.debug(f"[transfer_files_async] Opening SFTP channel")
         sftp = ssh.open_sftp()
         sftp.get_channel().settimeout(60)
-        logger.info(f"[transfer_files_async] SFTP channel open")
+        logger.info(f"[transfer_files_async] SFTP channel open for {item.name}")
         
         # For SABnzbd, check if remote_dir is a file or folder
         if downloader.downloadertype == 'SABNzbd':
@@ -579,7 +588,7 @@ def transfer_files_async(item_hash):
                         continue
             
             walk_remote_sftp(sftp, remote_dir, remote_dir)
-        logger.info(f"Found {len(transfer_list)} files to transfer (including nested directories)")
+        logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files
         # This ensures the dashboard shows correct total size from the start
@@ -596,6 +605,13 @@ def transfer_files_async(item_hash):
         
         transfer_records = {}
         skipped_count = 0
+        
+        if len(transfer_list) == 0:
+            logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
+            ItemHistory.objects.create(item=item, details=f'No files found to transfer - remote_dir may be empty or inaccessible')
+            sftp.close()
+            ssh.close()
+            return
         
         for remote_file_path, relative_path in transfer_list:
             # Build local path preserving folder structure
@@ -891,9 +907,14 @@ def transfer_files_async(item_hash):
                 except Exception as e:
                     logger.warning(f"Failed to cleanup SABnzbd download: {e}")
 
+        logger.info(f"[transfer_files_async] ========== COMPLETED successfully for {item.name} ==========")
+        
     except Exception as e:
-        logger.error(f"Error in async file transfer {item_hash}: {e}")
-        ItemHistory.objects.create(item=item, details=f'Async transfer failed: {str(e)}')
+        logger.error(f"[transfer_files_async] ========== FAILED for {item_hash}: {e} ==========", exc_info=True)
+        try:
+            ItemHistory.objects.create(item=item, details=f'Async transfer failed: {str(e)}')
+        except:
+            pass
 
 
 @shared_task
