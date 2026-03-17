@@ -217,7 +217,7 @@ LOGGING = {
 # Note: All sensitive settings are now configured via environment variables
 # See .env.example for required settings
 
-INTERFACE = 'vapor'
+INTERFACE = 'darkly'
 
 THEMES = [('cerulean', 'Cerulean'),
           ('cosmo', 'Cosmo'),
