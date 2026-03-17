@@ -535,7 +535,11 @@ def api_dashboard(request):
             status__in=['pending', 'transferring', 'completed']
         ).select_related('item')
         
+        # Track data for speed calculation
+        transfers_by_item = {}
         item_total_sizes = {}
+        
+        # First pass: collect total sizes
         for transfer in active_transfers_query:
             if not transfer.item:
                 continue
@@ -544,7 +548,7 @@ def api_dashboard(request):
                 all_transfers = active_transfers_query.filter(item__hash=item_hash)
                 item_total_sizes[item_hash] = sum(t.file_size for t in all_transfers)
         
-        transfers_by_item = {}
+        # Second pass: collect transfer data with timing for speed calculation
         for transfer in active_transfers_query:
             if not transfer.item:
                 continue
@@ -552,18 +556,70 @@ def api_dashboard(request):
             if item_hash not in transfers_by_item:
                 transfers_by_item[item_hash] = {
                     'item_name': transfer.item.name,
+                    'item': transfer.item,
                     'total_size': item_total_sizes.get(item_hash, 0),
                     'total_completed': 0,
                     'file_count': 0,
+                    'earliest_start': None,
+                    'latest_update': None,
                 }
             
             transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
             transfers_by_item[item_hash]['file_count'] += 1
+            
+            # Track earliest start time for speed calculation
+            if transfer.started:
+                if transfers_by_item[item_hash]['earliest_start'] is None:
+                    transfers_by_item[item_hash]['earliest_start'] = transfer.started
+                else:
+                    transfers_by_item[item_hash]['earliest_start'] = min(
+                        transfers_by_item[item_hash]['earliest_start'],
+                        transfer.started
+                    )
+            
+            # Track latest update time for speed calculation
+            if transfer.modified:
+                if transfers_by_item[item_hash]['latest_update'] is None:
+                    transfers_by_item[item_hash]['latest_update'] = transfer.modified
+                else:
+                    transfers_by_item[item_hash]['latest_update'] = max(
+                        transfers_by_item[item_hash]['latest_update'],
+                        transfer.modified
+                    )
         
         active_transfers = []
+        total_speed_mbps = 0
+        now = timezone.now()
+        
         for item_hash, data in transfers_by_item.items():
             if data['total_completed'] < data['total_size']:
                 percent = int((data['total_completed'] / data['total_size']) * 100) if data['total_size'] > 0 else 0
+                
+                # Calculate speed using session-based delta for accurate transfer speed
+                speed_mbps = 0
+                prev_poll = request.session.get('transfer_poll_state', {})
+                prev_item = prev_poll.get(item_hash)
+                
+                if prev_item and data['latest_update']:
+                    prev_completed = prev_item.get('completed', 0)
+                    prev_time_str = prev_item.get('timestamp')
+                    if prev_time_str:
+                        prev_time = parse_datetime(prev_time_str)
+                        if prev_time and data['total_completed'] > prev_completed:
+                            delta_bytes = data['total_completed'] - prev_completed
+                            delta_seconds = (now - prev_time).total_seconds()
+                            if delta_seconds > 0:
+                                speed_mbps = (delta_bytes / delta_seconds) / (1024 * 1024)
+                
+                # Fallback: use elapsed time since earliest start
+                if speed_mbps == 0 and data['earliest_start']:
+                    elapsed_seconds = (now - data['earliest_start']).total_seconds()
+                    if elapsed_seconds > 0 and data['total_completed'] > 0:
+                        speed_mbps = (data['total_completed'] / elapsed_seconds) / (1024 * 1024)
+                
+                if speed_mbps > 0:
+                    total_speed_mbps += speed_mbps
+                
                 active_transfers.append({
                     'name': data['item_name'],
                     'item_name': data['item_name'],
@@ -571,7 +627,7 @@ def api_dashboard(request):
                     'completed': data['total_completed'],
                     'percent': percent,
                     'file_count': data['file_count'],
-                    'speed_mbps': 0,
+                    'speed_mbps': speed_mbps,
                     'extraction_status': '',
                     'extraction_progress': 0,
                 })
@@ -589,13 +645,23 @@ def api_dashboard(request):
                 t['extraction_status'] = transfers_by_item[item_hash].get('extraction_status', '')
                 t['extraction_progress'] = transfers_by_item[item_hash].get('extraction_progress', 0)
         
+        # Update session with current poll state for next poll's speed calculation
+        poll_state = {}
+        for item_hash, data in transfers_by_item.items():
+            poll_state[item_hash] = {
+                'completed': data['total_completed'],
+                'timestamp': now.isoformat(),
+            }
+        request.session['transfer_poll_state'] = poll_state
+        request.session.modified = True
+        
         total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
         
         return JsonResponse({
             'manager_summary': manager_summary,
             'grabbing_downloads': grabbing_downloads,
             'active_transfers': active_transfers,
-            'total_speed_mbps': 0,
+            'total_speed_mbps': total_speed_mbps,
             'total_queued': total_queued,
         })
     except Exception as e:
