@@ -323,7 +323,7 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in failed_items %}
-                {% with history_list=item.history.all %}
+                {% with history_list=item.history.all history_count=item._history_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
@@ -354,7 +354,8 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% if history_list.count > 1 or history_list.0.details|length > 100 %}
+                        {% with history_list=item.history.all history_count=item._history_count %}
+                        {% if history_count > 1 or history_list.0.details|length > 100 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
                             <span class="details-preview">{{ history_list.0.details|truncatechars:80 }}</span>
                             <span class="details-preview expanded">
@@ -432,7 +433,7 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in completed_items %}
-                {% with history_list=item.history.all transfers=item.transfers.all %}
+                {% with history_list=item.history.all transfers=item.transfers.all history_count=item._history_count transfers_count=item._transfers_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
@@ -463,12 +464,12 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% if history_list.count > 0 or transfers.count > 0 %}
+                        {% if history_count > 0 or transfers_count > 0 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
                             <span class="details-preview">
-                                {% if transfers.count > 0 %}
+                                {% if transfers_count > 0 %}
                                     Transfer: {{ transfers.0.percent_complete }}% ({{ transfers.0.file_size|filesizeformat }})
-                                {% elif history_list.count > 0 %}
+                                {% elif history_count > 0 %}
                                     {{ history_list.0.details|truncatechars:40 }}
                                 {% else %}
                                     No details
@@ -476,7 +477,7 @@ function autoSubmitForm(form) {
                             </span>
                         </div>
                         <div class="details-content">
-                            {% if transfers.count > 0 %}
+                            {% if transfers_count > 0 %}
                             <div><strong>Transfer Information:</strong></div>
                             {% for transfer in transfers %}
                             <div>Filename: {{ transfer.filename }}</div>
@@ -487,7 +488,7 @@ function autoSubmitForm(form) {
                             {% if transfer.error_message %}<div style="color: #ff6b6b;">Error: {{ transfer.error_message }}</div>{% endif %}
                             {% endfor %}
                             {% endif %}
-                            {% if history_list.count > 0 %}
+                            {% if history_count > 0 %}
                             <div><strong>Event History:</strong></div>
                             {% for h in history_list %}
                             <div>[{{ h.created|date:"H:i:s" }}] {{ h.details }}</div>

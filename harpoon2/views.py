@@ -3,6 +3,7 @@ from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
 from django.http import JsonResponse
+from django.db.models import Prefetch
 from entities.models import Manager, Downloader, CachedDownloaderStatus
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
@@ -199,14 +200,21 @@ def queue(request):
     })
 
 
+from django.db.models import Prefetch
+
+
 def history(request):
     """History page - shows completed and failed items."""
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
+    # Prefetch with limited history/transfers to avoid loading everything
+    history_prefetch = Prefetch('history', queryset=ItemHistory.objects.order_by('-created')[:5])
+    transfers_prefetch = Prefetch('transfers', queryset=FileTransfer.objects.order_by('-created')[:10])
+    
     # Base queryset with prefetch to avoid N+1 queries
-    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
-    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
+    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
+    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
     
     # Filter by archive status
     if show_archived:
@@ -215,6 +223,18 @@ def history(request):
     else:
         completed_items = completed_base.filter(archived=False).order_by('-modified')[:50]
         failed_items = failed_base.filter(archived=False).order_by('-modified')[:50]
+    
+    # Pre-fetch counts to avoid N+1 in template
+    completed_items_list = list(completed_items)
+    failed_items_list = list(failed_items)
+    
+    # Attach history/transfers counts to items
+    for item in completed_items_list:
+        item._history_count = item.history.count()
+        item._transfers_count = item.transfers.count()
+    for item in failed_items_list:
+        item._history_count = item.history.count()
+        item._transfers_count = item.transfers.count()
     
     # Get counts for display
     completed_count = Item.objects.filter(status='Completed', archived=False).count()
@@ -226,8 +246,8 @@ def history(request):
     downloaders = Downloader.objects.all().order_by('name')
     
     return render(request, 'history.html', {
-        'completed_items': completed_items,
-        'failed_items': failed_items,
+        'completed_items': completed_items_list,
+        'failed_items': failed_items_list,
         'show_archived': show_archived,
         'completed_count': completed_count,
         'completed_archived_count': completed_archived_count,

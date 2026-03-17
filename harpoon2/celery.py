@@ -62,6 +62,11 @@ app.conf.beat_schedule = {
         'task': 'entities.tasks.cache_downloader_status',
         'schedule': 10.0,  # Every 10 seconds
     },
+    # Clean up expired sessions daily
+    'cleanup-sessions': {
+        'task': 'harpoon2.tasks.cleanup_sessions',
+        'schedule': crontab(hour=3, minute=0),  # Daily at 3am
+    },
 }
 
 # Also set as CELERY_BEAT_SCHEDULE for backwards compatibility

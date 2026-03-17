@@ -24,8 +24,14 @@ class Item(models.Model):
     extraction_completed = models.DateTimeField(null=True, blank=True)
     
     # Archive tracking
-    archived = models.BooleanField(default=False)
+    archived = models.BooleanField(default=False, db_index=True)
     archived_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status', 'archived', '-modified']),
+            models.Index(fields=['status', 'archived', '-archived_at']),
+        ]
 
 
 class ItemHistory(models.Model):
