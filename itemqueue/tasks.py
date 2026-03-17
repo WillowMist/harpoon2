@@ -516,8 +516,10 @@ def transfer_files_async(item_hash):
                 # First, try to match the exact torrent name
                 if torrent_name in remote_files:
                     media_file = torrent_name
+                    logger.info(f"[transfer_files_async] Matched exact torrent name: {media_file}")
                 else:
                     # If exact match not found, look for media files (skip .nfo, Screens directories, etc)
+                    logger.info(f"[transfer_files_async] Looking for media file in {len(remote_files)} files...")
                     for filename in remote_files:
                         if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm')):
                             # Additional check: make sure it matches the expected name pattern
@@ -536,17 +538,17 @@ def transfer_files_async(item_hash):
                                 break
                 
                 if not media_file:
-                    logger.error(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name}")
-                    sftp.close()
-                    ssh.close()
-                    return
-                
-                full_remote_path = os.path.join(remote_dir, media_file)
-                # Verify the file exists
-                sftp.stat(full_remote_path)
-                # Use just the filename as the relative path so it transfers to item_folder/filename
-                transfer_list.append((full_remote_path, media_file))
-                logger.info(f"Single-file torrent detected: {media_file} (from torrent: {torrent_name})")
+                    logger.warning(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name} - will transfer all files")
+                    # Instead of failing, fall through to transfer all files
+                    # Treat it as multi-file
+                    is_single_file = False
+                else:
+                    full_remote_path = os.path.join(remote_dir, media_file)
+                    # Verify the file exists
+                    sftp.stat(full_remote_path)
+                    # Use just the filename as the relative path so it transfers to item_folder/filename
+                    transfer_list.append((full_remote_path, media_file))
+                    logger.info(f"Single-file torrent detected: {media_file} (from torrent: {torrent_name})")
             except Exception as e:
                 logger.error(f"Cannot process single-file torrent in {remote_dir}: {e} - aborting transfer")
                 sftp.close()
