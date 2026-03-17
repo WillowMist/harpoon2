@@ -242,14 +242,89 @@ function renderPostProcessingItems(items) {
         return '';
     }
     
-    return items.map(item => `
-        <tr>
+    return items.map(item => {
+        const isExpanded = expandedRows.has(item.hash);
+        const hasTransfers = item.transfers && item.transfers.length > 0;
+        const hasHistory = item.history && item.history.length > 0;
+        
+        let transfersHtml = '';
+        if (hasTransfers) {
+            transfersHtml = item.transfers.map(t => {
+                const percent = t.file_size > 0 ? Math.round((t.bytes_transferred / t.file_size) * 100) : 0;
+                const statusClass = t.status === 'completed' ? 'bg-success' : t.status === 'failed' ? 'bg-danger' : 'bg-warning';
+                return `<div class="mb-1">
+                    <span class="badge ${statusClass}">${t.status}</span>
+                    ${t.filename}: ${percent}%${t.error_message ? `<span class="text-danger ms-2">${t.error_message}</span>` : ''}
+                </div>`;
+            }).join('');
+        }
+        
+        let historyHtml = '';
+        if (hasHistory) {
+            historyHtml = item.history.map(h => `
+                <div class="mb-1"><small class="text-muted">${h.created}:</small> ${h.details}</div>
+            `).join('');
+        }
+        
+        return `
+        <tr data-item-id="${item.hash}" onclick="toggleDetails(this)" style="cursor: pointer;">
+            <td><span class="expand-icon" style="transform: ${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span></td>
             <td>${item.name.substring(0, 50)}</td>
             <td>${item.manager}</td>
             <td>${item.downloader}</td>
             <td>${timeSince(item.modified)} ago</td>
+            <td onclick="event.stopPropagation();">
+                <div class="dropdown">
+                    <button class="btn btn-danger btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                        Cancel
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-dark">
+                        <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'failed'); return false;">Mark as Failed</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'completed'); return false;">Mark as Completed</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'retry'); return false;">Reset to Grabbed</a></li>
+                    </ul>
+                </div>
+            </td>
         </tr>
-    `).join('');
+        <tr class="details-row ${isExpanded ? 'show' : ''}" data-item-id="${item.hash}">
+            <td colspan="6">
+                <div class="details-cell-content">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Item Hash:</strong><br>
+                            <code>${item.hash}</code>
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Status:</strong><br>
+                            <span class="badge bg-warning">${item.status}</span>
+                        </div>
+                    </div>
+                    <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <strong>Manager:</strong><br>
+                            ${item.manager}
+                        </div>
+                        <div class="col-md-6">
+                            <strong>Downloader:</strong><br>
+                            ${item.downloader || '<span class="text-warning">Not assigned</span>'}
+                        </div>
+                    </div>
+                    ${hasTransfers ? `
+                    <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                    <strong>Transfers:</strong>
+                    <div class="mt-1">${transfersHtml}</div>
+                    ` : ''}
+                    ${hasHistory ? `
+                    <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                    <strong>Recent History:</strong>
+                    <div class="mt-1">${historyHtml}</div>
+                    ` : ''}
+                </div>
+            </td>
+        </tr>
+        `;
+    }).join('');
 }
 
 function loadQueueData() {
@@ -303,6 +378,39 @@ window.addEventListener('beforeunload', function() {
         clearInterval(queuePollingInterval);
     }
 });
+
+function cancelPostProcessing(itemHash, action) {
+    if (!confirm('Are you sure you want to ' + 
+        (action === 'failed' ? 'mark this item as Failed' : 
+         action === 'completed' ? 'mark this item as Completed' : 
+         'reset this item to Grabbed') + '?')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('action', action);
+    formData.append('csrfmiddlewaretoken', getCsrfToken());
+    
+    fetch(`/item/${itemHash}/cancel-postprocessing/`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to cancel PostProcessing item');
+        }
+    })
+    .catch(error => {
+        console.error('Error cancelling PostProcessing:', error);
+        alert('Error cancelling PostProcessing item');
+    });
+}
+
+function getCsrfToken() {
+    return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
 </script>
 
 {% endblock %}

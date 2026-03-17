@@ -314,6 +314,72 @@ def cancel_transfer(request, item_name):
     return redirect('home')
 
 
+def cancel_postprocessing(request, item_hash):
+    """Cancel/reset a stuck PostProcessing item."""
+    if request.method == 'POST':
+        try:
+            from itemqueue.models import FileTransfer
+            item = Item.objects.get(hash=item_hash)
+            
+            if item.status != 'PostProcessing':
+                messages.error(request, 'Only PostProcessing items can be cancelled this way')
+                return redirect('queue')
+            
+            # Get action: 'failed' to mark as failed, 'completed' to force complete, 'retry' to requeue
+            action = request.POST.get('action', 'failed')
+            
+            if action == 'failed':
+                # Mark item as failed
+                item.status = 'Failed'
+                item.save()
+                ItemHistory.objects.create(
+                    item=item,
+                    details='PostProcessing cancelled by user - marked as Failed'
+                )
+                Notification.create_for_admin(
+                    f"PostProcessing cancelled by user: {item.name}",
+                    notification_type='postprocess_failure',
+                    item_hash=item.hash
+                )
+                messages.success(request, f'Item marked as Failed: {item.name}')
+                
+            elif action == 'completed':
+                # Mark item as completed (manual override)
+                item.status = 'Completed'
+                item.save()
+                ItemHistory.objects.create(
+                    item=item,
+                    details='PostProcessing manually marked as Completed by user'
+                )
+                Notification.create_for_admin(
+                    f"PostProcessing manually completed: {item.name}",
+                    notification_type='item_completed',
+                    item_hash=item.hash
+                )
+                messages.success(request, f'Item marked as Completed: {item.name}')
+                
+            elif action == 'retry':
+                # Reset to Grabbed to try again
+                item.status = 'Grabbed'
+                item.save()
+                ItemHistory.objects.create(
+                    item=item,
+                    details='PostProcessing reset to Grabbed by user for retry'
+                )
+                messages.success(request, f'Item reset to Grabbed: {item.name}')
+            
+            return redirect('queue')
+            
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+            return redirect('queue')
+        except Exception as e:
+            messages.error(request, f'Error cancelling PostProcessing: {str(e)}')
+            return redirect('queue')
+    
+    return redirect('queue')
+
+
 def archive_item(request, item_hash):
     """Archive a single item."""
     if request.method == 'POST':
@@ -673,12 +739,13 @@ def api_dashboard(request):
 def api_queue(request):
     """JSON API for queue data - used for AJAX polling."""
     from django.http import JsonResponse
+    from itemqueue.models import FileTransfer, ItemHistory
     
     items = Item.objects.filter(status__in=['Grabbed', 'PostProcessing'], archived=False).select_related('manager', 'downloader').order_by('-modified')
     
     queue_items = []
     for item in items:
-        queue_items.append({
+        item_data = {
             'name': item.name,
             'hash': item.hash,
             'status': item.status,
@@ -687,7 +754,27 @@ def api_queue(request):
             'size': item.size,
             'created': item.created.isoformat(),
             'modified': item.modified.isoformat(),
-        })
+        }
+        
+        # Add transfer info for PostProcessing items
+        if item.status == 'PostProcessing':
+            transfers = FileTransfer.objects.filter(item=item).order_by('-created')
+            item_data['transfers'] = [{
+                'filename': t.filename,
+                'status': t.status,
+                'bytes_transferred': t.bytes_transferred,
+                'file_size': t.file_size,
+                'error_message': t.error_message or '',
+            } for t in transfers]
+            
+            # Get recent history (last 5 entries)
+            history = ItemHistory.objects.filter(item=item).order_by('-created')[:5]
+            item_data['history'] = [{
+                'details': h.details,
+                'created': h.created.isoformat(),
+            } for h in history]
+        
+        queue_items.append(item_data)
     
     return JsonResponse({'items': queue_items})
 
