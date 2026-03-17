@@ -1055,9 +1055,12 @@ def check_downloaders():
                 completed = client.get_completed()
                 logger.debug(f"[check_downloaders] RTorrent: Found {len(completed)} completed torrent(s)")
                 for torrent_info in completed:
-                    hash_value = torrent_info.get('hash')
+                    hash_value = torrent_info.get('hash', '')
+                    if not hash_value:
+                        continue
+                    # Case-insensitive lookup since RTorrent returns uppercase hashes
                     try:
-                        item = Item.objects.get(hash=hash_value)
+                        item = Item.objects.get(hash__iexact=hash_value)
                         logger.debug(f"[check_downloaders] RTorrent: Found item {item.name} (hash={hash_value}, status={item.status})")
                         # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
                         if item.status not in ['Completed', 'Failed', 'PostProcessing']:
