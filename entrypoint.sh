@@ -143,13 +143,21 @@ case "${1:-start}" in
         redis-server --daemonize yes --logfile /var/log/harpoon2/redis.log
         sleep 2
         
-        # Start Celery Beat in background (separate process)
+        # Start Celery Beat in background with proper daemonization
         echo -e "${YELLOW}Starting Celery Beat scheduler...${NC}"
-        celery -A harpoon2 beat -l info --logfile=/var/log/harpoon2/celery-beat.log &
+        nohup celery -A harpoon2 beat -l info --schedule=/data/celerybeat-schedule --logfile=/var/log/harpoon2/celery-beat.log > /dev/null 2>&1 &
+        BEAT_PID=$!
+        disown $BEAT_PID
+        echo -e "${GREEN}Celery Beat started (PID: $BEAT_PID)${NC}"
         
-        # Start Celery Worker in background (separate process)
+        # Start Celery Worker in background with proper daemonization
         echo -e "${YELLOW}Starting Celery worker...${NC}"
-        celery -A harpoon2 worker -l debug --logfile=/var/log/harpoon2/celery-worker.log &
+        nohup celery -A harpoon2 worker -l debug --logfile=/var/log/harpoon2/celery-worker.log > /dev/null 2>&1 &
+        WORKER_PID=$!
+        disown $WORKER_PID
+        echo -e "${GREEN}Celery Worker started (PID: $WORKER_PID)${NC}"
+        
+        sleep 2
         
         # Start Django development server in foreground
         echo -e "${GREEN}Starting Django development server on 0.0.0.0:4277${NC}"
