@@ -405,9 +405,9 @@ def retry_postprocessing_transfer(request, item_hash):
                 messages.error(request, 'Only PostProcessing items can be retried this way')
                 return redirect('queue')
             
-            # Clear any existing pending/transferring transfers to restart fresh
+            # Clear ALL existing transfers to restart fresh (including completed/failed)
             from itemqueue.models import FileTransfer
-            FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring']).delete()
+            FileTransfer.objects.filter(item=item).delete()
             
             # Queue the transfer task
             transfer_files_async.delay(item_hash)
