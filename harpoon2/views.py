@@ -208,31 +208,23 @@ def history(request):
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    # Prefetch with limited history/transfers to avoid loading everything
-    history_prefetch = Prefetch('history', queryset=ItemHistory.objects.order_by('-created')[:5])
-    transfers_prefetch = Prefetch('transfers', queryset=FileTransfer.objects.order_by('-created')[:10])
-    
-    # Base queryset with prefetch to avoid N+1 queries
-    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
-    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
+    # Prefetch history and transfers (no slice in prefetch to avoid filter issues)
+    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
+    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
     
     # Filter by archive status
     if show_archived:
-        completed_items = completed_base.filter(archived=True).order_by('-archived_at')[:50]
-        failed_items = failed_base.filter(archived=True).order_by('-archived_at')[:50]
+        completed_items = list(completed_base.filter(archived=True).order_by('-archived_at')[:50])
+        failed_items = list(failed_base.filter(archived=True).order_by('-archived_at')[:50])
     else:
-        completed_items = completed_base.filter(archived=False).order_by('-modified')[:50]
-        failed_items = failed_base.filter(archived=False).order_by('-modified')[:50]
-    
-    # Pre-fetch counts to avoid N+1 in template
-    completed_items_list = list(completed_items)
-    failed_items_list = list(failed_items)
+        completed_items = list(completed_base.filter(archived=False).order_by('-modified')[:50])
+        failed_items = list(failed_base.filter(archived=False).order_by('-modified')[:50])
     
     # Attach history/transfers counts to items
-    for item in completed_items_list:
+    for item in completed_items:
         item._history_count = item.history.count()
         item._transfers_count = item.transfers.count()
-    for item in failed_items_list:
+    for item in failed_items:
         item._history_count = item.history.count()
         item._transfers_count = item.transfers.count()
     
@@ -246,8 +238,8 @@ def history(request):
     downloaders = Downloader.objects.all().order_by('name')
     
     return render(request, 'history.html', {
-        'completed_items': completed_items_list,
-        'failed_items': failed_items_list,
+        'completed_items': completed_items,
+        'failed_items': failed_items,
         'show_archived': show_archived,
         'completed_count': completed_count,
         'completed_archived_count': completed_archived_count,
