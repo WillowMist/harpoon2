@@ -672,6 +672,11 @@ def transfer_files_async(item_hash):
                 continue
         
         logger.info(f"Created {len(transfer_records)} FileTransfer records upfront (skipped {skipped_count})")
+        
+        # Force flush to database to ensure all records are visible before transfer starts
+        from django.db import connection
+        connection.flush()
+        
         ItemHistory.objects.create(item=item, details=f'Created {len(transfer_records)} file transfer records')
         
         # STEP 2: Now transfer the files
