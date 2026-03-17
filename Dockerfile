@@ -50,9 +50,9 @@ RUN mkdir -p /data && \
     chown -R nobody:nogroup /data /opt/harpoon2 /var/log/harpoon2 /entrypoint.sh
 
 # Expose ports
-# 8000 - Django development server
+# 4277 - Django development server
 # 6379 - Redis
-EXPOSE 8000 6379
+EXPOSE 4277 6379
 
 # Run entrypoint as root (to manage settings symlink and setup)
 # The entrypoint script will drop privileges after initialization if needed
