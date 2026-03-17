@@ -372,6 +372,7 @@ function autoSubmitForm(form) {
                         {% else %}
                         {{ history_list.0.details }}
                         {% endif %}
+                        {% endwith %}
                     </td>
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
