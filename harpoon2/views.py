@@ -380,6 +380,34 @@ def cancel_postprocessing(request, item_hash):
     return redirect('queue')
 
 
+def retry_postprocessing_transfer(request, item_hash):
+    """Retry a stuck PostProcessing item by re-queuing the transfer task."""
+    if request.method == 'POST':
+        try:
+            from itemqueue.tasks import transfer_files_async
+            item = Item.objects.get(hash=item_hash)
+            
+            if item.status != 'PostProcessing':
+                messages.error(request, 'Only PostProcessing items can be retried this way')
+                return redirect('queue')
+            
+            # Clear any existing pending/transferring transfers to restart fresh
+            from itemqueue.models import FileTransfer
+            FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring']).delete()
+            
+            # Queue the transfer task
+            transfer_files_async.delay(item_hash)
+            
+            messages.success(request, f'Requeued transfer for: {item.name}')
+            
+        except Item.DoesNotExist:
+            messages.error(request, 'Item not found')
+        except Exception as e:
+            messages.error(request, f'Error retrying transfer: {str(e)}')
+    
+    return redirect('queue')
+
+
 def archive_item(request, item_hash):
     """Archive a single item."""
     if request.method == 'POST':

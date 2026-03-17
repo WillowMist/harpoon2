@@ -31,6 +31,7 @@ urlpatterns = [
     path('download/<str:item_hash>/cancel/', views.cancel_download, name='cancel_download'),
     path('transfer/<str:item_name>/cancel/', views.cancel_transfer, name='cancel_transfer'),
     path('item/<str:item_hash>/cancel-postprocessing/', views.cancel_postprocessing, name='cancel_postprocessing'),
+    path('item/<str:item_hash>/retry-transfer/', views.retry_postprocessing_transfer, name='retry_postprocessing_transfer'),
     path('item/<str:item_hash>/archive/', views.archive_item, name='archive_item'),
     path('item/<str:item_hash>/unarchive/', views.unarchive_item, name='unarchive_item'),
     path('item/<str:item_hash>/update-status/', views.update_item_status, name='update_item_status'),

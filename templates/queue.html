@@ -279,6 +279,8 @@ function renderPostProcessingItems(items) {
                         Cancel
                     </button>
                     <ul class="dropdown-menu dropdown-menu-dark">
+                        <li><a class="dropdown-item" href="#" onclick="retryTransfer('${item.hash}'); return false;">Retry Transfer</a></li>
+                        <li><hr class="dropdown-divider"></li>
                         <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'failed'); return false;">Mark as Failed</a></li>
                         <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'completed'); return false;">Mark as Completed</a></li>
                         <li><a class="dropdown-item" href="#" onclick="cancelPostProcessing('${item.hash}', 'retry'); return false;">Reset to Grabbed</a></li>
@@ -405,6 +407,31 @@ function cancelPostProcessing(itemHash, action) {
     .catch(error => {
         console.error('Error cancelling PostProcessing:', error);
         alert('Error cancelling PostProcessing item');
+    });
+}
+
+function retryTransfer(itemHash) {
+    if (!confirm('Retry the file transfer for this item?')) {
+        return;
+    }
+    
+    const formData = new FormData();
+    formData.append('csrfmiddlewaretoken', getCsrfToken());
+    
+    fetch(`/item/${itemHash}/retry-transfer/`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.ok) {
+            location.reload();
+        } else {
+            alert('Failed to retry transfer');
+        }
+    })
+    .catch(error => {
+        console.error('Error retrying transfer:', error);
+        alert('Error retrying transfer');
     });
 }
 

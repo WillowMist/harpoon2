@@ -322,6 +322,7 @@ def transfer_files_async(item_hash):
         client = downloader.client
         client._ensure_client()
         hash_value = item.hash
+        logger.info(f"[transfer_files_async] Connected to downloader client for {item.name}")
         
         # Initialize variables
         category = ''
