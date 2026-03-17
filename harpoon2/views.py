@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
 from django.http import JsonResponse
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Count, Q
 from entities.models import Manager, Downloader, CachedDownloaderStatus
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
@@ -228,11 +228,17 @@ def history(request):
         item.history_count = len(item.history.all())
         item.transfers_count = len(item.transfers.all())
     
-    # Get counts for display
-    completed_count = Item.objects.filter(status='Completed', archived=False).count()
-    completed_archived_count = Item.objects.filter(status='Completed', archived=True).count()
-    failed_count = Item.objects.filter(status='Failed', archived=False).count()
-    failed_archived_count = Item.objects.filter(status='Failed', archived=True).count()
+    # Get all counts in one query instead of 4 separate queries
+    counts = Item.objects.aggregate(
+        completed_active=Count('pk', filter=Q(status='Completed', archived=False)),
+        completed_archived=Count('pk', filter=Q(status='Completed', archived=True)),
+        failed_active=Count('pk', filter=Q(status='Failed', archived=False)),
+        failed_archived=Count('pk', filter=Q(status='Failed', archived=True)),
+    )
+    completed_count = counts['completed_active']
+    completed_archived_count = counts['completed_archived']
+    failed_count = counts['failed_active']
+    failed_archived_count = counts['failed_archived']
     
     # Get all downloaders for dropdown
     downloaders = Downloader.objects.all().order_by('name')
