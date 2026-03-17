@@ -208,9 +208,13 @@ def history(request):
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    # Prefetch history and transfers (no slice in prefetch to avoid filter issues)
-    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
-    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related('history', 'transfers')
+    # Prefetch limited history and transfers to avoid loading everything
+    history_prefetch = Prefetch('history', queryset=ItemHistory.objects.order_by('-created')[:5])
+    transfers_prefetch = Prefetch('transfers', queryset=FileTransfer.objects.order_by('-created')[:10])
+    
+    # Filter base querysets
+    completed_base = Item.objects.filter(status='Completed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
+    failed_base = Item.objects.filter(status='Failed').select_related('manager', 'downloader').prefetch_related(history_prefetch, transfers_prefetch)
     
     # Filter by archive status
     if show_archived:
