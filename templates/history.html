@@ -354,7 +354,7 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% with history_list=item.history.all history_count=item._history_count %}
+                        {% with history_list=item.history.all history_count=item.history_count %}
                         {% if history_count > 1 or history_list.0.details|length > 100 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
                             <span class="details-preview">{{ history_list.0.details|truncatechars:80 }}</span>
