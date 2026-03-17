@@ -39,7 +39,7 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository.toLowerCase() }}:latest
-            ghcr.io/${{ github.repository.toLowerCase() }}:${{ steps.version.outputs.VERSION }}
+            ghcr.io/${{ github.actor }}/harpoon2:latest
+            ghcr.io/${{ github.actor }}/harpoon2:${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
