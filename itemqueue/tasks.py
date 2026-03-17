@@ -1163,6 +1163,7 @@ def check_downloaders():
 
 
 @shared_task
+@shared_task
 def check_stalled_transfers():
     """Check for stalled transfers and restart them if they haven't progressed in 5+ minutes."""
     import logging
@@ -1176,15 +1177,26 @@ def check_stalled_transfers():
         stalled_count = 0
         
         # Check for transferring transfers that are stalled
+        # A transfer is stalled if:
+        # 1. It's been transferring for 5+ minutes, AND
+        # 2. bytes_transferred hasn't changed (modified time tracks this)
         transferring = FileTransfer.objects.filter(status='transferring')
         for transfer in transferring:
-            if transfer.modified < stall_threshold:
-                logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]}")
-                
-                transfer.status = 'failed'
-                transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
-                transfer.save()
-                stalled_count += 1
+            # Check if transfer started more than 5 minutes ago
+            if transfer.started and transfer.started < stall_threshold:
+                # Check if any progress was made in the last 5 minutes
+                if transfer.modified < stall_threshold:
+                    logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]} - no progress for 5+ minutes")
+                    
+                    transfer.status = 'failed'
+                    transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
+                    transfer.save()
+                    
+                    ItemHistory.objects.create(
+                        item=transfer.item,
+                        details=f'Transfer stalled: {transfer.filename} - no progress for 5+ minutes'
+                    )
+                    stalled_count += 1
         
         # Check for items in PostProcessing with failed or pending transfers
         post_processing_items = Item.objects.filter(status='PostProcessing')
