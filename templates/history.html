@@ -323,7 +323,7 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in failed_items %}
-                {% with history_list=item.history.all history_count=item._history_count %}
+                {% with history_list=item.history.all history_count=item.history_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
@@ -433,7 +433,7 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in completed_items %}
-                {% with history_list=item.history.all transfers=item.transfers.all history_count=item._history_count transfers_count=item._transfers_count %}
+                {% with history_list=item.history.all transfers=item.transfers.all history_count=item.history_count transfers_count=item.transfers_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>

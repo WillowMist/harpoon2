@@ -222,11 +222,11 @@ def history(request):
     
     # Attach history/transfers counts to items
     for item in completed_items:
-        item._history_count = item.history.count()
-        item._transfers_count = item.transfers.count()
+        item.history_count = item.history.count()
+        item.transfers_count = item.transfers.count()
     for item in failed_items:
-        item._history_count = item.history.count()
-        item._transfers_count = item.transfers.count()
+        item.history_count = item.history.count()
+        item.transfers_count = item.transfers.count()
     
     # Get counts for display
     completed_count = Item.objects.filter(status='Completed', archived=False).count()
