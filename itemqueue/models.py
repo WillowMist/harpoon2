@@ -11,7 +11,7 @@ class Item(models.Model):
     downloader = models.ForeignKey('entities.Downloader', on_delete=models.CASCADE, null=True, blank=True)
     size = models.BigIntegerField(default=0)
     received = models.BigIntegerField(default=0)
-    status = models.CharField(max_length=50, default='Created')
+    status = models.CharField(max_length=50, default='Created', db_index=True)
     clientid = models.IntegerField(default=0)
     category = models.CharField(max_length=100, default='', blank=True)  # Category/label from downloader
     created = models.DateTimeField(auto_now_add=True)
