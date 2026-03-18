@@ -1373,12 +1373,58 @@ def check_downloaders():
                         logger.debug(f"[check_downloaders] AirDC++: Client not initialized for events")
                     else:
                          # Get recent events (last 20 to minimize re-detection of deleted items)
-                         events = client.client._make_request('GET', '/events/20')
-                         
-                         for event in events:
-                             text = event.get('text', '')
-                             # Look for completion events: "The bundle X has finished downloading"
-                             if 'has finished downloading' in text:
+                          events = client.client._make_request('GET', '/events/20')
+                          
+                          for event in events:
+                              text = event.get('text', '')
+                              
+                              # First, check for folder/bundle creation events
+                              if 'has been created with' in text and 'items' in text:
+                                  # Format: "The bundle Xena - Season 2 has been created with 22 items (Total size: 7.98 GiB)"
+                                  try:
+                                      parts = text.split('The bundle ', 1)
+                                      if len(parts) > 1:
+                                          rest = parts[1]
+                                          # Extract folder name and item count
+                                          if ' has been created with ' in rest:
+                                              folder_name, count_part = rest.split(' has been created with ', 1)
+                                              # Extract number of items
+                                              if ' items' in count_part:
+                                                  items_str = count_part.split(' items')[0].strip()
+                                                  try:
+                                                      item_count = int(items_str)
+                                                      logger.info(f"[check_downloaders] AirDC++: Detected folder bundle: '{folder_name}' with {item_count} items")
+                                                      
+                                                      # Check if we already have this folder item
+                                                      existing_folder = Item.objects.filter(name__iexact=folder_name, category='AirDC++').first()
+                                                      if not existing_folder:
+                                                          # Create item for the folder bundle
+                                                          target_folder_id = downloader.options.get('target_folder') if downloader.options else None
+                                                          if target_folder_id:
+                                                              folder_hash = folder_name.replace(' ', '_').replace('/', '_')[:50]
+                                                              folder_item = Item.objects.create(
+                                                                  name=folder_name,
+                                                                  hash=folder_hash,
+                                                                  downloader=downloader,
+                                                                  size=0,  # We don't know total size from event
+                                                                  received=0,
+                                                                  status='Grabbed',
+                                                                  category='AirDC++'
+                                                              )
+                                                              ItemHistory.objects.create(
+                                                                  item=folder_item,
+                                                                  details=f'Folder bundle detected: {item_count} items'
+                                                              )
+                                                              logger.info(f"[check_downloaders] AirDC++: Created folder item: {folder_name}")
+                                                      else:
+                                                          logger.debug(f"[check_downloaders] AirDC++: Folder item already exists: {folder_name}")
+                                                  except ValueError:
+                                                      logger.debug(f"[check_downloaders] AirDC++: Could not parse item count from: {count_part}")
+                                  except Exception as e:
+                                      logger.debug(f"[check_downloaders] AirDC++: Error parsing folder creation event: {e}")
+                              
+                              # Look for completion events: "The bundle X has finished downloading"
+                              elif 'has finished downloading' in text:
                                  # Extract the bundle/filename name from the event text
                                  # Format: "The bundle <filename> has finished downloading"
                                  parts = text.split('The bundle ', 1)
