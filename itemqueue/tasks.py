@@ -1302,8 +1302,8 @@ def check_downloaders():
                 # Also check events for completed downloads (catches downloads that finished between API checks)
                 try:
                     logger.debug(f"[check_downloaders] AirDC++: Checking events for completed downloads")
-                    # Get recent events (last 50)
-                    events_response = client.session.get(f"{client.base_url}/events/50", timeout=10)
+                    # Get recent events (last 20 to minimize re-detection of deleted items)
+                    events_response = client.session.get(f"{client.base_url}/events/20", timeout=10)
                     events_response.raise_for_status()
                     events = events_response.json()
                     
