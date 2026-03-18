@@ -445,27 +445,27 @@ def transfer_files_async(item_hash):
                         remote_dir = current_dir
             except:
                 pass
-        
-         # Determine destination folder - create subfolder for item
-         if item.manager and item.manager.folder:
-             final_base_folder = item.manager.folder.folder
-         elif item.downloader and item.downloader.options:
-             # For downloaders like AirDC++ without a manager, get folder from downloader config
-             from entities.models import DownloadFolder
-             target_folder_id = item.downloader.options.get('target_folder')
-             if target_folder_id:
-                 try:
-                     target_folder = DownloadFolder.objects.get(id=target_folder_id)
-                     final_base_folder = target_folder.folder
-                     logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
-                 except Exception as e:
-                     logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
-                     final_base_folder = '/tmp'
-             else:
-                 logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
-                 final_base_folder = '/tmp'
-         else:
-             final_base_folder = '/tmp'
+         
+        # Determine destination folder - create subfolder for item
+        if item.manager and item.manager.folder:
+            final_base_folder = item.manager.folder.folder
+        elif item.downloader and item.downloader.options:
+            # For downloaders like AirDC++ without a manager, get folder from downloader config
+            from entities.models import DownloadFolder
+            target_folder_id = item.downloader.options.get('target_folder')
+            if target_folder_id:
+                try:
+                    target_folder = DownloadFolder.objects.get(id=target_folder_id)
+                    final_base_folder = target_folder.folder
+                    logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
+                except Exception as e:
+                    logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
+                    final_base_folder = '/tmp'
+            else:
+                logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
+                final_base_folder = '/tmp'
+        else:
+            final_base_folder = '/tmp'
         
         # Check if this is a Blackhole manager
         is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
