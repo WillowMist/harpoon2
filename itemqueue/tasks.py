@@ -615,47 +615,53 @@ def transfer_files_async(item_hash):
                  ssh.close()
                  return
              
-             def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
-                 """Recursively walk remote directory and collect files while preserving structure."""
-                 try:
-                     remote_items = sftp_obj.listdir(remote_path)
-                 except Exception as e:
-                     logger.warning(f"Cannot access remote directory {remote_path}: {e}")
-                     return
-                 
-                 for item_name in remote_items:
-                     remote_item_path = os.path.join(remote_path, item_name)
-                     relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
-                     
-                     # Check if it's a directory or file first (needed for AirDC++ filtering)
-                     try:
-                         item_stat = sftp_obj.stat(remote_item_path)
-                         is_dir = stat_module_list.S_ISDIR(item_stat.st_mode)
-                     except Exception as e:
-                         logger.warning(f"Cannot stat {remote_item_path}: {e}")
-                         continue
-                     
-                     # For AirDC++, only transfer items matching files_to_copy list
-                     if downloader.downloadertype == 'AirDC++' and files_to_copy:
-                         # Check if this file/folder matches any in files_to_copy
-                         if item_name not in files_to_copy:
-                             logger.debug(f"[transfer_files_async] Skipping AirDC++ item {item_name} (not in files_to_copy)")
-                             continue
-                     
-                     # Skip hidden files, images, HTML
-                     if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
-                         continue
-                     
-                     # Handle directories and files
-                     if is_dir:
-                         # Recursively walk subdirectories
-                         walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
-                     else:
-                         # It's a file, add to transfer list
-                         transfer_list.append((remote_item_path, relative_item_path))
-             
-             walk_remote_sftp(sftp, remote_dir, remote_dir)
-        logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
+              def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
+                  """Recursively walk remote directory and collect files while preserving structure."""
+                  logger.info(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
+                  try:
+                      remote_items = sftp_obj.listdir(remote_path)
+                      logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}")
+                  except Exception as e:
+                      logger.warning(f"Cannot access remote directory {remote_path}: {e}")
+                      return
+                  
+                  for item_name in remote_items:
+                      remote_item_path = os.path.join(remote_path, item_name)
+                      relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
+                      
+                      # Check if it's a directory or file first (needed for AirDC++ filtering)
+                      try:
+                          item_stat = sftp_obj.stat(remote_item_path)
+                          is_dir = stat_module_list.S_ISDIR(item_stat.st_mode)
+                      except Exception as e:
+                          logger.warning(f"Cannot stat {remote_item_path}: {e}")
+                          continue
+                      
+                      # For AirDC++, only transfer items matching files_to_copy list
+                      if downloader.downloadertype == 'AirDC++' and files_to_copy:
+                          # Check if this file/folder matches any in files_to_copy
+                          if item_name not in files_to_copy:
+                              logger.debug(f"[transfer_files_async] Skipping AirDC++ item {item_name} (not in files_to_copy)")
+                              continue
+                      
+                      # Skip hidden files, images, HTML
+                      if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
+                          continue
+                      
+                      logger.info(f"[walk_remote_sftp] Processing item {item_name}, is_dir={is_dir}")
+                      
+                      # Handle directories and files
+                      if is_dir:
+                          # Recursively walk subdirectories
+                          logger.info(f"[walk_remote_sftp] Recursing into directory {item_name}")
+                          walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
+                      else:
+                          # It's a file, add to transfer list
+                          logger.info(f"[walk_remote_sftp] Adding file {item_name} to transfer list")
+                          transfer_list.append((remote_item_path, relative_item_path))
+              
+              walk_remote_sftp(sftp, remote_dir, remote_dir)
+         logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files
         # This ensures the dashboard shows correct total size from the start
