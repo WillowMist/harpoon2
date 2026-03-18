@@ -266,8 +266,15 @@ function renderPostProcessingItems(items) {
             `).join('');
         }
         
-        const folderInfo = item.is_folder_download ? ` <span class="badge bg-secondary">Transferring ${item.folder_item_count} items</span>` : '';
-        const displayName = item.is_folder_download ? `${item.name} (${(item.size / (1024*1024*1024)).toFixed(2)} GB)` : item.name;
+        let folderInfo = '';
+        let displayName = item.name;
+        if (item.is_folder_download && item.folder_item_count) {
+            folderInfo = ` <span class="badge bg-secondary">Transferring ${item.folder_item_count} items</span>`;
+            if (item.size && item.size > 0) {
+                const sizeGB = (item.size / (1024*1024*1024)).toFixed(2);
+                displayName = `${item.name} (${sizeGB} GB)`;
+            }
+        }
         
         return `
         <tr data-item-id="${item.hash}" onclick="toggleDetails(this)" style="cursor: pointer;">
