@@ -296,7 +296,7 @@ def transfer_files_async(item_hash):
     This runs in the background and can take a long time for large files.
     Creates all FileTransfer records UPFRONT, then transfers them.
     """
-    logger.info(f"[transfer_files_async] ================= STARTING ================= for item {item_hash}")
+    logger.warning(f"[transfer_files_async] ================= STARTING ================= for item {item_hash}")
     try:
         item = Item.objects.get(hash=item_hash)
     except Item.DoesNotExist:
@@ -618,7 +618,7 @@ def transfer_files_async(item_hash):
             
             def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
                 """Recursively walk remote directory and collect files while preserving structure."""
-                logger.info(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
+                logger.warning(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
                 try:
                     remote_items = sftp_obj.listdir(remote_path)
                     logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}")
