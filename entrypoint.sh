@@ -9,109 +9,11 @@ NC='\033[0m' # No Color
 
 echo -e "${GREEN}=== Harpoon2 Entrypoint ===${NC}"
 
-# Check if /data/settings.py exists, if not create from template
-if [ ! -f /data/settings.py ]; then
-    echo -e "${YELLOW}Creating settings.py from template...${NC}"
-    cp /opt/harpoon2/harpoon2/settings_template.py /data/settings.py 2>/dev/null || {
-        echo -e "${YELLOW}Template not found, creating minimal settings.py...${NC}"
-        cat > /data/settings.py << 'EOF'
-import os
-from pathlib import Path
-
-# Note: settings.py is symlinked to /data/settings.py, so we need to use the app directory
-BASE_DIR = Path('/opt/harpoon2')
-SECRET_KEY = os.environ.get('SECRET_KEY', 'change-me-in-production')
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,harpoon2').split(',')]
-CSRF_TRUSTED_ORIGINS = [h.strip() for h in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if h.strip()]
-INSTALLED_APPS = [
-    'django.contrib.admin',
-    'django.contrib.auth',
-    'django.contrib.contenttypes',
-    'django.contrib.sessions',
-    'django.contrib.messages',
-    'django.contrib.staticfiles',
-    'django_celery_beat',
-    'watson',
-    'entities.apps.EntitiesConfig',
-    'itemqueue.apps.ItemqueueConfig',
-    'users.apps.UsersConfig',
-    'crispy_forms',
-    'crispy_bootstrap5',
-    'crisp_modals',
-]
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': '/data/harpoon2.db',
-    }
-}
-REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')
-REDIS_PORT = os.environ.get('REDIS_PORT', '6379')
-CELERY_BROKER_URL = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_RESULT_BACKEND = os.environ.get('REDIS_URL', 'redis://redis:6379/0')
-CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-STATIC_URL = '/static/'
-STATIC_ROOT = '/data/static/'
-STATICFILES_DIRS = [
-    Path('/opt/harpoon2') / 'static',
-]
-MEDIA_URL = '/media/'
-MEDIA_ROOT = '/data/media/'
-USE_TZ = True
-TIME_ZONE = 'UTC'
-INTERFACE = 'vapor'
-THEMES = [('cerulean', 'Cerulean'),
-          ('cosmo', 'Cosmo'),
-          ('cyborg', 'Cyborg'),
-          ('darkly', 'Darkly'),
-          ('flatly', 'Flatly'),
-          ('journal', 'Journal'),
-          ('litera', 'Litera'),
-          ('lumen', 'Lumen'),
-          ('lux', 'Lux'),
-          ('materia', 'Materia'),
-          ('minty', 'Minty'),
-          ('morph', 'Morph'),
-          ('pulse', 'Pulse'),
-          ('quartz', 'Quartz'),
-          ('sandstone', 'Sandstone'),
-          ('simplex', 'Simplex'),
-          ('sketchy', 'Sketchy'),
-          ('slate', 'Slate'),
-          ('solar', 'Solar'),
-          ('spacelab', 'Spacelab'),
-          ('superhero', 'Superhero'),
-          ('united', 'United'),
-          ('vapor', 'Vapor'),
-          ('yeti', 'Yeti'),
-          ('zephyr', 'Zephyr')]
-MANAGER_TYPES = [
-    ('Sonarr', 'Sonarr'),
-    ('Radarr', 'Radarr'),
-    ('Lidarr', 'Lidarr'),
-    ('Readarr', 'Readarr'),
-    ('Whisparr', 'Whisparr'),
-    ('LazyLibrarian', 'LazyLibrarian'),
-    ('Mylar', 'Mylar'),
-]
-DOWNLOADER_TYPES = [
-    ('RTorrent', 'RTorrent'),
-    ('SABNzbd', 'SABNzbd'),
-]
-EOF
-    }
-    chmod 644 /data/settings.py
-fi
-
-# Ensure symlink exists
+# Ensure symlink exists - point to template so settings stay in sync
 if [ ! -L /opt/harpoon2/harpoon2/settings.py ] || [ ! -e /opt/harpoon2/harpoon2/settings.py ]; then
-    echo -e "${YELLOW}Creating settings symlink...${NC}"
+    echo -e "${YELLOW}Creating settings symlink to template...${NC}"
     rm -f /opt/harpoon2/harpoon2/settings.py
-    ln -sf /data/settings.py /opt/harpoon2/harpoon2/settings.py
+    ln -sf /opt/harpoon2/harpoon2/settings_template.py /opt/harpoon2/harpoon2/settings.py
 fi
 
 # Only run migrations and collect static for the 'start' command
