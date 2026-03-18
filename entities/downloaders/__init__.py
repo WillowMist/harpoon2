@@ -12,3 +12,11 @@ __all__ = [
     'AirDCppDownloader',
     'AirDCpp',
 ]
+
+# Mapping from display names (in settings) to Python attribute names
+# This is needed because some display names contain characters invalid in Python identifiers
+DOWNLOADER_NAME_MAP = {
+    'RTorrent': 'RTorrent',
+    'SABNzbd': 'SABNzbd',
+    'AirDC++': 'AirDCpp',  # Map 'AirDC++' to 'AirDCpp' function
+}

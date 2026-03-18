@@ -188,7 +188,9 @@ def get_downloader_options(request, downloader_type):
     from . import downloaders
     
     try:
-        downloader_class = getattr(downloaders, downloader_type)
+        # Use mapping to handle downloader types with special characters (like 'AirDC++')
+        downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(downloader_type, downloader_type)
+        downloader_class = getattr(downloaders, downloader_attr)
         # Create a temporary instance to get optionfields
         temp_instance = downloader_class(None)
         options = temp_instance.optionfields

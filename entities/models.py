@@ -57,7 +57,10 @@ class Downloader(models.Model):
     def from_db(cls, db, field_names, values):
         new = super(Downloader, cls).from_db(db, field_names, values)
         # cache value went from the base
-        new.client = getattr(downloaders, new.downloadertype)(new)
+        from . import downloaders
+        # Use mapping to handle downloader types with special characters (like 'AirDC++')
+        downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(new.downloadertype, new.downloadertype)
+        new.client = getattr(downloaders, downloader_attr)(new)
         return new
 
     # @property
