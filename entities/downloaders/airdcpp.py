@@ -1,6 +1,7 @@
 import requests
 import logging
 from typing import Dict, List, Optional
+from .base import BaseDownloader
 
 logger = logging.getLogger(__name__)
 
@@ -94,7 +95,7 @@ class AirDCppClient:
             return False
 
 
-class AirDCppDownloader:
+class AirDCppDownloader(BaseDownloader):
     """
     Downloader class for AirDC++ - monitors downloads.
     Follows same pattern as RTorrent and SABNzbd.
@@ -138,6 +139,43 @@ class AirDCppDownloader:
         if not self.client:
             return False
         return self.client.test_connection()
+    
+    def add(self, file_path: str, **kwargs) -> str:
+        """Not implemented for AirDC++ monitoring-only mode"""
+        raise NotImplementedError("AirDC++ downloader is monitoring-only")
+    
+    def find(self, hash: str):
+        """Find download by hash"""
+        return self.find_completed_download(hash)
+    
+    def get_status(self, hash: str) -> dict:
+        """Get status of a download"""
+        if not self.client:
+            return {}
+        try:
+            download = self.client.get_transfer(int(hash))
+            return {
+                'status': download.get('status'),
+                'progress': download.get('progress', 0),
+                'speed': download.get('speed', 0),
+            }
+        except Exception:
+            return {}
+    
+    def get_files(self, hash: str) -> list:
+        """Get files for a download"""
+        if not self.client:
+            return []
+        try:
+            download = self.client.get_transfer(int(hash))
+            path = download.get('path')
+            return [{'path': path, 'name': download.get('name')}] if path else []
+        except Exception:
+            return []
+    
+    def delete(self, hash: str) -> bool:
+        """Not implemented for AirDC++ (no delete via API in monitoring mode)"""
+        return False
     
     def get_active_downloads(self) -> List[Dict]:
         """
