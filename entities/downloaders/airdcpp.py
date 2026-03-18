@@ -232,19 +232,19 @@ class AirDCppDownloader(BaseDownloader):
             for transfer in transfers:
                 logger.debug(f"AirDC++ transfer object: {transfer}")
                 
-                 # Extract relevant fields
-                 download_info = {
-                     'id': transfer.get('id'),
-                     'name': transfer.get('name'),
-                     'size': transfer.get('size', 0),
-                     'progress': transfer.get('progress', 0),
-                     'bytes_transferred': transfer.get('bytes_transferred', 0),  # Direct bytes from /transfers
-                     'status': transfer.get('status'),  # downloading, completed, failed, etc.
-                     'path': transfer.get('path'),
-                     'speed': transfer.get('speed', 0),
-                     'eta': transfer.get('eta'),
-                 }
-                 active.append(download_info)
+                # Extract relevant fields
+                download_info = {
+                    'id': transfer.get('id'),
+                    'name': transfer.get('name'),
+                    'size': transfer.get('size', 0),
+                    'progress': transfer.get('progress', 0),
+                    'bytes_transferred': transfer.get('bytes_transferred', 0),  # Direct bytes from /transfers
+                    'status': transfer.get('status'),  # downloading, completed, failed, etc.
+                    'path': transfer.get('path'),
+                    'speed': transfer.get('speed', 0),
+                    'eta': transfer.get('eta'),
+                }
+                active.append(download_info)
             
             return active
         except Exception as e:
