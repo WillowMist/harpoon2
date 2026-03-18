@@ -1311,15 +1311,34 @@ def check_downloaders():
                                     # For completed downloads, we'll transition them to PostProcessing after
                                     is_completed = status in ['completed', 'done', 'finished', 'success']
                                     
-                                    new_item = Item.objects.create(
-                                        name=download_name,
-                                        hash=transfer_id,
-                                        downloader=downloader,
-                                        size=download_size,
-                                        received=download_size if is_completed else bytes_transferred,
-                                        status='Grabbed',
-                                        category='AirDC++'
-                                    )
+                                    # Use transfer_id as hash, but fall back to filename if there's a collision
+                                    item_hash = transfer_id
+                                    try:
+                                        new_item = Item.objects.create(
+                                            name=download_name,
+                                            hash=item_hash,
+                                            downloader=downloader,
+                                            size=download_size,
+                                            received=download_size if is_completed else bytes_transferred,
+                                            status='Grabbed',
+                                            category='AirDC++'
+                                        )
+                                    except Exception as hash_error:
+                                        if 'UNIQUE constraint failed' in str(hash_error) and 'hash' in str(hash_error):
+                                            # Transfer ID hash collision - use filename-based hash instead
+                                            item_hash = download_name.replace(' ', '_').replace('/', '_')[:50]
+                                            logger.info(f"[check_downloaders] AirDC++: Hash collision for {transfer_id}, using filename-based hash: {item_hash}")
+                                            new_item = Item.objects.create(
+                                                name=download_name,
+                                                hash=item_hash,
+                                                downloader=downloader,
+                                                size=download_size,
+                                                received=download_size if is_completed else bytes_transferred,
+                                                status='Grabbed',
+                                                category='AirDC++'
+                                            )
+                                        else:
+                                            raise
                                     
                                     ItemHistory.objects.create(
                                         item=new_item,
