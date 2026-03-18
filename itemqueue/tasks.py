@@ -1224,102 +1224,102 @@ def check_downloaders():
                             logger.debug(f"[check_downloaders] SABNzbd: NZO ID {nzo_id} not in database")
                             pass
             
-             elif downloader.downloadertype == 'AirDC++':
-                 # Monitor AirDC++ downloads - create items for active downloads (Grabbing status) and transition when complete
-                 logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
-                 try:
-                     active_downloads = client.get_active_downloads()
-                     logger.debug(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
-                     
-                     for download_info in active_downloads:
-                         download_name = download_info.get('name', '')
-                         download_path = download_info.get('path', '')
-                         transfer_id = str(download_info.get('id', 0))
-                         download_size = int(download_info.get('size', 0))
-                         bytes_transferred = int(download_info.get('bytes_transferred', 0))
-                         
-                         # Status is a dict like {"id": "finished", "str": "Finished, idle..."}
-                         status_obj = download_info.get('status', {})
-                         status = status_obj.get('id', '').lower() if isinstance(status_obj, dict) else str(status_obj).lower()
-                         
-                         logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status={status}, {bytes_transferred}/{download_size})")
-                         
-                         # Try to find existing item by hash (transfer ID)
-                         try:
-                             item = Item.objects.get(hash=transfer_id)
-                             logger.debug(f"[check_downloaders] AirDC++: Found existing item for transfer {transfer_id}")
-                             
-                             # Update progress for active downloads
-                             if status in ['running', 'downloading']:
-                                 if item.status != 'Grabbing':
-                                     logger.info(f"[check_downloaders] AirDC++: Transitioning '{item.name}' to Grabbing status")
-                                     item.status = 'Grabbing'
-                                     item.save()
-                                 if item.received != bytes_transferred:
-                                     item.received = bytes_transferred
-                                     item.save()
-                             
-                             # Check for completion
-                             elif status in ['completed', 'done', 'finished', 'success']:
-                                 # Download finished - transition to PostProcessing for transfer
-                                 if item.status != 'PostProcessing':
-                                     logger.info(f"[check_downloaders] AirDC++: Download complete for '{item.name}', transitioning to PostProcessing")
-                                     item.status = 'PostProcessing'
-                                     item.received = download_size  # Set to full size
-                                     item.save()
-                                     ItemHistory.objects.create(
-                                         item=item,
-                                         details=f'AirDC++ download completed, ready for transfer'
-                                     )
-                                     postprocess_item.delay(item.hash)
-                         
-                         except Item.DoesNotExist:
-                             # No existing item - create new one
-                             logger.debug(f"[check_downloaders] AirDC++: No existing item for transfer {transfer_id}")
-                             
-                             # Create item for any active or completed download without an existing item
-                             if status in ['running', 'downloading', 'completed', 'done', 'finished', 'success']:
-                                 try:
-                                     # Get target folder from downloader config
-                                     target_folder_id = downloader.options.get('target_folder') if downloader.options else None
-                                     if not target_folder_id:
-                                         logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download '{download_name}'")
-                                         continue
-                                     
-                                     # Determine initial status based on download progress
-                                     if status in ['running', 'downloading']:
-                                         initial_status = 'Grabbing'
-                                         received = bytes_transferred
-                                     else:  # completed/finished
-                                         initial_status = 'PostProcessing'
-                                         received = download_size
-                                     
-                                     new_item = Item.objects.create(
-                                         name=download_name,
-                                         hash=transfer_id,
-                                         downloader=downloader,
-                                         size=download_size,
-                                         received=received,
-                                         status=initial_status,
-                                         category='AirDC++'
-                                     )
-                                     
-                                     ItemHistory.objects.create(
-                                         item=new_item,
-                                         details=f'Auto-created from AirDC++ {initial_status.lower()} download at: {download_path} (folder_id={target_folder_id})'
-                                     )
-                                     
-                                     logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} in status {initial_status} (hash={transfer_id})")
-                                     
-                                     # Queue for transfer immediately if completed
-                                     if initial_status == 'PostProcessing':
-                                         postprocess_item.delay(transfer_id)
-                                     
-                                 except Exception as e:
-                                     logger.error(f"[check_downloaders] AirDC++: Failed to create item for '{download_name}': {e}", exc_info=True)
-                 
-                 except Exception as e:
-                     logger.error(f"[check_downloaders] AirDC++: Error fetching transfers: {e}", exc_info=True)
+            elif downloader.downloadertype == 'AirDC++':
+                # Monitor AirDC++ downloads - create items for active downloads (Grabbing status) and transition when complete
+                logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
+                try:
+                    active_downloads = client.get_active_downloads()
+                    logger.debug(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
+                    
+                    for download_info in active_downloads:
+                        download_name = download_info.get('name', '')
+                        download_path = download_info.get('path', '')
+                        transfer_id = str(download_info.get('id', 0))
+                        download_size = int(download_info.get('size', 0))
+                        bytes_transferred = int(download_info.get('bytes_transferred', 0))
+                        
+                        # Status is a dict like {"id": "finished", "str": "Finished, idle..."}
+                        status_obj = download_info.get('status', {})
+                        status = status_obj.get('id', '').lower() if isinstance(status_obj, dict) else str(status_obj).lower()
+                        
+                        logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status={status}, {bytes_transferred}/{download_size})")
+                        
+                        # Try to find existing item by hash (transfer ID)
+                        try:
+                            item = Item.objects.get(hash=transfer_id)
+                            logger.debug(f"[check_downloaders] AirDC++: Found existing item for transfer {transfer_id}")
+                            
+                            # Update progress for active downloads
+                            if status in ['running', 'downloading']:
+                                if item.status != 'Grabbing':
+                                    logger.info(f"[check_downloaders] AirDC++: Transitioning '{item.name}' to Grabbing status")
+                                    item.status = 'Grabbing'
+                                    item.save()
+                                if item.received != bytes_transferred:
+                                    item.received = bytes_transferred
+                                    item.save()
+                            
+                            # Check for completion
+                            elif status in ['completed', 'done', 'finished', 'success']:
+                                # Download finished - transition to PostProcessing for transfer
+                                if item.status != 'PostProcessing':
+                                    logger.info(f"[check_downloaders] AirDC++: Download complete for '{item.name}', transitioning to PostProcessing")
+                                    item.status = 'PostProcessing'
+                                    item.received = download_size  # Set to full size
+                                    item.save()
+                                    ItemHistory.objects.create(
+                                        item=item,
+                                        details=f'AirDC++ download completed, ready for transfer'
+                                    )
+                                    postprocess_item.delay(item.hash)
+                        
+                        except Item.DoesNotExist:
+                            # No existing item - create new one
+                            logger.debug(f"[check_downloaders] AirDC++: No existing item for transfer {transfer_id}")
+                            
+                            # Create item for any active or completed download without an existing item
+                            if status in ['running', 'downloading', 'completed', 'done', 'finished', 'success']:
+                                try:
+                                    # Get target folder from downloader config
+                                    target_folder_id = downloader.options.get('target_folder') if downloader.options else None
+                                    if not target_folder_id:
+                                        logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download '{download_name}'")
+                                        continue
+                                    
+                                    # Determine initial status based on download progress
+                                    if status in ['running', 'downloading']:
+                                        initial_status = 'Grabbing'
+                                        received = bytes_transferred
+                                    else:  # completed/finished
+                                        initial_status = 'PostProcessing'
+                                        received = download_size
+                                    
+                                    new_item = Item.objects.create(
+                                        name=download_name,
+                                        hash=transfer_id,
+                                        downloader=downloader,
+                                        size=download_size,
+                                        received=received,
+                                        status=initial_status,
+                                        category='AirDC++'
+                                    )
+                                    
+                                    ItemHistory.objects.create(
+                                        item=new_item,
+                                        details=f'Auto-created from AirDC++ {initial_status.lower()} download at: {download_path} (folder_id={target_folder_id})'
+                                    )
+                                    
+                                    logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} in status {initial_status} (hash={transfer_id})")
+                                    
+                                    # Queue for transfer immediately if completed
+                                    if initial_status == 'PostProcessing':
+                                        postprocess_item.delay(transfer_id)
+                                    
+                                except Exception as e:
+                                    logger.error(f"[check_downloaders] AirDC++: Failed to create item for '{download_name}': {e}", exc_info=True)
+                
+                except Exception as e:
+                    logger.error(f"[check_downloaders] AirDC++: Error fetching transfers: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"[check_downloaders] Error checking downloader {downloader.name}: {e}", exc_info=True)
 
