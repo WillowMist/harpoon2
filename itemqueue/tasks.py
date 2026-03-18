@@ -1251,9 +1251,9 @@ def check_downloaders():
                             
                             # Update progress for active downloads
                             if status in ['running', 'downloading']:
-                                if item.status != 'Grabbing':
-                                    logger.info(f"[check_downloaders] AirDC++: Transitioning '{item.name}' to Grabbing status")
-                                    item.status = 'Grabbing'
+                                if item.status != 'Grabbed':
+                                    logger.info(f"[check_downloaders] AirDC++: Transitioning '{item.name}' to Grabbed status")
+                                    item.status = 'Grabbed'
                                     item.save()
                                 if item.received != bytes_transferred:
                                     item.received = bytes_transferred
@@ -1288,7 +1288,7 @@ def check_downloaders():
                                     
                                     # Determine initial status based on download progress
                                     if status in ['running', 'downloading']:
-                                        initial_status = 'Grabbing'
+                                        initial_status = 'Grabbed'
                                         received = bytes_transferred
                                     else:  # completed/finished
                                         initial_status = 'PostProcessing'
