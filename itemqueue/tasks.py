@@ -446,11 +446,26 @@ def transfer_files_async(item_hash):
             except:
                 pass
         
-        # Determine destination folder - create subfolder for item
-        if item.manager and item.manager.folder:
-            final_base_folder = item.manager.folder.folder
-        else:
-            final_base_folder = '/tmp'
+         # Determine destination folder - create subfolder for item
+         if item.manager and item.manager.folder:
+             final_base_folder = item.manager.folder.folder
+         elif item.downloader and item.downloader.options:
+             # For downloaders like AirDC++ without a manager, get folder from downloader config
+             from entities.models import DownloadFolder
+             target_folder_id = item.downloader.options.get('target_folder')
+             if target_folder_id:
+                 try:
+                     target_folder = DownloadFolder.objects.get(id=target_folder_id)
+                     final_base_folder = target_folder.folder
+                     logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
+                 except Exception as e:
+                     logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
+                     final_base_folder = '/tmp'
+             else:
+                 logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
+                 final_base_folder = '/tmp'
+         else:
+             final_base_folder = '/tmp'
         
         # Check if this is a Blackhole manager
         is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
@@ -1241,16 +1256,8 @@ def check_downloaders():
                                         
                                         # Get target folder from downloader config
                                         target_folder_id = downloader.options.get('target_folder') if downloader.options else None
-                                        target_folder = None
-                                        if target_folder_id:
-                                            try:
-                                                from entities.models import DownloadFolder
-                                                target_folder = DownloadFolder.objects.get(id=target_folder_id)
-                                            except Exception as e:
-                                                logger.warning(f"[check_downloaders] AirDC++: Could not find target folder {target_folder_id}: {e}")
-                                        
-                                        if not target_folder:
-                                            logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download")
+                                        if not target_folder_id:
+                                            logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download '{download_name}'")
                                             continue
                                         
                                         new_item = Item.objects.create(
@@ -1260,16 +1267,15 @@ def check_downloaders():
                                             size=download_size,
                                             received=download_size,
                                             status='PostProcessing',  # Ready for transfer immediately
-                                            category='AirDC++',
-                                            folder=target_folder  # Assign the target folder
+                                            category='AirDC++'
                                         )
                                         
                                         ItemHistory.objects.create(
                                             item=new_item,
-                                            details=f'Auto-created from AirDC++ download at: {download_path}'
+                                            details=f'Auto-created from AirDC++ download at: {download_path} (folder_id={target_folder_id})'
                                         )
                                         
-                                        logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} (hash={transfer_id}) -> {target_folder.folder}, queueing transfer")
+                                        logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} (hash={transfer_id}) -> folder {target_folder_id}, queueing transfer")
                                         
                                         # Queue for file transfer immediately
                                         transfer_files_async.apply_async(args=[transfer_id], countdown=5)
