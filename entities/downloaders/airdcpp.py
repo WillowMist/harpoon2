@@ -88,12 +88,18 @@ class AirDCppClient:
     def test_connection(self) -> tuple:
         """Test if connection to AirDC++ is working. Returns (success, message)"""
         try:
-            url = f"{self.base_url}/sessions/current"
+            # Try the transfers endpoint to verify API is working
+            url = f"{self.base_url}/transfers"
             logger.info(f"Testing AirDC++ connection to: {url}")
             resp = self.session.get(url, timeout=10)
             resp.raise_for_status()
-            logger.info(f"AirDC++ connection successful")
-            return (True, "Connected successfully")
+            
+            # If we got here, connection is successful
+            data = resp.json() if resp.text else []
+            transfer_count = len(data) if isinstance(data, list) else 0
+            msg = f"Connected successfully. {transfer_count} active transfers."
+            logger.info(msg)
+            return (True, msg)
         except requests.exceptions.ConnectionError as e:
             msg = f"Cannot connect to {self.base_url}: {e}"
             logger.error(msg)

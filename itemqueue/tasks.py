@@ -1033,6 +1033,39 @@ def postprocess_item(item_hash):
                 item.status = 'Failed'
                 item.save()
                 return
+        
+        elif downloader.downloadertype == 'AirDC++':
+            logger.debug(f"[postprocess_item] Verifying download completion on AirDC++")
+            # For AirDC++, we need to search by name since it doesn't use hashes
+            active_downloads = client.get_active_downloads()
+            download_found = False
+            download_path = None
+            
+            for dl in active_downloads:
+                # Match by item name (case-insensitive)
+                if dl.get('name', '').lower() == item.name.lower():
+                    status = dl.get('status', '').lower() if dl.get('status') else ''
+                    if status in ['completed', 'done', 'finished', 'success']:
+                        download_found = True
+                        download_path = dl.get('path')
+                        break
+            
+            if not download_found:
+                logger.error(f"[postprocess_item] Download '{item.name}' not found or not complete on AirDC++")
+                ItemHistory.objects.create(item=item, details='Download not found or incomplete on AirDC++')
+                Notification.create_for_admin(
+                    f"Download not found on AirDC++: {item.name}",
+                    notification_type='airdcpp_not_found',
+                    item_hash=item.hash
+                )
+                item.status = 'Failed'
+                item.save()
+                return
+            
+            if download_path:
+                logger.debug(f"[postprocess_item] AirDC++ download path: {download_path}")
+                ItemHistory.objects.create(item=item, details=f'AirDC++ download verified at: {download_path}')
+        
         else:
             logger.error(f"[postprocess_item] Unknown downloader type: {downloader.downloadertype}")
             ItemHistory.objects.create(item=item, details=f'Unknown downloader type: {downloader.downloadertype}')
@@ -1158,6 +1191,50 @@ def check_downloaders():
                         except Item.DoesNotExist:
                             logger.debug(f"[check_downloaders] SABNzbd: NZO ID {nzo_id} not in database")
                             pass
+            
+            elif downloader.downloadertype == 'AirDC++':
+                # Check for completed downloads in AirDC++
+                logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
+                try:
+                    active_downloads = client.get_active_downloads()
+                    logger.debug(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
+                    
+                    for download_info in active_downloads:
+                        download_name = download_info.get('name', '')
+                        download_path = download_info.get('path', '')
+                        status = download_info.get('status', '').lower() if download_info.get('status') else ''
+                        
+                        logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status={status})")
+                        
+                        # Check for completed downloads
+                        if status in ['completed', 'done', 'finished', 'success']:
+                            # Search for matching items in the database by name
+                            # AirDC++ doesn't use hash like torrents, so we search by name
+                            try:
+                                # Try to find item by name (case-insensitive)
+                                items = Item.objects.filter(name__icontains=download_name)
+                                logger.debug(f"[check_downloaders] AirDC++: Found {len(items)} item(s) matching name '{download_name}'")
+                                
+                                for item in items:
+                                    # Only process if item is waiting for download to complete
+                                    if item.status in ['Grabbing', 'Grabbed', 'Downloading']:
+                                        logger.info(f"[check_downloaders] AirDC++: Found completed download for '{item.name}', queueing postprocess")
+                                        # Log the download path for reference
+                                        if download_path:
+                                            ItemHistory.objects.create(
+                                                item=item,
+                                                details=f'AirDC++ download completed at: {download_path}'
+                                            )
+                                        # Queue postprocessing using the item's hash as identifier
+                                        postprocess_item.delay(item.hash)
+                                    else:
+                                        logger.debug(f"[check_downloaders] AirDC++: Skipping '{item.name}' - status is already {item.status}")
+                            
+                            except Exception as e:
+                                logger.debug(f"[check_downloaders] AirDC++: Error processing download '{download_name}': {e}")
+                
+                except Exception as e:
+                    logger.error(f"[check_downloaders] AirDC++: Error fetching transfers: {e}", exc_info=True)
         except Exception as e:
             logger.error(f"[check_downloaders] Error checking downloader {downloader.name}: {e}", exc_info=True)
 

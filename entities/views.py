@@ -248,8 +248,15 @@ def test_downloader(request, downloader_id):
     
     try:
         downloader = models.Downloader.objects.get(pk=downloader_id)
-        success = downloader.test()
-        return JsonResponse({"success": success})
+        result = downloader.test()
+        
+        # Handle tuple response (success, message)
+        if isinstance(result, tuple):
+            success, message = result
+            return JsonResponse({"success": success, "message": message})
+        else:
+            # Fallback for non-tuple responses
+            return JsonResponse({"success": bool(result)})
     except models.Downloader.DoesNotExist:
         return JsonResponse({"success": False, "error": "Downloader not found"}, status=404)
     except Exception as e:

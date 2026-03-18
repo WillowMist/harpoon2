@@ -26,6 +26,9 @@ $(document).ready(function() {
                 if (response.success) {
                     downloaderBtn.addClass('btn-success').removeClass('btn-info');
                     downloaderBtn.html('<i class="fa fa-fw fa-check"></i>');
+                    if (response.message) {
+                        downloaderBtn.attr('title', response.message);
+                    }
                     setTimeout(function() {
                         downloaderBtn.removeClass('btn-success').addClass('btn-info');
                         downloaderBtn.html(originalHtml).prop('disabled', false);
@@ -33,6 +36,9 @@ $(document).ready(function() {
                 } else {
                     downloaderBtn.addClass('btn-danger').removeClass('btn-info');
                     downloaderBtn.html('<i class="fa fa-fw fa-times"></i>');
+                    var errorMsg = response.message || response.error || 'Connection failed';
+                    downloaderBtn.attr('title', errorMsg);
+                    console.error('Test failed:', errorMsg);
                     setTimeout(function() {
                         downloaderBtn.removeClass('btn-danger').addClass('btn-info');
                         downloaderBtn.html(originalHtml).prop('disabled', false);
