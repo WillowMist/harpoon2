@@ -809,15 +809,17 @@ def api_queue(request):
                 'error_message': t.error_message or '',
             } for t in transfers]
             
-            # Get recent history (last 5 entries)
-            history = ItemHistory.objects.filter(item=item).order_by('-created')[:5]
+            # Get recent history (last 5 entries) - DON'T slice before filtering!
+            # In PostgreSQL, you can't call .filter() on a sliced QuerySet
+            all_history = ItemHistory.objects.filter(item=item).order_by('-created')
+            history_list = list(all_history[:5])  # Convert to list after filtering
             item_data['history'] = [{
                 'details': h.details,
                 'created': h.created.isoformat(),
-            } for h in history]
+            } for h in history_list]
             
-            # Check if this is a folder download from AirDC++
-            folder_history = history.filter(details__icontains='Folder bundle detected').first()
+            # Check if this is a folder download from AirDC++ - use queryset, not list
+            folder_history = all_history.filter(details__icontains='Folder bundle detected').first()
             if folder_history:
                 # Extract item count from history detail string
                 import re
