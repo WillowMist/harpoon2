@@ -1247,32 +1247,30 @@ def check_downloaders():
                         
                         logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status_obj={status_obj}, status={status}, {bytes_transferred}/{download_size})")
                         
-                        # Try to find existing item - first by exact hash match, then by name
+                        # Try to find existing item - first by name, then by hash
                         item = None
-                        try:
-                            item = Item.objects.get(hash=transfer_id)
-                            # Verify name matches - if not, this is the wrong item
-                            if item.name.lower() != download_name.lower():
-                                logger.debug(f"[check_downloaders] AirDC++: Hash match found but name mismatch (have {item.name}, got {download_name}) - treating as new transfer")
-                                item = None
-                            else:
-                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by transfer ID {transfer_id}")
-                        except Item.DoesNotExist:
-                            pass
                         
-                        # If not found by hash, try by name
-                        if not item:
-                            try:
-                                item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
-                                if item:
-                                    logger.debug(f"[check_downloaders] AirDC++: Found existing item by name match: {download_name}")
-                                    # Update hash to track this transfer ID for future checks
-                                    old_hash = item.hash
+                        # First, try to find by name (most reliable for AirDC++)
+                        try:
+                            item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
+                            if item:
+                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by name match: {download_name}")
+                                # Update hash to track this transfer ID for future checks
+                                old_hash = item.hash
+                                if old_hash != transfer_id:
                                     item.hash = transfer_id
                                     item.save()
                                     logger.info(f"[check_downloaders] AirDC++: Updated item hash from {old_hash} to {transfer_id}")
-                            except Exception as e:
-                                logger.debug(f"[check_downloaders] AirDC++: Error searching by name: {e}")
+                        except Exception as e:
+                            logger.debug(f"[check_downloaders] AirDC++: Error searching by name: {e}")
+                        
+                        # If not found by name, try by hash
+                        if not item:
+                            try:
+                                item = Item.objects.get(hash=transfer_id)
+                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by transfer ID {transfer_id}")
+                            except Item.DoesNotExist:
+                                pass
                         
                         if item:
                             logger.debug(f"[check_downloaders] AirDC++: Processing existing item for transfer {transfer_id}")
