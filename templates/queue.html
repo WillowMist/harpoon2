@@ -266,10 +266,13 @@ function renderPostProcessingItems(items) {
             `).join('');
         }
         
+        const folderInfo = item.is_folder_download ? ` <span class="badge bg-secondary">Transferring ${item.folder_item_count} items</span>` : '';
+        const displayName = item.is_folder_download ? `${item.name} (${(item.size / (1024*1024*1024)).toFixed(2)} GB)` : item.name;
+        
         return `
         <tr data-item-id="${item.hash}" onclick="toggleDetails(this)" style="cursor: pointer;">
             <td><span class="expand-icon" style="transform: ${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span></td>
-            <td>${item.name.substring(0, 50)}</td>
+            <td>${displayName.substring(0, 50)}${folderInfo}</td>
             <td>${item.manager}</td>
             <td>${item.downloader}</td>
             <td>${timeSince(item.modified)} ago</td>

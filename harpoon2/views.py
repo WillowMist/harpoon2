@@ -815,6 +815,17 @@ def api_queue(request):
                 'details': h.details,
                 'created': h.created.isoformat(),
             } for h in history]
+            
+            # Check if this is a folder download from AirDC++
+            folder_history = history.filter(details__icontains='Folder bundle detected').first()
+            if folder_history:
+                # Extract item count from history detail string
+                import re
+                match = re.search(r'(\d+)\s+items', folder_history.details)
+                if match:
+                    item_count = int(match.group(1))
+                    item_data['is_folder_download'] = True
+                    item_data['folder_item_count'] = item_count
         
         queue_items.append(item_data)
     
