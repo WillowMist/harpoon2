@@ -1264,13 +1264,8 @@ def check_downloaders():
                         except Exception as e:
                             logger.debug(f"[check_downloaders] AirDC++: Error searching by name: {e}")
                         
-                        # If not found by name, try by hash
-                        if not item:
-                            try:
-                                item = Item.objects.get(hash=transfer_id)
-                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by transfer ID {transfer_id}")
-                            except Item.DoesNotExist:
-                                pass
+                        # Don't fall back to hash lookup for AirDC++ since IDs are reused
+                        # If not found by name, it's a new transfer
                         
                         if item:
                             logger.debug(f"[check_downloaders] AirDC++: Processing existing item for transfer {transfer_id}")
