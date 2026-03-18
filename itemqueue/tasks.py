@@ -395,6 +395,23 @@ def transfer_files_async(item_hash):
             remote_dir = storage_path
             files_to_copy = None
             is_single_file = False  # SABnzbd doesn't have single-file concept
+        
+        elif downloader.downloadertype == 'AirDC++':
+            logger.debug(f"[transfer_files_async] Handling AirDC++ download for {item.name}")
+            # For AirDC++, we need to get the download path from the seedbox's base folder
+            # and the filename from the item name
+            # The file is typically at: seedbox.base_download_folder / item.name
+            
+            if not seedbox.base_download_folder:
+                logger.error(f"[transfer_files_async] AirDC++ - no base download folder configured on seedbox")
+                return
+            
+            # AirDC++ downloads are single files at the base folder
+            remote_dir = seedbox.base_download_folder
+            files_to_copy = [item.name]  # Just the single file from AirDC++
+            is_single_file = True  # Single file transfer
+            logger.info(f"[transfer_files_async] AirDC++ - remote_dir={remote_dir}, file={item.name}")
+        
         else:
             logger.error(f"[transfer_files_async] Unknown downloader type: {downloader.downloadertype}")
             return
