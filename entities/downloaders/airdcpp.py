@@ -140,6 +140,17 @@ class AirDCppDownloader(BaseDownloader):
             return False
         return self.client.test_connection()
     
+    def _ensure_client(self):
+        """Ensure client is initialized"""
+        if not self.client and self.config:
+            self.client = AirDCppClient(
+                host=self.config.get('host', ''),
+                port=self.config.get('port', 5600),
+                username=self.config.get('username', ''),
+                password=self.config.get('password', ''),
+                use_https=self.config.get('use_https', False)
+            )
+    
     def add(self, file_path: str, **kwargs) -> str:
         """Not implemented for AirDC++ monitoring-only mode"""
         raise NotImplementedError("AirDC++ downloader is monitoring-only")
