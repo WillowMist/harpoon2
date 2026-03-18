@@ -1355,21 +1355,22 @@ def check_downloaders():
                                       try:
                                           existing_item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
                                           if existing_item:
-                                              logger.debug(f"[check_downloaders] AirDC++: Found existing item for '{download_name}'")
-                                              
-                                              # Update it to PostProcessing since download is complete
-                                              if existing_item.status != 'PostProcessing':
-                                                  logger.info(f"[check_downloaders] AirDC++: Transitioning existing item '{existing_item.name}' to PostProcessing")
-                                                  existing_item.status = 'PostProcessing'
-                                                  existing_item.save()
-                                                  ItemHistory.objects.create(
-                                                      item=existing_item,
-                                                      details='AirDC++ download completed (detected via event)'
-                                                  )
-                                                  postprocess_item.delay(existing_item.hash)
-                                              else:
-                                                  logger.debug(f"[check_downloaders] AirDC++: Item already in PostProcessing: {download_name}")
-                                              continue
+                                               logger.debug(f"[check_downloaders] AirDC++: Found existing item for '{download_name}'")
+                                               
+                                               # Update it to PostProcessing since download is complete
+                                               if existing_item.status != 'PostProcessing':
+                                                   logger.info(f"[check_downloaders] AirDC++: Transitioning existing item '{existing_item.name}' to PostProcessing")
+                                                   existing_item.status = 'PostProcessing'
+                                                   existing_item.save()
+                                                   ItemHistory.objects.create(
+                                                       item=existing_item,
+                                                       details='AirDC++ download completed (detected via event)'
+                                                   )
+                                                   postprocess_item.delay(existing_item.hash)
+                                               else:
+                                                   # Already in PostProcessing - don't re-queue or create new history
+                                                   logger.debug(f"[check_downloaders] AirDC++: Item already in PostProcessing, skipping: {download_name}")
+                                               continue
                                       except Exception as e:
                                           logger.debug(f"[check_downloaders] AirDC++: Error checking existing items: {e}")
                                       
