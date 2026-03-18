@@ -108,12 +108,42 @@ AUTH_PASSWORD_VALIDATORS = [
 # Database
 # https://docs.djangoproject.com/en/3.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': '/data/harpoon2.db',
+"""
+DATABASE CONFIGURATION
+
+For Docker deployments:
+- Uses PostgreSQL automatically via environment variables
+- DB_PASSWORD: Password for harpoon user (set in docker-compose.yml)
+
+For non-Docker deployments (local development or manual setup):
+- Copy this file to settings.py (settings.py is in .gitignore)
+- Edit settings.py and uncomment the PostgreSQL section below
+- Configure HOST, PORT, PASSWORD as needed for your setup
+"""
+
+# Determine if running in Docker based on environment variables
+USE_POSTGRES = os.environ.get('USE_POSTGRES', 'False').lower() == 'true'
+
+if USE_POSTGRES or os.environ.get('DB_PASSWORD'):
+    # PostgreSQL configuration (Docker or manual PostgreSQL setup)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.environ.get('DB_NAME', 'harpoon'),
+            'USER': os.environ.get('DB_USER', 'harpoon'),
+            'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+            'HOST': os.environ.get('DB_HOST', 'postgres'),
+            'PORT': os.environ.get('DB_PORT', '5432'),
+        }
     }
-}
+else:
+    # SQLite configuration (default for backward compatibility)
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': '/data/harpoon2.db',
+        }
+    }
 
 # REDIS related settings
 REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')

@@ -1,5 +1,24 @@
 
 services:
+  # PostgreSQL database service
+  postgres:
+    image: postgres:16-alpine
+    container_name: harpoon2-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=harpoon
+      - POSTGRES_USER=harpoon
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-harpoon-default-password}
+    volumes:
+      - harpoon2-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U harpoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - harpoon2-network
+
   # Redis service (required for Celery broker)
   redis:
     image: redis:7-alpine
@@ -35,6 +54,12 @@ services:
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1,harpoon2}
       - CSRF_TRUSTED_ORIGINS=${CSRF_TRUSTED_ORIGINS:-}
       - REDIS_URL=redis://redis:6379/0
+      - DB_PASSWORD=${DB_PASSWORD:-harpoon-default-password}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=harpoon
+      - DB_USER=harpoon
+      - USE_POSTGRES=true
     ports:
       # Harpoon2 runs on port 4277
       - "4277:4277"
@@ -43,6 +68,8 @@ services:
       # This preserves the installed Python packages in the container
       - harpoon2-data:/data
     depends_on:
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_healthy
     networks:
@@ -71,6 +98,8 @@ services:
 
 volumes:
   harpoon2-data:
+    driver: local
+  harpoon2-postgres-data:
     driver: local
   harpoon2-redis-data:
     driver: local
