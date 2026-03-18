@@ -85,14 +85,31 @@ class AirDCppClient:
         """Trigger a refresh of the shared content."""
         return self._make_request('POST', '/share/refresh')
     
-    def test_connection(self) -> bool:
-        """Test if connection to AirDC++ is working."""
+    def test_connection(self) -> tuple:
+        """Test if connection to AirDC++ is working. Returns (success, message)"""
         try:
-            self._make_request('GET', '/sessions/current')
-            return True
+            url = f"{self.base_url}/sessions/current"
+            logger.info(f"Testing AirDC++ connection to: {url}")
+            resp = self.session.get(url, timeout=10)
+            resp.raise_for_status()
+            logger.info(f"AirDC++ connection successful")
+            return (True, "Connected successfully")
+        except requests.exceptions.ConnectionError as e:
+            msg = f"Cannot connect to {self.base_url}: {e}"
+            logger.error(msg)
+            return (False, msg)
+        except requests.exceptions.Timeout as e:
+            msg = f"Connection timed out to {self.base_url}: {e}"
+            logger.error(msg)
+            return (False, msg)
+        except requests.exceptions.HTTPError as e:
+            msg = f"HTTP error: {e.response.status_code} {e.response.reason}"
+            logger.error(msg)
+            return (False, msg)
         except Exception as e:
-            logger.error(f"Failed to connect to AirDC++: {e}")
-            return False
+            msg = f"Failed to connect to AirDC++: {e}"
+            logger.error(msg)
+            return (False, msg)
 
 
 class AirDCppDownloader(BaseDownloader):
@@ -134,11 +151,13 @@ class AirDCppDownloader(BaseDownloader):
             use_https=self.config.get('use_https', False)
         )
     
-    def test(self) -> bool:
-        """Test connection to AirDC++."""
+    def test(self) -> tuple:
+        """Test connection to AirDC++. Returns (success: bool, message: str)"""
+        self._ensure_client()
         if not self.client:
-            return False
-        return self.client.test_connection()
+            return (False, "Client not initialized")
+        success, message = self.client.test_connection()
+        return (success, message)
     
     def _ensure_client(self):
         """Ensure client is initialized"""
