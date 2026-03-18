@@ -20,5 +20,6 @@ urlpatterns = [
     path('downloaders/', views.downloaders, name='downloaders'),
     path('managers/<int:pk>/test/', views.managertest, name='manager-test'),
     path('api/downloader-options/<str:downloader_type>/', views.get_downloader_options, name='get-downloader-options'),
+    path('api/download-folders/', views.get_download_folders, name='get-download-folders'),
     path('api/test-downloader/<int:downloader_id>/', views.test_downloader, name='test-downloader'),
 ]

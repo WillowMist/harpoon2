@@ -133,6 +133,7 @@ class AirDCppDownloader(BaseDownloader):
         'username': 'string',
         'password': 'string',
         'use_https': 'boolean',
+        'target_folder': 'folder',
     }
     
     def __init__(self, downloader=None):

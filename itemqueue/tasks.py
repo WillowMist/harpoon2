@@ -1239,6 +1239,20 @@ def check_downloaders():
                                         transfer_id = str(download_info.get('id', 0))
                                         download_size = int(download_info.get('size', 0))
                                         
+                                        # Get target folder from downloader config
+                                        target_folder_id = downloader.options.get('target_folder') if downloader.options else None
+                                        target_folder = None
+                                        if target_folder_id:
+                                            try:
+                                                from entities.models import DownloadFolder
+                                                target_folder = DownloadFolder.objects.get(id=target_folder_id)
+                                            except Exception as e:
+                                                logger.warning(f"[check_downloaders] AirDC++: Could not find target folder {target_folder_id}: {e}")
+                                        
+                                        if not target_folder:
+                                            logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download")
+                                            continue
+                                        
                                         new_item = Item.objects.create(
                                             name=download_name,
                                             hash=transfer_id,
@@ -1246,7 +1260,8 @@ def check_downloaders():
                                             size=download_size,
                                             received=download_size,
                                             status='PostProcessing',  # Ready for transfer immediately
-                                            category='AirDC++'
+                                            category='AirDC++',
+                                            folder=target_folder  # Assign the target folder
                                         )
                                         
                                         ItemHistory.objects.create(
@@ -1254,7 +1269,7 @@ def check_downloaders():
                                             details=f'Auto-created from AirDC++ download at: {download_path}'
                                         )
                                         
-                                        logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} (hash={transfer_id}), queueing transfer")
+                                        logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} (hash={transfer_id}) -> {target_folder.folder}, queueing transfer")
                                         
                                         # Queue for file transfer immediately
                                         transfer_files_async.apply_async(args=[transfer_id], countdown=5)

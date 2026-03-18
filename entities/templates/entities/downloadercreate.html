@@ -84,33 +84,54 @@ $(document).ready(function() {
                     var html = '';
                     var options = response.options;
                     
-                    for (var key in options) {
-                        var type = options[key];
-                        var value = currentOptions[key];
-                        if (value === undefined) value = '';
-                        var fieldId = 'opt_' + key;
-                        var inputType = 'text';
-                        
-                        if (type === 'int') {
-                            inputType = 'number';
-                        } else if (type === 'boolean') {
-                            inputType = 'checkbox';
-                        } else if (key.toLowerCase().includes('password') || key.toLowerCase().includes('apikey') || key.toLowerCase().includes('key')) {
-                            inputType = 'password';
-                        }
-                        
-                        if (type === 'boolean') {
-                            html += '<div class="form-check mb-3">';
-                            html += '<input type="checkbox" class="form-check-input" id="' + fieldId + '" name="' + fieldId + '" value="true"' + (value === true || value === 'true' ? ' checked' : '') + ' data-option-key="' + key + '">';
-                            html += '<label class="form-check-label" for="' + fieldId + '">' + key + '</label>';
-                            html += '</div>';
-                        } else {
-                            html += '<div class="mb-3">';
-                            html += '<label for="' + fieldId + '" class="form-label">' + key + '</label>';
-                            html += '<input type="' + inputType + '" class="form-control" id="' + fieldId + '" name="' + fieldId + '" value="' + (value || '') + '" data-option-key="' + key + '">';
-                            html += '</div>';
-                        }
-                    }
+                     for (var key in options) {
+                         var type = options[key];
+                         var value = currentOptions[key];
+                         if (value === undefined) value = '';
+                         var fieldId = 'opt_' + key;
+                         var inputType = 'text';
+                         
+                         if (type === 'int') {
+                             inputType = 'number';
+                         } else if (type === 'boolean') {
+                             inputType = 'checkbox';
+                         } else if (key.toLowerCase().includes('password') || key.toLowerCase().includes('apikey') || key.toLowerCase().includes('key')) {
+                             inputType = 'password';
+                         }
+                         
+                         if (type === 'boolean') {
+                             html += '<div class="form-check mb-3">';
+                             html += '<input type="checkbox" class="form-check-input" id="' + fieldId + '" name="' + fieldId + '" value="true"' + (value === true || value === 'true' ? ' checked' : '') + ' data-option-key="' + key + '">';
+                             html += '<label class="form-check-label" for="' + fieldId + '">' + key + '</label>';
+                             html += '</div>';
+                         } else if (type === 'folder') {
+                             // Folder selector - fetch list of folders
+                             html += '<div class="mb-3">';
+                             html += '<label for="' + fieldId + '" class="form-label">' + key + '</label>';
+                             html += '<select class="form-select" id="' + fieldId + '" name="' + fieldId + '" data-option-key="' + key + '">';
+                             html += '<option value="">-- Select a folder --</option>';
+                             html += '</select>';
+                             html += '</div>';
+                             
+                             // Load folders in a separate AJAX call
+                             $.ajax({
+                                 url: '{% url "entities:get-download-folders" %}',
+                                 type: 'GET',
+                                 success: function(response) {
+                                     if (response.success && response.folders) {
+                                         response.folders.forEach(function(folder) {
+                                             $('#' + fieldId).append('<option value="' + folder.id + '"' + (value == folder.id ? ' selected' : '') + '>' + folder.folder + '</option>');
+                                         });
+                                     }
+                                 }
+                             });
+                         } else {
+                             html += '<div class="mb-3">';
+                             html += '<label for="' + fieldId + '" class="form-label">' + key + '</label>';
+                             html += '<input type="' + inputType + '" class="form-control" id="' + fieldId + '" name="' + fieldId + '" value="' + (value || '') + '" data-option-key="' + key + '">';
+                             html += '</div>';
+                         }
+                     }
                     
                     dynamicOptionsDiv.html(html);
                 }

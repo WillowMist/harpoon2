@@ -199,6 +199,15 @@ def get_downloader_options(request, downloader_type):
         return JsonResponse({'success': False, 'error': 'Invalid downloader type'}, status=400)
 
 
+def get_download_folders(request):
+    """Returns list of configured download folders"""
+    try:
+        folders = models.DownloadFolder.objects.all().values('id', 'folder')
+        return JsonResponse({'success': True, 'folders': list(folders)})
+    except Exception as e:
+        return JsonResponse({'success': False, 'error': str(e)}, status=500)
+
+
 class SeedboxCreateView(ModalCreateView):
     model = models.Seedbox
     template_name = 'entities/seedboxcreate.html'
