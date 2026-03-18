@@ -240,3 +240,18 @@ class SeedboxDeleteView(ModalDeleteView):
             return JsonResponse({'success': True})
         response = super().delete(request, *args, **kwargs)
         return response
+
+def test_downloader(request, downloader_id):
+    """Test connection to a downloader"""
+    if request.method != "POST":
+        return JsonResponse({"success": False, "error": "Method not allowed"}, status=405)
+    
+    try:
+        downloader = models.Downloader.objects.get(pk=downloader_id)
+        success = downloader.test()
+        return JsonResponse({"success": success})
+    except models.Downloader.DoesNotExist:
+        return JsonResponse({"success": False, "error": "Downloader not found"}, status=404)
+    except Exception as e:
+        return JsonResponse({"success": False, "error": str(e)}, status=500)
+
