@@ -1228,10 +1228,18 @@ def check_downloaders():
                         download_name = download_info.get('name', '')
                         download_path = download_info.get('path', '')
                         transfer_id = str(download_info.get('id', 0))
-                        download_size = int(download_info.get('size', 0))
-                        # Calculate bytes transferred from progress percentage
-                        progress_pct = int(download_info.get('progress', 0))
-                        bytes_transferred = int((progress_pct / 100.0) * download_size) if download_size > 0 else 0
+                        
+                        # Remove "TTH: " prefix if present from /transfers endpoint
+                        if download_name.startswith('TTH: '):
+                            download_name = download_name[5:]
+                        
+                        # Handle size - can be -1 if not yet determined
+                        raw_size = download_info.get('size', 0)
+                        download_size = int(raw_size) if raw_size and raw_size > 0 else 0
+                        
+                        # Calculate bytes transferred - handle -1 values from API
+                        raw_bytes = download_info.get('bytes_transferred', 0)
+                        bytes_transferred = int(raw_bytes) if raw_bytes and raw_bytes > 0 else 0
                         
                         # Status is a dict like {"id": "finished", "str": "Finished, idle..."}
                         status_obj = download_info.get('status', {})
