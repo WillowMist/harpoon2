@@ -6,7 +6,7 @@ import watson
 
 class Item(models.Model):
     name = models.CharField(max_length=200, default='', blank=True)
-    hash = models.CharField(max_length=50, primary_key=True)
+    hash = models.CharField(max_length=200, primary_key=True)
     manager = models.ForeignKey('entities.Manager', on_delete=models.CASCADE, null=True, blank=True)
     downloader = models.ForeignKey('entities.Downloader', on_delete=models.CASCADE, null=True, blank=True)
     size = models.BigIntegerField(default=0)
