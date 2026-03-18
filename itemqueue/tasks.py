@@ -1286,33 +1286,36 @@ def check_downloaders():
                                         logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping download '{download_name}'")
                                         continue
                                     
-                                    # Determine initial status based on download progress
-                                    if status in ['running', 'downloading']:
-                                        initial_status = 'Grabbed'
-                                        received = bytes_transferred
-                                    else:  # completed/finished
-                                        initial_status = 'PostProcessing'
-                                        received = download_size
+                                    # Always create as Grabbed initially to show download progression
+                                    # For completed downloads, we'll transition them to PostProcessing after
+                                    is_completed = status in ['completed', 'done', 'finished', 'success']
                                     
                                     new_item = Item.objects.create(
                                         name=download_name,
                                         hash=transfer_id,
                                         downloader=downloader,
                                         size=download_size,
-                                        received=received,
-                                        status=initial_status,
+                                        received=download_size if is_completed else bytes_transferred,
+                                        status='Grabbed',
                                         category='AirDC++'
                                     )
                                     
                                     ItemHistory.objects.create(
                                         item=new_item,
-                                        details=f'Auto-created from AirDC++ {initial_status.lower()} download at: {download_path} (folder_id={target_folder_id})'
+                                        details=f'Auto-created from AirDC++ download at: {download_path} (folder_id={target_folder_id})'
                                     )
                                     
-                                    logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} in status {initial_status} (hash={transfer_id})")
+                                    logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} as Grabbed (hash={transfer_id})")
                                     
-                                    # Queue for transfer immediately if completed
-                                    if initial_status == 'PostProcessing':
+                                    # If completed, immediately transition to PostProcessing and queue transfer
+                                    if is_completed:
+                                        new_item.status = 'PostProcessing'
+                                        new_item.save()
+                                        ItemHistory.objects.create(
+                                            item=new_item,
+                                            details='Download was already complete, transitioning to PostProcessing'
+                                        )
+                                        logger.info(f"[check_downloaders] AirDC++: Completed download detected, transitioning {new_item.name} to PostProcessing")
                                         postprocess_item.delay(transfer_id)
                                     
                                 except Exception as e:
