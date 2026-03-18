@@ -419,6 +419,7 @@ def transfer_files_async(item_hash):
                 # Folder downloads are in a subfolder: base_folder/item.name/
                 remote_dir = os.path.join(seedbox.base_download_folder, item.name)
                 files_to_copy = None  # Transfer all files in the folder
+                is_single_file = False  # Folder downloads are multi-file
                 logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
             else:
                 # Single file downloads are in the base folder
