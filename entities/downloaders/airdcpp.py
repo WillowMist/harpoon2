@@ -230,6 +230,8 @@ class AirDCppDownloader(BaseDownloader):
             # Process transfer info
             active = []
             for transfer in transfers:
+                logger.debug(f"AirDC++ transfer object: {transfer}")
+                
                 # Extract relevant fields
                 download_info = {
                     'id': transfer.get('id'),
