@@ -101,30 +101,42 @@ class AirDCppDownloader:
     """
     
     downloadertype = 'AirDC++'
+    reload = False
     
-    def __init__(self, seedbox_config: Dict):
+    optionfields = {
+        'host': 'string',
+        'port': 'int',
+        'username': 'string',
+        'password': 'string',
+        'use_https': 'boolean',
+    }
+    
+    def __init__(self, downloader=None):
         """
         Initialize AirDC++ downloader.
         
         Args:
-            seedbox_config: Dict with keys:
-                - host: Hostname/IP
-                - port: API port (default 5600)
-                - username: API username
-                - password: API password
-                - use_https: Use HTTPS (optional, default False)
+            downloader: Downloader model instance (can be None for initialization)
         """
-        self.config = seedbox_config
+        if downloader is None:
+            # Used when getting option fields from the API
+            self.config = {}
+            self.client = None
+            return
+            
+        self.config = downloader.options if downloader.options else {}
         self.client = AirDCppClient(
-            host=seedbox_config.get('host'),
-            port=seedbox_config.get('port', 5600),
-            username=seedbox_config.get('username'),
-            password=seedbox_config.get('password'),
-            use_https=seedbox_config.get('use_https', False)
+            host=self.config.get('host', ''),
+            port=self.config.get('port', 5600),
+            username=self.config.get('username', ''),
+            password=self.config.get('password', ''),
+            use_https=self.config.get('use_https', False)
         )
     
     def test(self) -> bool:
         """Test connection to AirDC++."""
+        if not self.client:
+            return False
         return self.client.test_connection()
     
     def get_active_downloads(self) -> List[Dict]:
@@ -134,6 +146,9 @@ class AirDCppDownloader:
         Returns:
             List of downloads with: name, size, progress, status, path, etc.
         """
+        if not self.client:
+            return []
+            
         try:
             transfers = self.client.get_transfers()
             
