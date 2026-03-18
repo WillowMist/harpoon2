@@ -1067,36 +1067,11 @@ def postprocess_item(item_hash):
                 return
         
         elif downloader.downloadertype == 'AirDC++':
-            logger.debug(f"[postprocess_item] Verifying download completion on AirDC++")
-            # For AirDC++, we need to search by name since it doesn't use hashes
-            active_downloads = client.get_active_downloads()
-            download_found = False
-            download_path = None
-            
-            for dl in active_downloads:
-                # Match by item name (case-insensitive)
-                if dl.get('name', '').lower() == item.name.lower():
-                    status = dl.get('status', '').lower() if dl.get('status') else ''
-                    if status in ['completed', 'done', 'finished', 'success']:
-                        download_found = True
-                        download_path = dl.get('path')
-                        break
-            
-            if not download_found:
-                logger.error(f"[postprocess_item] Download '{item.name}' not found or not complete on AirDC++")
-                ItemHistory.objects.create(item=item, details='Download not found or incomplete on AirDC++')
-                Notification.create_for_admin(
-                    f"Download not found on AirDC++: {item.name}",
-                    notification_type='airdcpp_not_found',
-                    item_hash=item.hash
-                )
-                item.status = 'Failed'
-                item.save()
-                return
-            
-            if download_path:
-                logger.debug(f"[postprocess_item] AirDC++ download path: {download_path}")
-                ItemHistory.objects.create(item=item, details=f'AirDC++ download verified at: {download_path}')
+            logger.debug(f"[postprocess_item] Processing AirDC++ download for transfer")
+            # For AirDC++, we already verified completion in check_downloaders when we transitioned to PostProcessing
+            # The download may no longer be in active transfers (already finished), so we don't need to verify it again
+            # Just log that we're ready to proceed with the transfer
+            logger.info(f"[postprocess_item] AirDC++ download verified in check_downloaders, proceeding with transfer")
         
         else:
             logger.error(f"[postprocess_item] Unknown downloader type: {downloader.downloadertype}")
