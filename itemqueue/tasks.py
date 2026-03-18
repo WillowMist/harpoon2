@@ -411,9 +411,11 @@ def transfer_files_async(item_hash):
                 history = item.itemhistory_set.filter(details__icontains='Folder bundle detected').first()
                 if history:
                     is_folder = True
-                    logger.debug(f"[transfer_files_async] AirDC++ - detected as folder download")
-            except:
-                pass
+                    logger.warning(f"[transfer_files_async] AirDC++ - DETECTED AS FOLDER DOWNLOAD: {history.details}")
+                else:
+                    logger.warning(f"[transfer_files_async] AirDC++ - NOT a folder download (no history match)")
+            except Exception as e:
+                logger.warning(f"[transfer_files_async] AirDC++ - Error checking folder history: {e}")
             
             if is_folder:
                 # Folder downloads are in a subfolder: base_folder/item.name/
