@@ -408,7 +408,7 @@ def transfer_files_async(item_hash):
             # Check if this is a folder download (from bundle creation event)
             is_folder = False
             try:
-                history = item.itemhistory_set.filter(details__icontains='Folder bundle detected').first()
+                history = item.history.filter(details__icontains='Folder bundle detected').first()
                 if history:
                     is_folder = True
                     logger.warning(f"[transfer_files_async] AirDC++ - DETECTED AS FOLDER DOWNLOAD: {history.details}")
