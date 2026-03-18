@@ -260,6 +260,7 @@ MANAGER_TYPES = [
 DOWNLOADER_TYPES = [
     ('RTorrent', 'RTorrent'),
     ('SABNzbd', 'SABNzbd'),
+    ('AirDC++', 'AirDC++'),
 ]
 
 # WhiteNoise configuration for efficient static file serving

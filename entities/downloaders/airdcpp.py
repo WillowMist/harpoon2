@@ -204,3 +204,8 @@ class AirDCppDownloader:
         except Exception as e:
             logger.error(f"Failed to get download path: {e}")
             return None
+
+
+def AirDCpp(downloader=None):
+    """Compatibility wrapper for AirDC++ downloader class name."""
+    return AirDCppDownloader(downloader)
