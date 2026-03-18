@@ -1217,7 +1217,9 @@ def check_downloaders():
                     for download_info in active_downloads:
                         download_name = download_info.get('name', '')
                         download_path = download_info.get('path', '')
-                        status = download_info.get('status', '').lower() if download_info.get('status') else ''
+                        # Status is a dict like {"id": "finished", "str": "Finished, idle..."}
+                        status_obj = download_info.get('status', {})
+                        status = status_obj.get('id', '').lower() if isinstance(status_obj, dict) else str(status_obj).lower()
                         
                         logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status={status})")
                         
