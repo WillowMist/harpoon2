@@ -37,7 +37,7 @@ class Item(models.Model):
 class ItemHistory(models.Model):
     item = models.ForeignKey(Item, on_delete=models.CASCADE, related_name='history')
     created = models.DateTimeField(auto_now_add=True)
-    details = models.CharField(max_length=200)
+    details = models.CharField(max_length=500)
 
 
 class FileTransfer(models.Model):
