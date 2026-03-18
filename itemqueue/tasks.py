@@ -1214,7 +1214,15 @@ def check_downloaders():
                 logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
                 try:
                     active_downloads = client.get_active_downloads()
-                    logger.debug(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
+                    logger.info(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
+                    if len(active_downloads) == 0:
+                        logger.info(f"[check_downloaders] AirDC++: No active transfers - checking raw API response")
+                        # Debug: fetch raw transfers to see what's happening
+                        try:
+                            raw_transfers = client.client._make_request('GET', '/transfers')
+                            logger.info(f"[check_downloaders] AirDC++: Raw /transfers response: {raw_transfers}")
+                        except Exception as e:
+                            logger.error(f"[check_downloaders] AirDC++: Error fetching raw transfers: {e}")
                     
                     for download_info in active_downloads:
                         download_name = download_info.get('name', '')
@@ -1229,7 +1237,7 @@ def check_downloaders():
                         status_obj = download_info.get('status', {})
                         status = status_obj.get('id', '').lower() if isinstance(status_obj, dict) else str(status_obj).lower()
                         
-                        logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status={status}, {bytes_transferred}/{download_size})")
+                        logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status_obj={status_obj}, status={status}, {bytes_transferred}/{download_size})")
                         
                         # Try to find existing item - first by exact hash match, then by name
                         item = None
