@@ -405,12 +405,27 @@ def transfer_files_async(item_hash):
                 logger.error(f"[transfer_files_async] AirDC++ - no base download folder configured on seedbox")
                 return
             
-            # All AirDC++ downloads are in the base folder
-            remote_dir = seedbox.base_download_folder
-            # Only transfer the file matching this item's name
-            files_to_copy = [item.name]
-            is_single_file = False  # We'll handle filtering in the multi-file logic
-            logger.info(f"[transfer_files_async] AirDC++ - remote_dir={remote_dir}, file_to_copy={item.name}")
+            # Check if this is a folder download (from bundle creation event)
+            is_folder = False
+            try:
+                history = item.itemhistory_set.filter(details__icontains='Folder bundle detected').first()
+                if history:
+                    is_folder = True
+                    logger.debug(f"[transfer_files_async] AirDC++ - detected as folder download")
+            except:
+                pass
+            
+            if is_folder:
+                # Folder downloads are in a subfolder: base_folder/item.name/
+                remote_dir = os.path.join(seedbox.base_download_folder, item.name)
+                files_to_copy = None  # Transfer all files in the folder
+                logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
+            else:
+                # Single file downloads are in the base folder
+                remote_dir = seedbox.base_download_folder
+                files_to_copy = [item.name]
+                is_single_file = False  # We'll handle filtering in the multi-file logic
+                logger.info(f"[transfer_files_async] AirDC++ FILE - remote_dir={remote_dir}, file_to_copy={item.name}")
         
         else:
             logger.error(f"[transfer_files_async] Unknown downloader type: {downloader.downloadertype}")
