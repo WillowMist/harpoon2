@@ -1215,20 +1215,52 @@ def check_downloaders():
                                 items = Item.objects.filter(name__icontains=download_name)
                                 logger.debug(f"[check_downloaders] AirDC++: Found {len(items)} item(s) matching name '{download_name}'")
                                 
-                                for item in items:
-                                    # Only process if item is waiting for download to complete
-                                    if item.status in ['Grabbing', 'Grabbed', 'Downloading']:
-                                        logger.info(f"[check_downloaders] AirDC++: Found completed download for '{item.name}', queueing postprocess")
-                                        # Log the download path for reference
-                                        if download_path:
-                                            ItemHistory.objects.create(
-                                                item=item,
-                                                details=f'AirDC++ download completed at: {download_path}'
-                                            )
-                                        # Queue postprocessing using the item's hash as identifier
-                                        postprocess_item.delay(item.hash)
-                                    else:
-                                        logger.debug(f"[check_downloaders] AirDC++: Skipping '{item.name}' - status is already {item.status}")
+                                if items.exists():
+                                    # Item exists - process it
+                                    for item in items:
+                                        # Only process if item is waiting for download to complete
+                                        if item.status in ['Grabbing', 'Grabbed', 'Downloading']:
+                                            logger.info(f"[check_downloaders] AirDC++: Found completed download for '{item.name}', queueing postprocess")
+                                            # Log the download path for reference
+                                            if download_path:
+                                                ItemHistory.objects.create(
+                                                    item=item,
+                                                    details=f'AirDC++ download completed at: {download_path}'
+                                                )
+                                            # Queue postprocessing using the item's hash as identifier
+                                            postprocess_item.delay(item.hash)
+                                        else:
+                                            logger.debug(f"[check_downloaders] AirDC++: Skipping '{item.name}' - status is already {item.status}")
+                                else:
+                                    # No item exists - auto-create one for this completed download
+                                    logger.info(f"[check_downloaders] AirDC++: Creating new item for completed download '{download_name}'")
+                                    try:
+                                        # Use transfer ID as hash (unique identifier)
+                                        transfer_id = str(download_info.get('id', 0))
+                                        download_size = int(download_info.get('size', 0))
+                                        
+                                        new_item = Item.objects.create(
+                                            name=download_name,
+                                            hash=transfer_id,
+                                            downloader=downloader,
+                                            size=download_size,
+                                            received=download_size,
+                                            status='PostProcessing',  # Ready for transfer immediately
+                                            category='AirDC++'
+                                        )
+                                        
+                                        ItemHistory.objects.create(
+                                            item=new_item,
+                                            details=f'Auto-created from AirDC++ download at: {download_path}'
+                                        )
+                                        
+                                        logger.info(f"[check_downloaders] AirDC++: Created new item {new_item.name} (hash={transfer_id}), queueing transfer")
+                                        
+                                        # Queue for file transfer immediately
+                                        transfer_files_async.apply_async(args=[transfer_id], countdown=5)
+                                        
+                                    except Exception as e:
+                                        logger.error(f"[check_downloaders] AirDC++: Failed to create item for '{download_name}': {e}", exc_info=True)
                             
                             except Exception as e:
                                 logger.debug(f"[check_downloaders] AirDC++: Error processing download '{download_name}': {e}")
