@@ -1251,9 +1251,17 @@ def check_downloaders():
                         item = None
                         try:
                             item = Item.objects.get(hash=transfer_id)
-                            logger.debug(f"[check_downloaders] AirDC++: Found existing item by transfer ID {transfer_id}")
+                            # Verify name matches - if not, this is the wrong item
+                            if item.name.lower() != download_name.lower():
+                                logger.debug(f"[check_downloaders] AirDC++: Hash match found but name mismatch (have {item.name}, got {download_name}) - treating as new transfer")
+                                item = None
+                            else:
+                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by transfer ID {transfer_id}")
                         except Item.DoesNotExist:
-                            # Try to find by name match (for items from queue that user manually downloaded)
+                            pass
+                        
+                        # If not found by hash, try by name
+                        if not item:
                             try:
                                 item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
                                 if item:
