@@ -75,13 +75,18 @@ class QBittorrentDownloader(BaseDownloader):
                 with open(file_path, 'rb') as f:
                     torrent_data = f.read()
                 
+                # Log what we're about to send
+                logger.debug(f"QBittorrent add() - file: {file_path}, save_path: {kwargs.get('save_path')}, category: {kwargs.get('category')}, is_paused: {kwargs.get('is_paused')}")
+                
                 # Add torrent file
                 result = self.client.torrents_add(
                     torrent_files=[file_path],
-                    save_path=kwargs.get('save_path', None),
-                    category=kwargs.get('category', None),
+                    save_path=kwargs.get('save_path') or None,
+                    category=kwargs.get('category') or None,
                     is_paused=kwargs.get('is_paused', False)
                 )
+                
+                logger.debug(f"QBittorrent add() result: '{result}'")
                 
                 # qBittorrent returns empty string on success
                 if result == '':
