@@ -490,3 +490,57 @@ class RTorrentDownloader(BaseDownloader):
 def RTorrent(downloader=None):
     """Compatibility wrapper for original RTorrent class name."""
     return RTorrentDownloader(downloader)
+
+    def verify_completion(self, hash: str) -> tuple:
+        """Verify that a torrent is complete and ready for post-processing.
+        
+        Returns:
+            (success: bool, message: str)
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return (False, "RTorrent client not initialized")
+        
+        try:
+            torrent_info = self.find(hash)
+            if not torrent_info:
+                return (False, f"Torrent {hash} not found in RTorrent")
+            
+            if not torrent_info.get('completed', False):
+                return (False, f"Torrent {hash} not complete on RTorrent")
+            
+            return (True, "Torrent verified complete")
+        except Exception as e:
+            return (False, f"Error verifying torrent: {str(e)}")
+
+    def get_download_info(self, hash: str) -> dict:
+        """Get information needed for file transfer post-processing.
+        
+        Returns:
+            Dict with remote_dir, files_to_copy, is_single_file, name
+        """
+        self._ensure_client()
+        
+        torrent_info = self.find(hash)
+        if not torrent_info:
+            return {
+                'remote_dir': '',
+                'files_to_copy': None,
+                'is_single_file': False,
+                'name': '',
+            }
+        
+        directory = torrent_info.get('directory', '')
+        name = torrent_info.get('name', '')
+        
+        # Check if this is a single-file torrent
+        # (torrent name ends with a file extension like .mkv, .mp4, etc.)
+        is_single_file = name and ('.' in name.split('/')[-1])
+        
+        return {
+            'remote_dir': directory,
+            'files_to_copy': None,  # Transfer all files from directory
+            'is_single_file': is_single_file,
+            'name': name,
+        }

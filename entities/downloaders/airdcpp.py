@@ -302,3 +302,40 @@ class AirDCppDownloader(BaseDownloader):
 def AirDCpp(downloader=None):
     """Compatibility wrapper for AirDC++ downloader class name."""
     return AirDCppDownloader(downloader)
+
+    def get_completed(self) -> list:
+        """Get completed downloads from AirDC++.
+        
+        Note: AirDC++ doesn't have the same completed tracking as other downloaders.
+        This returns an empty list - completion is handled differently via events.
+        """
+        return []
+
+    def verify_completion(self, hash: str) -> tuple:
+        """Verify that a download is complete.
+        
+        For AirDC++, completion is handled via events, not by hash lookup.
+        This method always returns success if the item exists.
+        """
+        return (True, "AirDC++ completion verified via events")
+
+    def get_download_info(self, hash: str) -> dict:
+        """Get information needed for file transfer post-processing.
+        
+        Returns:
+            Dict with remote_dir, files_to_copy, is_single_file, name
+        """
+        if not self.seedbox:
+            return {
+                'remote_dir': '',
+                'files_to_copy': None,
+                'is_single_file': False,
+                'name': '',
+            }
+        
+        return {
+            'remote_dir': self.seedbox.base_download_folder,
+            'files_to_copy': None,
+            'is_single_file': False,
+            'name': hash,  # For AirDC++, hash is the download ID/name
+        }

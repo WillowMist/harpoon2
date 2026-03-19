@@ -284,3 +284,87 @@ class SABnzbdDownloader(BaseDownloader):
 def SABNzbd(downloader=None):
     """Compatibility wrapper for original SABNzbd class name."""
     return SABnzbdDownloader(downloader)
+
+    def get_completed(self) -> list:
+        """Get all completed downloads from SABnzbd history.
+        
+        Returns:
+            List of completed job info dicts
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return []
+        
+        try:
+            result = self._api_call('history', {'limit': 100})
+            if 'history' not in result:
+                return []
+            
+            completed = []
+            slots = result['history'].get('slots', [])
+            
+            for slot in slots:
+                status = slot.get('status', '')
+                if status == 'Completed':
+                    completed.append({
+                        'hash': slot.get('nzo_id', ''),
+                        'name': slot.get('name', ''),
+                        'completed': True,
+                        'storage': slot.get('storage', ''),
+                        'category': slot.get('category', ''),
+                    })
+            
+            return completed
+        except Exception as e:
+            return []
+
+    def verify_completion(self, hash: str) -> tuple:
+        """Verify that an NZB download is complete.
+        
+        Returns:
+            (success: bool, message: str)
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return (False, "SABNzbd client not initialized")
+        
+        try:
+            status_info = self.get_status(hash)
+            if not status_info:
+                return (False, f"Download {hash} not found in SABNzbd")
+            
+            if not status_info.get('completed'):
+                return (False, f"Download {hash} not complete on SABNzbd")
+            
+            return (True, "Download verified complete")
+        except Exception as e:
+            return (False, f"Error verifying download: {str(e)}")
+
+    def get_download_info(self, hash: str) -> dict:
+        """Get information needed for file transfer post-processing.
+        
+        Returns:
+            Dict with remote_dir, files_to_copy, is_single_file, name
+        """
+        self._ensure_client()
+        
+        status_info = self.get_status(hash)
+        if not status_info:
+            return {
+                'remote_dir': '',
+                'files_to_copy': None,
+                'is_single_file': False,
+                'name': '',
+            }
+        
+        storage = status_info.get('storage', '')
+        name = status_info.get('name', '')
+        
+        return {
+            'remote_dir': storage,
+            'files_to_copy': None,  # Transfer all files from storage
+            'is_single_file': False,  # SABnzbd doesn't have single-file concept
+            'name': name,
+        }

@@ -219,6 +219,117 @@ class QBittorrentDownloader(BaseDownloader):
             logger.error(f"QBittorrent get_files error for {hash}: {e}")
             return []
 
+    def get_completed(self) -> list:
+        """Get all completed torrents.
+        
+        Returns:
+            List of dicts with hash, name, and completed size for each completed torrent
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return []
+        
+        try:
+            # Get all torrents
+            all_torrents = self.client.torrents_info()
+            
+            completed = []
+            for torrent in all_torrents:
+                # Check if torrent is completed (completed size equals total size)
+                if torrent.completed == torrent.size and torrent.size > 0:
+                    completed.append({
+                        'hash': torrent.hash.upper(),
+                        'name': torrent.name,
+                        'completed': torrent.completed,
+                        'size': torrent.size,
+                        'save_path': torrent.save_path,
+                        'category': torrent.category,
+                    })
+            
+            logger.debug(f"QBittorrent: Found {len(completed)} completed torrent(s)")
+            return completed
+        except Exception as e:
+            logger.error(f"QBittorrent get_completed error: {e}")
+            return []
+
+    def verify_completion(self, hash: str) -> tuple:
+        """Verify that a torrent is complete and ready for post-processing.
+        
+        Returns:
+            (success: bool, message: str)
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return (False, "QBittorrent client not initialized")
+        
+        try:
+            hash = hash.upper()
+            torrent = self.client.torrents_info(torrent_hashes=hash)
+            
+            if not torrent or len(torrent) == 0:
+                return (False, f"Torrent {hash} not found in QBittorrent")
+            
+            t = torrent[0]
+            
+            # Check if completed
+            if t.completed != t.size or t.size == 0:
+                return (False, f"Torrent {hash} not complete on QBittorrent")
+            
+            return (True, "Torrent verified complete")
+        except Exception as e:
+            return (False, f"Error verifying torrent: {str(e)}")
+
+    def get_download_info(self, hash: str) -> dict:
+        """Get information needed for file transfer post-processing.
+        
+        Returns:
+            Dict with remote_dir, files_to_copy, is_single_file, name
+        """
+        self._ensure_client()
+        
+        if not self.client:
+            return {
+                'remote_dir': '',
+                'files_to_copy': None,
+                'is_single_file': False,
+                'name': '',
+            }
+        
+        try:
+            hash = hash.upper()
+            torrent = self.client.torrents_info(torrent_hashes=hash)
+            
+            if not torrent or len(torrent) == 0:
+                return {
+                    'remote_dir': '',
+                    'files_to_copy': None,
+                    'is_single_file': False,
+                    'name': '',
+                }
+            
+            t = torrent[0]
+            
+            # Check if single file - compare completed bytes to total size
+            # For single file torrents, the torrent name ends with a file extension
+            is_single_file = '.' in t.name.split('/')[-1]
+            
+            return {
+                'remote_dir': t.save_path,
+                'files_to_copy': None,  # Transfer all files from save_path
+                'is_single_file': is_single_file,
+                'name': t.name,
+            }
+        except Exception as e:
+            logger.error(f"QBittorrent get_download_info error: {e}")
+            return {
+                'remote_dir': '',
+                'files_to_copy': None,
+                'is_single_file': False,
+                'name': '',
+            }
+
     def delete(self, hash: str) -> bool:
         """Remove from client"""
         self._ensure_client()

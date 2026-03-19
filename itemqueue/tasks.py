@@ -338,101 +338,38 @@ def transfer_files_async(item_hash):
         remote_dir = ''
         torrent_name = ''
         
-        # Get torrent/download info to know what files to copy
-        if downloader.downloadertype == 'RTorrent':
-            logger.debug(f"[transfer_files_async] Fetching RTorrent info for hash {hash_value}")
-            torrent_info = client.find(hash_value)
-            if not torrent_info:
-                logger.error(f"[transfer_files_async] RTorrent info not found for hash {hash_value}")
-                ItemHistory.objects.create(
-                    item=item,
-                    details=f"RTorrent info not found for hash - torrent may have been removed from RTorrent"
-                )
-                item.status = 'Failed'
-                item.save()
-                Notification.create_for_admin(
-                    f"Torrent not found in RTorrent for '{item.name}' - transfer cannot complete",
-                    notification_type='transfer_not_found',
-                    item_hash=item.hash
-                )
-                return
-            
-            remote_dir = torrent_info.get('directory', '')
-            torrent_name = torrent_info.get('name', '')
-            category = torrent_info.get('label', '')  # Get category from rtorrent label
-            logger.info(f"[transfer_files_async] RTorrent - remote_dir={remote_dir}, torrent_name={torrent_name}, category={category}")
-            
-            if not remote_dir:
-                logger.error(f"[transfer_files_async] RTorrent - no remote directory found")
-                return
-            
-            # Check if this is a single-file torrent
-            # (torrent name ends with a file extension like .mkv, .mp4, etc.)
-            is_single_file = torrent_name and ('.' in torrent_name.split('/')[-1])
-            logger.info(f"[transfer_files_async] RTorrent - is_single_file={is_single_file}")
-            
-            # For single-file torrents, transfer just that file
-            # For multi-file torrents, transfer all files from the directory
-            files_to_copy = None
-            
-        elif downloader.downloadertype == 'SABNzbd':
-            logger.debug(f"[transfer_files_async] Fetching SABNzbd info for hash {hash_value}")
-            status_info = client.get_status(hash_value)
-            if not status_info:
-                logger.error(f"[transfer_files_async] SABNzbd status info not found for hash {hash_value}")
-                return
-            
-            if not status_info.get('completed'):
-                logger.error(f"[transfer_files_async] SABNzbd download not completed for hash {hash_value}")
-                return
-            
-            storage_path = status_info.get('storage', '')
-            logger.info(f"[transfer_files_async] SABNzbd - storage_path={storage_path}")
-            if not storage_path:
-                logger.error(f"[transfer_files_async] SABNzbd - no storage path found")
-                return
-            
-            remote_dir = storage_path
-            files_to_copy = None
-            is_single_file = False  # SABnzbd doesn't have single-file concept
+        # Get download info using downloader's get_download_info method
+        logger.debug(f"[transfer_files_async] Getting download info for {downloader.downloadertype}")
+        download_info = client.get_download_info(hash_value)
+        remote_dir = download_info.get('remote_dir', '')
+        files_to_copy = download_info.get('files_to_copy')
+        is_single_file = download_info.get('is_single_file', False)
+        name = download_info.get('name', item.name)
         
-        elif downloader.downloadertype == 'AirDC++':
-            logger.debug(f"[transfer_files_async] Handling AirDC++ download for {item.name}")
-            # For AirDC++, all downloads are individual files in the base folder
-            # We need to transfer only the file matching this item's name
-            
-            if not seedbox.base_download_folder:
-                logger.error(f"[transfer_files_async] AirDC++ - no base download folder configured on seedbox")
-                return
-            
-            # Check if this is a folder download (from bundle creation event)
-            is_folder = False
+        if not remote_dir:
+            logger.error(f"[transfer_files_async] No remote directory found for {hash_value}")
+            ItemHistory.objects.create(
+                item=item,
+                details=f"No remote directory found for {downloader.downloadertype} download"
+            )
+            item.status = 'Failed'
+            item.save()
+            return
+        
+        logger.info(f"[transfer_files_async] {downloader.downloadertype} - remote_dir={remote_dir}, name={name}, is_single_file={is_single_file}")
+        
+        # Handle AirDC++ folder downloads specially
+        if downloader.downloadertype == 'AirDC++' and not is_single_file:
+            # Check if this is a folder download
             try:
                 history = item.history.filter(details__icontains='Folder bundle detected').first()
                 if history:
                     is_folder = True
-                    logger.warning(f"[transfer_files_async] AirDC++ - DETECTED AS FOLDER DOWNLOAD: {history.details}")
-                else:
-                    logger.warning(f"[transfer_files_async] AirDC++ - NOT a folder download (no history match)")
-            except Exception as e:
-                logger.warning(f"[transfer_files_async] AirDC++ - Error checking folder history: {e}")
-            
-            if is_folder:
-                # Folder downloads are in a subfolder: base_folder/item.name/
-                remote_dir = os.path.join(seedbox.base_download_folder, item.name)
-                files_to_copy = None  # Transfer all files in the folder
-                is_single_file = False  # Folder downloads are multi-file
-                logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
-            else:
-                # Single file downloads are in the base folder
-                remote_dir = seedbox.base_download_folder
-                files_to_copy = [item.name]
-                is_single_file = False  # We'll handle filtering in the multi-file logic
-                logger.info(f"[transfer_files_async] AirDC++ FILE - remote_dir={remote_dir}, file_to_copy={item.name}")
-        
-        else:
-            logger.error(f"[transfer_files_async] Unknown downloader type: {downloader.downloadertype}")
-            return
+                    remote_dir = os.path.join(seedbox.base_download_folder, item.name)
+                    files_to_copy = None
+                    logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
+            except:
+                pass
         
         # Connect to seedbox via SFTP
         logger.info(f"[transfer_files_async] Connecting to seedbox {seedbox.host}:{seedbox.port} as {seedbox.username} (auth={seedbox.auth_type})")
@@ -1044,75 +981,15 @@ def postprocess_item(item_hash):
         client._ensure_client()
         hash_value = item.hash
         
-        if downloader.downloadertype == 'RTorrent':
-            logger.debug(f"[postprocess_item] Verifying torrent completion on RTorrent")
-            torrent_info = client.find(hash_value)
-            if not torrent_info:
-                logger.error(f"[postprocess_item] Torrent {hash_value} not found on RTorrent")
-                ItemHistory.objects.create(item=item, details='Torrent not found on RTorrent')
-                Notification.create_for_admin(
-                    f"Torrent not found on RTorrent: {item.name}",
-                    notification_type='torrent_not_found',
-                    item_hash=item.hash
-                )
-                item.status = 'Failed'
-                item.save()
-                return
-            
-            logger.debug(f"[postprocess_item] RTorrent torrent info: completed={torrent_info.get('completed')}")
-            if not torrent_info.get('completed'):
-                logger.error(f"[postprocess_item] Torrent {hash_value} not complete on RTorrent")
-                ItemHistory.objects.create(item=item, details='Torrent not complete on RTorrent')
-                Notification.create_for_admin(
-                    f"Torrent incomplete on RTorrent: {item.name}",
-                    notification_type='torrent_incomplete',
-                    item_hash=item.hash
-                )
-                item.status = 'Failed'
-                item.save()
-                return
-                
-        elif downloader.downloadertype == 'SABNzbd':
-            logger.debug(f"[postprocess_item] Verifying download completion on SABNzbd")
-            status_info = client.get_status(hash_value)
-            if not status_info:
-                logger.error(f"[postprocess_item] Download {hash_value} not found on SABNzbd")
-                ItemHistory.objects.create(item=item, details='Download not found on SABNzbd')
-                Notification.create_for_admin(
-                    f"Download not found on SABNzbd: {item.name}",
-                    notification_type='sabnzbd_not_found',
-                    item_hash=item.hash
-                )
-                item.status = 'Failed'
-                item.save()
-                return
-            
-            logger.debug(f"[postprocess_item] SABNzbd status info: completed={status_info.get('completed')}")
-            if not status_info.get('completed'):
-                logger.error(f"[postprocess_item] Download {hash_value} not complete on SABNzbd")
-                ItemHistory.objects.create(item=item, details='Download not complete on SABNzbd')
-                Notification.create_for_admin(
-                    f"Download incomplete on SABNzbd: {item.name}",
-                    notification_type='sabnzbd_incomplete',
-                    item_hash=item.hash
-                )
-                item.status = 'Failed'
-                item.save()
-                return
-        
-        elif downloader.downloadertype == 'AirDC++':
-            logger.debug(f"[postprocess_item] Processing AirDC++ download for transfer")
-            # For AirDC++, we already verified completion in check_downloaders when we transitioned to PostProcessing
-            # The download may no longer be in active transfers (already finished), so we don't need to verify it again
-            # Just log that we're ready to proceed with the transfer
-            logger.info(f"[postprocess_item] AirDC++ download verified in check_downloaders, proceeding with transfer")
-        
-        else:
-            logger.error(f"[postprocess_item] Unknown downloader type: {downloader.downloadertype}")
-            ItemHistory.objects.create(item=item, details=f'Unknown downloader type: {downloader.downloadertype}')
+        # Verify download completion using downloader's verify_completion method
+        logger.debug(f"[postprocess_item] Verifying download completion on {downloader.downloadertype}")
+        success, message = client.verify_completion(hash_value)
+        if not success:
+            logger.error(f"[postprocess_item] {downloader.downloadertype} verification failed: {message}")
+            ItemHistory.objects.create(item=item, details=message)
             Notification.create_for_admin(
-                f"Unknown downloader type: {downloader.downloadertype} - {item.name}",
-                notification_type='downloader_failure',
+                f"{downloader.downloadertype} verification failed: {item.name}",
+                notification_type='downloader_verification_failed',
                 item_hash=item.hash
             )
             item.status = 'Failed'
@@ -1161,78 +1038,34 @@ def check_downloaders():
             client = downloader.client
             client._ensure_client()
             
-            if downloader.downloadertype == 'RTorrent':
-                # Check for completed torrents
-                completed = client.get_completed()
-                logger.debug(f"[check_downloaders] RTorrent: Found {len(completed)} completed torrent(s)")
-                for torrent_info in completed:
-                    hash_value = torrent_info.get('hash', '')
-                    if not hash_value:
-                        continue
-                    # Case-insensitive lookup since RTorrent returns uppercase hashes
-                    try:
-                        item = Item.objects.get(hash__iexact=hash_value)
-                        logger.debug(f"[check_downloaders] RTorrent: Found item {item.name} (hash={hash_value}, status={item.status})")
-                        # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
-                        if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                            if not item.downloader:
-                                logger.debug(f"[check_downloaders] RTorrent: Skipping {item.name} - no downloader assigned yet (will retry later)")
-                            else:
-                                logger.info(f"[check_downloaders] RTorrent: Queueing postprocess_item for {item.name} (status={item.status})")
-                                postprocess_item.delay(hash_value)
-                        else:
-                            logger.debug(f"[check_downloaders] RTorrent: Skipping {item.name} - already in status {item.status}")
-                    except Item.DoesNotExist:
-                        logger.debug(f"[check_downloaders] RTorrent: Hash {hash_value} not in database")
-                        pass
-                        
-            elif downloader.downloadertype == 'SABNzbd':
-                # Check for completed and failed downloads
-                # NOTE: This only tracks failures for NZO IDs that exist in our database.
-                # If the manager re-grabs with a new NZO ID after a failure, we won't know
-                # about it unless the manager reports the failure event. Ideally, the manager
-                # should report all failures via downloadFailed events.
-                logger.debug(f"[check_downloaders] SABNzbd: Fetching history")
-                client._ensure_client()
-                history_result = client._api_call('history', {'limit': 500})
-                if 'history' in history_result:
-                    slots = history_result['history'].get('slots', [])
-                    logger.debug(f"[check_downloaders] SABNzbd: Found {len(slots)} item(s) in history")
-                    for item_info in slots:
-                        nzo_id = item_info.get('nzo_id')
-                        status = item_info.get('status', '')
-                        
+            if True:  # Generic handling for all downloader types
+                # Use the downloader's get_completed method
+                try:
+                    completed = client.get_completed()
+                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found {len(completed)} completed torrent(s)")
+                    for torrent_info in completed:
+                        hash_value = torrent_info.get('hash', '')
+                        if not hash_value:
+                            continue
+                        # Case-insensitive lookup
                         try:
-                            item = Item.objects.get(hash=nzo_id)
-                            logger.debug(f"[check_downloaders] SABNzbd: Found item {item.name} (nzo_id={nzo_id}, downloader_status={status}, item_status={item.status})")
-                            
-                            if status == 'Completed':
-                                # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
-                                if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                                    if not item.downloader:
-                                        logger.debug(f"[check_downloaders] SABNzbd: Skipping {item.name} - no downloader assigned yet (will retry later)")
-                                    else:
-                                        logger.info(f"[check_downloaders] SABNzbd: Queueing postprocess_item for {item.name} (status={item.status})")
-                                        postprocess_item.delay(nzo_id)
+                            item = Item.objects.get(hash__iexact=hash_value)
+                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found item {item.name} (hash={hash_value}, status={item.status})")
+                            # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
+                            if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                                if not item.downloader:
+                                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - no downloader assigned yet (will retry later)")
                                 else:
-                                    logger.debug(f"[check_downloaders] SABNzbd: Skipping {item.name} - already in status {item.status}")
-                            
-                            elif status == 'Failed':
-                                # Download failed on downloader - mark as failed if not already
-                                if item.status != 'Failed':
-                                    fail_message = item_info.get('fail_message', 'Download failed on downloader')
-                                    item.status = 'Failed'
-                                    item.save()
-                                    ItemHistory.objects.create(
-                                        item=item,
-                                        details=f'Download failed on {downloader.name}: {fail_message}'
-                                    )
-                                    logger.warning(f"[check_downloaders] SABNzbd: Marked {item.name} as failed: {fail_message}")
-                        
+                                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name} (status={item.status})")
+                                    postprocess_item.delay(hash_value)
+                            else:
+                                logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - already in status {item.status}")
                         except Item.DoesNotExist:
-                            logger.debug(f"[check_downloaders] SABNzbd: NZO ID {nzo_id} not in database")
+                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Hash {hash_value} not in database")
                             pass
-            
+                except Exception as e:
+                    logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
+                        
             elif downloader.downloadertype == 'AirDC++':
                 # Monitor AirDC++ downloads - create items for active downloads (Grabbing status) and transition when complete
                 logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
