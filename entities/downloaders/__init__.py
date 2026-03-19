@@ -2,6 +2,7 @@ from .base import BaseDownloader
 from .rtorrent import RTorrentDownloader, RTorrent
 from .sabnzbd import SABnzbdDownloader, SABNzbd
 from .airdcpp import AirDCppDownloader, AirDCpp
+from .qbittorrent import QBittorrentDownloader, QBittorrent
 
 __all__ = [
     'BaseDownloader',
@@ -11,6 +12,8 @@ __all__ = [
     'SABNzbd',
     'AirDCppDownloader',
     'AirDCpp',
+    'QBittorrentDownloader',
+    'QBittorrent',
 ]
 
 # Mapping from display names (in settings) to Python attribute names
@@ -18,5 +21,6 @@ __all__ = [
 DOWNLOADER_NAME_MAP = {
     'RTorrent': 'RTorrent',
     'SABNzbd': 'SABNzbd',
-    'AirDC++': 'AirDCpp',  # Map 'AirDC++' to 'AirDCpp' function
+    'AirDC++': 'AirDCpp',
+    'QBittorrent': 'QBittorrent',
 }

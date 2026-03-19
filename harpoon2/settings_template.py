@@ -291,6 +291,7 @@ DOWNLOADER_TYPES = [
     ('RTorrent', 'RTorrent'),
     ('SABNzbd', 'SABNzbd'),
     ('AirDC++', 'AirDC++'),
+    ('QBittorrent', 'QBittorrent'),
 ]
 
 # WhiteNoise configuration for efficient static file serving
