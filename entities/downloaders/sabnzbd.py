@@ -299,22 +299,29 @@ def SABNzbd(downloader=None):
         try:
             result = self._api_call('history', {'limit': 100})
             if 'history' not in result:
+                logger.warning(f"SABNzbd get_completed: No 'history' key in API response")
                 return []
             
             completed = []
             slots = result['history'].get('slots', [])
+            logger.info(f"SABNzbd get_completed: Found {len(slots)} items in history")
             
             for slot in slots:
                 status = slot.get('status', '')
+                nzo_id = slot.get('nzo_id', '')
+                name = slot.get('name', '')[:50]
+                logger.debug(f"SABNzbd history item: nzo_id={nzo_id}, name={name}, status={status}")
+                
                 if status == 'Completed':
                     completed.append({
-                        'hash': slot.get('nzo_id', ''),
-                        'name': slot.get('name', ''),
+                        'hash': nzo_id,
+                        'name': name,
                         'completed': True,
                         'storage': slot.get('storage', ''),
                         'category': slot.get('category', ''),
                     })
             
+            logger.info(f"SABNzbd get_completed: Returning {len(completed)} completed items")
             return completed
         except Exception as e:
             return []
