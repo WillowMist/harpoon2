@@ -577,11 +577,11 @@ def transfer_files_async(item_hash):
                         logger.warning(f"Cannot stat {remote_item_path}: {e}")
                         continue
                     
-                    # For AirDC++, only transfer items matching files_to_copy list
-                    if downloader.downloadertype == 'AirDC++' and files_to_copy:
+                    # For all downloaders, only transfer items matching files_to_copy list (if specified)
+                    if files_to_copy:
                         # Check if this file/folder matches any in files_to_copy
                         if item_name not in files_to_copy:
-                            logger.debug(f"[transfer_files_async] Skipping AirDC++ item {item_name} (not in files_to_copy)")
+                            logger.debug(f"[transfer_files_async] Skipping {item_name} (not in files_to_copy)")
                             continue
                     
                     # Skip hidden files, images, HTML
