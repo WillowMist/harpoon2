@@ -291,25 +291,32 @@ def SABNzbd(downloader=None):
         Returns:
             List of completed job info dicts
         """
+        print("SABnzbd.get_completed() CALLED")
         self._ensure_client()
         
         if not self.client:
+            print("SABnzbd.get_completed(): client is None, returning []")
             return []
         
         try:
+            print("SABnzbd.get_completed(): calling API")
             result = self._api_call('history', {'limit': 100})
+            print(f"SABnzbd.get_completed(): API returned keys: {list(result.keys()) if result else None}")
+            
             if 'history' not in result:
-                logger.warning(f"SABNzbd get_completed: No 'history' key in API response")
+                print("SABnzbd.get_completed(): No 'history' key, returning []")
                 return []
             
             completed = []
             slots = result['history'].get('slots', [])
+            print(f"SABnzbd.get_completed(): Found {len(slots)} slots in history")
             logger.info(f"SABNzbd get_completed: Found {len(slots)} items in history")
             
             for slot in slots:
                 status = slot.get('status', '')
                 nzo_id = slot.get('nzo_id', '')
                 name = slot.get('name', '')[:50]
+                print(f"  Slot: nzo_id={nzo_id}, status={status}")
                 logger.debug(f"SABNzbd history item: nzo_id={nzo_id}, name={name}, status={status}")
                 
                 if status == 'Completed':
@@ -321,6 +328,7 @@ def SABNzbd(downloader=None):
                         'category': slot.get('category', ''),
                     })
             
+            print(f"SABnzbd.get_completed(): Returning {len(completed)} completed items")
             logger.info(f"SABNzbd get_completed: Returning {len(completed)} completed items")
             return completed
         except Exception as e:
