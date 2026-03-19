@@ -1,5 +1,4 @@
 from .base import BaseDownloader
-import qbittorrentapi
 import logging
 import hashlib
 
@@ -24,6 +23,9 @@ class QBittorrentDownloader(BaseDownloader):
             self.client = None
 
     def _init_client(self):
+        import qbittorrentapi
+        import bencoder
+        
         opts = self.options
         self.host = opts.get('host', 'localhost')
         self.port = opts.get('port', 8080)
@@ -218,6 +220,8 @@ class QBittorrentDownloader(BaseDownloader):
 
     def test(self) -> tuple:
         """Connection test: (success: bool, message: str)"""
+        import qbittorrentapi
+        
         try:
             self._ensure_client()
             
@@ -235,3 +239,8 @@ class QBittorrentDownloader(BaseDownloader):
             return (False, f"API error: {e}")
         except Exception as e:
             return (False, f"Connection failed: {e}")
+
+
+def QBittorrent(downloader=None):
+    """Compatibility wrapper for QBittorrent downloader class name."""
+    return QBittorrentDownloader(downloader)
