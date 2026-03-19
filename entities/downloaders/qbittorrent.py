@@ -88,26 +88,25 @@ class QBittorrentDownloader(BaseDownloader):
                 
                 logger.debug(f"QBittorrent add() result: '{result}'")
                 
+                # Get the torrent hash from the file content
+                import bencoder
+                torrent_info = bencoder.decode(torrent_data)
+                info_hash = hashlib.sha1(bencoder.encode(torrent_info[b'info'])).hexdigest().upper()
+                
                 # qBittorrent returns empty string on success
                 if result == '':
-                    # Get the torrent hash from the file content
-                    # We need to extract the info hash from the torrent file
-                    import bencoder
-                    torrent_info = bencoder.decode(torrent_data)
-                    info_hash = hashlib.sha1(bencoder.encode(torrent_info[b'info'])).hexdigest().upper()
                     logger.info(f"Added torrent file: {file_path} -> {info_hash}")
                     return info_hash
                 else:
-                    # Check if it's a duplicate - qBittorrent returns specific error messages
-                    if 'Fails' in str(result) or 'Duplicate' in str(result):
-                        # It's a duplicate - try to find the existing torrent hash
-                        import bencoder
-                        torrent_info = bencoder.decode(torrent_data)
-                        info_hash = hashlib.sha1(bencoder.encode(torrent_info[b'info'])).hexdigest().upper()
+                    # Check if the torrent already exists in qBittorrent
+                    existing = self.find(info_hash)
+                    if existing:
+                        # Torrent already exists - that's fine, return the hash
                         logger.info(f"Torrent already exists in QBittorrent: {file_path} -> {info_hash}")
                         return info_hash
                     else:
-                        logger.error(f"Failed to add torrent: {result}")
+                        # Real error - torrent doesn't exist and couldn't add it
+                        logger.error(f"Failed to add torrent: {result} (torrent hash: {info_hash})")
                         raise Exception(f"Failed to add torrent: {result}")
             else:
                 # URL or magnet link
