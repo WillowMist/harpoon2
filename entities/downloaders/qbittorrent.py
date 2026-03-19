@@ -315,9 +315,15 @@ class QBittorrentDownloader(BaseDownloader):
             # For single file torrents, the torrent name ends with a file extension
             is_single_file = '.' in t.name.split('/')[-1]
             
+            # For single file torrents, set files_to_copy to the torrent name
+            # For multi-file torrents, transfer all files from save_path
+            files_to_copy = None
+            if is_single_file:
+                files_to_copy = [t.name]
+            
             return {
                 'remote_dir': t.save_path,
-                'files_to_copy': None,  # Transfer all files from save_path
+                'files_to_copy': files_to_copy,
                 'is_single_file': is_single_file,
                 'name': t.name,
             }
