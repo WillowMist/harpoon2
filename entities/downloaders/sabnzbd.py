@@ -291,46 +291,43 @@ def SABNzbd(downloader=None):
         Returns:
             List of completed job info dicts
         """
-        print("SABnzbd.get_completed() CALLED")
         self._ensure_client()
         
         if not self.client:
-            print("SABnzbd.get_completed(): client is None, returning []")
             return []
         
         try:
-            print("SABnzbd.get_completed(): calling API")
             result = self._api_call('history', {'limit': 100})
-            print(f"SABnzbd.get_completed(): API returned keys: {list(result.keys()) if result else None}")
+            
+            if not result:
+                logger.warning(f"SABNzbd get_completed: API returned None")
+                return []
             
             if 'history' not in result:
-                print("SABnzbd.get_completed(): No 'history' key, returning []")
+                logger.warning(f"SABNzbd get_completed: No 'history' key in response. Keys: {list(result.keys())}")
                 return []
             
             completed = []
             slots = result['history'].get('slots', [])
-            print(f"SABnzbd.get_completed(): Found {len(slots)} slots in history")
-            logger.info(f"SABNzbd get_completed: Found {len(slots)} items in history")
             
             for slot in slots:
                 status = slot.get('status', '')
-                nzo_id = slot.get('nzo_id', '')
-                name = slot.get('name', '')[:50]
-                print(f"  Slot: nzo_id={nzo_id}, status={status}")
-                logger.debug(f"SABNzbd history item: nzo_id={nzo_id}, name={name}, status={status}")
                 
                 if status == 'Completed':
                     completed.append({
-                        'hash': nzo_id,
-                        'name': name,
+                        'hash': slot.get('nzo_id', ''),
+                        'name': slot.get('name', ''),
                         'completed': True,
                         'storage': slot.get('storage', ''),
                         'category': slot.get('category', ''),
                     })
             
-            print(f"SABnzbd.get_completed(): Returning {len(completed)} completed items")
-            logger.info(f"SABNzbd get_completed: Returning {len(completed)} completed items")
             return completed
+        except Exception as e:
+            import traceback
+            logger.error(f"SABNzbd get_completed error: {e}")
+            logger.error(traceback.format_exc())
+            return []
         except Exception as e:
             return []
 
