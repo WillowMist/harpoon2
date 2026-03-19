@@ -78,7 +78,9 @@ class QBittorrentDownloader(BaseDownloader):
                 # Add torrent file
                 result = self.client.torrents_add(
                     torrent_files=[file_path],
-                    save_path=kwargs.get('save_path', None)
+                    save_path=kwargs.get('save_path', None),
+                    category=kwargs.get('category', None),
+                    is_paused=kwargs.get('is_paused', False)
                 )
                 
                 # qBittorrent returns empty string on success
@@ -97,7 +99,9 @@ class QBittorrentDownloader(BaseDownloader):
                 # URL or magnet link
                 result = self.client.torrents_add(
                     urls=[file_path],
-                    save_path=kwargs.get('save_path', None)
+                    save_path=kwargs.get('save_path', None),
+                    category=kwargs.get('category', None),
+                    is_paused=kwargs.get('is_paused', False)
                 )
                 
                 if result == '':
