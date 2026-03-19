@@ -447,6 +447,22 @@ def cache_downloader_status():
                                 'percent': float(slot.get('percentage', 0)),
                             })
             
+            elif downloader.downloadertype == 'QBittorrent':
+                client._ensure_client()
+                # Get all active torrents (not completed)
+                all_torrents = client.client.torrents_info()
+                for torrent in all_torrents:
+                    # Skip completed torrents
+                    if torrent.completed == torrent.size and torrent.size > 0:
+                        continue
+                    active_downloads.append({
+                        'name': torrent.name,
+                        'hash': torrent.hash.upper(),
+                        'size': torrent.size,
+                        'completed': torrent.completed,
+                        'percent': int(torrent.progress * 100),
+                    })
+            
             # Update or create cache
             cache, created = CachedDownloaderStatus.objects.get_or_create(
                 downloader=downloader,
