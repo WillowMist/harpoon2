@@ -1041,7 +1041,9 @@ def check_downloaders():
             if True:  # Generic handling for all downloader types
                 # Use the downloader's get_completed method
                 try:
+                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Calling get_completed()...")
                     completed = client.get_completed()
+                    logger.info(f"[check_downloaders] {downloader.downloadertype}: get_completed() returned {len(completed)} items")
                     logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found {len(completed)} completed torrent(s)")
                     for torrent_info in completed:
                         hash_value = torrent_info.get('hash', '')
