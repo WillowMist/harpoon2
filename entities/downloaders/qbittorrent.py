@@ -98,8 +98,17 @@ class QBittorrentDownloader(BaseDownloader):
                     logger.info(f"Added torrent file: {file_path} -> {info_hash}")
                     return info_hash
                 else:
-                    logger.error(f"Failed to add torrent: {result}")
-                    raise Exception(f"Failed to add torrent: {result}")
+                    # Check if it's a duplicate - qBittorrent returns specific error messages
+                    if 'Fails' in str(result) or 'Duplicate' in str(result):
+                        # It's a duplicate - try to find the existing torrent hash
+                        import bencoder
+                        torrent_info = bencoder.decode(torrent_data)
+                        info_hash = hashlib.sha1(bencoder.encode(torrent_info[b'info'])).hexdigest().upper()
+                        logger.info(f"Torrent already exists in QBittorrent: {file_path} -> {info_hash}")
+                        return info_hash
+                    else:
+                        logger.error(f"Failed to add torrent: {result}")
+                        raise Exception(f"Failed to add torrent: {result}")
             else:
                 # URL or magnet link
                 result = self.client.torrents_add(
