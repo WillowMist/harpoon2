@@ -280,51 +280,28 @@ class SABnzbdDownloader(BaseDownloader):
             return nzo_id
         return -1
 
-
-def SABNzbd(downloader=None):
-    """Compatibility wrapper for original SABNzbd class name."""
-    return SABnzbdDownloader(downloader)
-
     def get_completed(self) -> list:
         """Get all completed downloads from SABnzbd history.
         
         Returns:
             List of completed job info dicts
         """
-        # Debug: Write to file to see what's happening
-        with open('/tmp/sabnzbd_debug.log', 'a') as f:
-            f.write(f"\n=== get_completed called ===\n")
-        
         self._ensure_client()
         
         if not self.client:
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write("Client is None\n")
             return []
         
         try:
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write("Calling API...\n")
-            
             result = self._api_call('history', {'limit': 100})
             
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write(f"API returned: {result}\n")
-            
             if not result:
-                with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                    f.write("Result is None\n")
                 return []
             
             if 'history' not in result:
-                with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                    f.write(f"No 'history' key. Keys: {list(result.keys())}\n")
                 return []
             
             completed = []
             slots = result['history'].get('slots', [])
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write(f"Found {len(slots)} slots\n")
             
             for slot in slots:
                 status = slot.get('status', '')
@@ -338,16 +315,9 @@ def SABNzbd(downloader=None):
                         'category': slot.get('category', ''),
                     })
             
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write(f"Returning {len(completed)} completed items\n")
-            
             return completed
         except Exception as e:
-            import traceback
-            with open('/tmp/sabnzbd_debug.log', 'a') as f:
-                f.write(f"EXCEPTION: {e}\n{traceback.format_exc()}\n")
-            return []
-        except Exception as e:
+            logger.error(f"Error getting SABnzbd completed downloads: {e}")
             return []
 
     def verify_completion(self, hash: str) -> tuple:
@@ -395,7 +365,12 @@ def SABNzbd(downloader=None):
         
         return {
             'remote_dir': storage,
-            'files_to_copy': None,  # Transfer all files from storage
-            'is_single_file': False,  # SABnzbd doesn't have single-file concept
+            'files_to_copy': None,
+            'is_single_file': False,
             'name': name,
         }
+
+
+def SABNzbd(downloader=None):
+    """Compatibility wrapper for original SABNzbd class name."""
+    return SABnzbdDownloader(downloader)
