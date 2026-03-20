@@ -20,7 +20,10 @@ def login_view(request):
     if request.user.is_authenticated:
         return redirect('home')
     
-    no_superuser = not User.objects.filter(is_superuser=True).exists()
+    try:
+        no_superuser = not User.objects.filter(is_superuser=True).exists()
+    except Exception:
+        no_superuser = True
     
     if request.method == 'POST':
         if no_superuser:
