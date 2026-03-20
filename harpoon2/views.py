@@ -4,10 +4,76 @@ from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
 from django.http import JsonResponse
 from django.db.models import Prefetch, Count, Q
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth import authenticate, login, get_user_model
+from django.views.decorators.csrf import csrf_protect
 from entities.models import Manager, Downloader, CachedDownloaderStatus
 from itemqueue.models import Item, FileTransfer, ItemHistory
 import requests
 
+User = get_user_model()
+
+
+@csrf_protect
+def login_view(request):
+    """Custom login view that shows registration form if no superuser exists."""
+    if request.user.is_authenticated:
+        return redirect('home')
+    
+    no_superuser = not User.objects.filter(is_superuser=True).exists()
+    
+    if request.method == 'POST':
+        if no_superuser:
+            username = request.POST.get('username', '').strip()
+            password = request.POST.get('password', '')
+            password2 = request.POST.get('password2', '')
+            
+            if not username or not password:
+                messages.error(request, 'Username and password are required.')
+                return render(request, 'registration/login.html', {
+                    'form': None,
+                    'no_superuser': True,
+                })
+            
+            if password != password2:
+                messages.error(request, 'Passwords do not match.')
+                return render(request, 'registration/login.html', {
+                    'form': None,
+                    'no_superuser': True,
+                })
+            
+            if len(password) < 8:
+                messages.error(request, 'Password must be at least 8 characters.')
+                return render(request, 'registration/login.html', {
+                    'form': None,
+                    'no_superuser': True,
+                })
+            
+            user = User.objects.create_superuser(username=username, password=password)
+            user = authenticate(request, username=username, password=password)
+            if user:
+                login(request, user)
+                messages.success(request, f'Welcome, {user.username}! Superuser account created.')
+                return redirect('home')
+        else:
+            username = request.POST.get('username', '')
+            password = request.POST.get('password', '')
+            user = authenticate(request, username=username, password=password)
+            if user:
+                login(request, user)
+                messages.success(request, f'Welcome back, {user.username}!')
+                next_url = request.GET.get('next', 'home')
+                return redirect(next_url)
+            else:
+                messages.error(request, 'Invalid username or password.')
+    
+    return render(request, 'registration/login.html', {
+        'form': None,
+        'no_superuser': no_superuser,
+    })
+
+
+@login_required
 def home(request):
     """Dashboard - shows active downloads (grabbing), file transfers, and quick summary by manager."""
     managers = Manager.objects.all()
@@ -189,6 +255,7 @@ def home(request):
     })
 
 
+@login_required
 def queue(request):
     """Queue page - shows all queued/grabbing/postprocessing items."""
     grabbing_items = Item.objects.filter(status='Grabbed', archived=False).select_related('manager', 'downloader').order_by('-created')
@@ -203,6 +270,7 @@ def queue(request):
 from django.db.models import Prefetch
 
 
+@login_required
 def history(request):
     """History page - shows completed and failed items."""
     # Get show_archived parameter from query string

@@ -3,6 +3,7 @@ from django.http import JsonResponse
 from crisp_modals.views import ModalCreateView, ModalUpdateView, ModalDeleteView
 from django.urls import reverse_lazy, reverse
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from . import forms
 from . import models
 from .managers import Arr, Sonarr, Radarr, Lidarr, Readarr
@@ -152,15 +153,18 @@ class DownloaderDeleteView(ModalDeleteView):
         return response
 
 
+@login_required
 def settings(request):
     folders = models.DownloadFolder.objects.all()
     seedboxes = models.Seedbox.objects.all()
     return render(request, 'entities/settings.html', {'folders': folders, 'seedboxes': seedboxes})
 
+@login_required
 def managers(request):
     managers = models.Manager.objects.all()
     return render(request, 'entities/managers.html', {'managers': managers})
 
+@login_required
 def downloaders(request):
     downloaders = models.Downloader.objects.all()
     return render(request, 'entities/downloaders.html', {'downloaders': downloaders})
