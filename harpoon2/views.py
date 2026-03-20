@@ -17,21 +17,21 @@ User = get_user_model()
 @csrf_protect
 def login_view(request):
     """Custom login view that shows registration form if no superuser exists."""
-    import logging
-    logger = logging.getLogger(__name__)
+    import sys
+    print(f"DEBUG PRINT: login_view called, user={request.user}, auth={request.user.is_authenticated}", file=sys.stderr)
     
     if request.user.is_authenticated:
         return redirect('home')
     
     try:
         all_users = list(User.objects.values_list('id', 'username', 'is_superuser'))
-        logger.error(f"LOGIN DEBUG: All users = {all_users}")
+        print(f"DEBUG PRINT: All users = {all_users}", file=sys.stderr)
         superuser_count = User.objects.filter(is_superuser=True).count()
-        logger.error(f"LOGIN DEBUG: Superuser count = {superuser_count}")
+        print(f"DEBUG PRINT: Superuser count = {superuser_count}", file=sys.stderr)
         no_superuser = superuser_count == 0
-        logger.error(f"LOGIN DEBUG: no_superuser = {no_superuser}")
+        print(f"DEBUG PRINT: no_superuser = {no_superuser}", file=sys.stderr)
     except Exception as e:
-        logger.error(f"LOGIN DEBUG: Exception checking superuser: {e}")
+        print(f"DEBUG PRINT: Exception = {e}", file=sys.stderr)
         no_superuser = True
     
     if request.method == 'POST':
