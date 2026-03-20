@@ -21,3 +21,7 @@
 .form-label {
     color: #212529;
 }
+
+.modal .form-label {
+    color: #fff;
+}
