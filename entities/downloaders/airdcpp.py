@@ -298,11 +298,6 @@ class AirDCppDownloader(BaseDownloader):
             logger.error(f"Failed to get download path: {e}")
             return None
 
-
-def AirDCpp(downloader=None):
-    """Compatibility wrapper for AirDC++ downloader class name."""
-    return AirDCppDownloader(downloader)
-
     def get_completed(self) -> list:
         """Get completed downloads from AirDC++.
         
@@ -337,5 +332,10 @@ def AirDCpp(downloader=None):
             'remote_dir': self.seedbox.base_download_folder,
             'files_to_copy': None,
             'is_single_file': False,
-            'name': hash,  # For AirDC++, hash is the download ID/name
+            'name': hash,
         }
+
+
+def AirDCpp(downloader=None):
+    """Compatibility wrapper for AirDC++ downloader class name."""
+    return AirDCppDownloader(downloader)

@@ -486,11 +486,6 @@ class RTorrentDownloader(BaseDownloader):
         except Exception as e:
             return []
 
-
-def RTorrent(downloader=None):
-    """Compatibility wrapper for original RTorrent class name."""
-    return RTorrentDownloader(downloader)
-
     def verify_completion(self, hash: str) -> tuple:
         """Verify that a torrent is complete and ready for post-processing.
         
@@ -534,13 +529,16 @@ def RTorrent(downloader=None):
         directory = torrent_info.get('directory', '')
         name = torrent_info.get('name', '')
         
-        # Check if this is a single-file torrent
-        # (torrent name ends with a file extension like .mkv, .mp4, etc.)
         is_single_file = name and ('.' in name.split('/')[-1])
         
         return {
             'remote_dir': directory,
-            'files_to_copy': None,  # Transfer all files from directory
+            'files_to_copy': None,
             'is_single_file': is_single_file,
             'name': name,
         }
+
+
+def RTorrent(downloader=None):
+    """Compatibility wrapper for original RTorrent class name."""
+    return RTorrentDownloader(downloader)
