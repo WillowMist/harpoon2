@@ -1,6 +1,5 @@
 from django.db import models
 from django.db.models import Q
-import watson
 
 # Create your models here.
 

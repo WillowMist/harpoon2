@@ -41,7 +41,7 @@
       </button>
 
       <!-- Navbar Search -->
-      <form action="{% url 'watson:search' %}" method="get" class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
+      <form action="{% url 'search' %}" method="get" class="d-none d-md-inline-block form-inline ml-auto mr-0 mr-md-3 my-2 my-md-0">
         <div class="input-group">
           <input type="text" id="q" name="q" value="{{ request.GET.q }}" class="form-control" placeholder="Search for..." aria-label="Search" aria-describedby="basic-addon2">
           <div class="input-group-append">

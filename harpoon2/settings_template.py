@@ -41,7 +41,6 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django_celery_beat',
-    'watson',
     'entities.apps.EntitiesConfig',
     'itemqueue.apps.ItemqueueConfig',
     'users.apps.UsersConfig',

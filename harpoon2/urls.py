@@ -1,7 +1,8 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.contrib.auth.views import LogoutView
 from . import views
+from dplibs.search import search
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -26,6 +27,7 @@ urlpatterns = [
     path('api/queue/', views.api_queue, name='api-queue'),
     path('api/history/', views.api_history, name='api-history'),
     path('api/version/', views.api_version_check, name='api-version'),
+    path('search/', views.search, name='search'),
     path('entities/', include('entities.urls', namespace='entities')),
     path('users/', include('users.urls', namespace='users')),
 ]
