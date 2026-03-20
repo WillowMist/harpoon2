@@ -24,6 +24,8 @@ def login_view(request):
         return redirect('home')
     
     try:
+        all_users = list(User.objects.values_list('id', 'username', 'is_superuser'))
+        logger.error(f"LOGIN DEBUG: All users = {all_users}")
         superuser_count = User.objects.filter(is_superuser=True).count()
         logger.error(f"LOGIN DEBUG: Superuser count = {superuser_count}")
         no_superuser = superuser_count == 0
