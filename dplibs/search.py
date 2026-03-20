@@ -4,8 +4,11 @@ from django.urls import re_path
 from django.views.generic import ListView
 from django.shortcuts import render
 from django.db.models import Q
+from django.contrib.auth.decorators import login_required
 from itemqueue.models import Item
 
+
+@login_required
 def search(request, **kwargs):
     """Renders a page of search results using Django ORM."""
     query = request.GET.get('q', '')
