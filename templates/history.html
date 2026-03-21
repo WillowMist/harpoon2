@@ -256,13 +256,15 @@ async function loadHistory(itemHash) {
     if (historyCache[itemHash]) return historyCache[itemHash];
     try {
         const encodedHash = encodeURIComponent(itemHash);
-        const resp = await fetch(`/api/item/${encodedHash}/history/`);
+        const resp = await fetch(`/api/item/${encodedHash}/history/`, {
+            credentials: 'include'
+        });
         if (resp.ok) {
             const data = await resp.json();
             historyCache[itemHash] = data.history;
             return data.history;
         } else {
-            console.error('History API error:', resp.status, resp.statusText);
+            console.error('History API error:', resp.status, resp.statusText, await resp.text());
         }
     } catch (e) {
         console.error('Failed to load history:', e);
@@ -274,13 +276,15 @@ async function loadTransfers(itemHash) {
     if (transfersCache[itemHash]) return transfersCache[itemHash];
     try {
         const encodedHash = encodeURIComponent(itemHash);
-        const resp = await fetch(`/api/item/${encodedHash}/transfers/`);
+        const resp = await fetch(`/api/item/${encodedHash}/transfers/`, {
+            credentials: 'include'
+        });
         if (resp.ok) {
             const data = await resp.json();
             transfersCache[itemHash] = data.transfers;
             return data.transfers;
         } else {
-            console.error('Transfers API error:', resp.status, resp.statusText);
+            console.error('Transfers API error:', resp.status, resp.statusText, await resp.text());
         }
     } catch (e) {
         console.error('Failed to load transfers:', e);
