@@ -325,6 +325,7 @@ async function toggleDetails(btn, itemHash) {
     console.log('toggleDetails called', itemHash);
     const previewSpan = btn.querySelector('.details-preview');
     const contentDiv = btn.nextElementSibling;
+    console.log('previewSpan:', previewSpan, 'contentDiv:', contentDiv);
     
     if (btn.classList.contains('expanded')) {
         btn.classList.remove('expanded');
@@ -339,6 +340,10 @@ async function toggleDetails(btn, itemHash) {
     
     const historyDiv = contentDiv.querySelector('.history-content');
     const transfersDiv = contentDiv.querySelector('.transfers-content');
+    console.log('historyDiv:', historyDiv, 'transfersDiv:', transfersDiv);
+    if (historyDiv) {
+        console.log('historyDiv.dataset.loaded:', historyDiv.dataset.loaded);
+    }
     
     if (historyDiv && !historyDiv.dataset.loaded) {
         console.log('Loading history for', itemHash);
