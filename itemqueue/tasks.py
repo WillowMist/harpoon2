@@ -1038,37 +1038,46 @@ def check_downloaders():
             client = downloader.client
             client._ensure_client()
             
-            if True:  # Generic handling for all downloader types
-                # Use the downloader's get_completed method
+            if downloader.downloadertype == 'AirDC++':
+                # AirDC++ is independent - create items for completed downloads not in database
                 try:
                     logger.info(f"[check_downloaders] {downloader.downloadertype}: Calling get_completed()...")
                     completed = client.get_completed()
                     logger.info(f"[check_downloaders] {downloader.downloadertype}: get_completed() returned {len(completed)} items")
-                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found {len(completed)} completed torrent(s)")
                     for torrent_info in completed:
                         hash_value = torrent_info.get('hash', '')
+                        name = torrent_info.get('name', '')
                         if not hash_value:
                             continue
-                        # Case-insensitive lookup
+                        
+                        # Check if already in database
                         try:
                             item = Item.objects.get(hash__iexact=hash_value)
-                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found item {item.name} (hash={hash_value}, status={item.status})")
-                            # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
+                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found item {item.name} (status={item.status})")
                             if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                                if not item.downloader:
-                                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - no downloader assigned yet (will retry later)")
-                                else:
-                                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name} (status={item.status})")
+                                if item.downloader:
+                                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name}")
                                     postprocess_item.delay(hash_value)
-                            else:
-                                logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - already in status {item.status}")
                         except Item.DoesNotExist:
-                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Hash {hash_value} not in database")
-                            pass
+                            # Create new item for completed download
+                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Creating item for completed download: {name}")
+                            item = Item.objects.create(
+                                hash=hash_value,
+                                name=name,
+                                status='Grabbed',
+                                downloader=downloader,
+                                size=torrent_info.get('size', 0),
+                            )
+                            ItemHistory.objects.create(
+                                item=item,
+                                details=f'Download completed in {downloader.name}'
+                            )
+                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Created item {name}, queueing postprocess")
+                            postprocess_item.delay(hash_value)
                 except Exception as e:
                     logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
-                        
-            elif downloader.downloadertype == 'AirDC++':
+            
+            elif True:  # Generic handling for other downloader types
                 # Monitor AirDC++ downloads - create items for active downloads (Grabbing status) and transition when complete
                 logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
                 try:
