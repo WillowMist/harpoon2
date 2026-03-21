@@ -1077,275 +1077,34 @@ def check_downloaders():
                 except Exception as e:
                     logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
             
-            elif True:  # Generic handling for other downloader types
-                # Monitor AirDC++ downloads - create items for active downloads (Grabbing status) and transition when complete
-                logger.debug(f"[check_downloaders] AirDC++: Fetching active transfers")
+            else:  # Generic handling for other downloader types
+                # Use the downloader's get_completed method
                 try:
-                    active_downloads = client.get_active_downloads()
-                    logger.info(f"[check_downloaders] AirDC++: Found {len(active_downloads)} transfer(s)")
-                    if len(active_downloads) == 0:
-                        logger.info(f"[check_downloaders] AirDC++: No active transfers - checking raw API response")
-                        # Debug: fetch raw transfers to see what's happening
+                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Calling get_completed()...")
+                    completed = client.get_completed()
+                    logger.info(f"[check_downloaders] {downloader.downloadertype}: get_completed() returned {len(completed)} items")
+                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found {len(completed)} completed torrent(s)")
+                    for torrent_info in completed:
+                        hash_value = torrent_info.get('hash', '')
+                        if not hash_value:
+                            continue
+                        # Case-insensitive lookup
                         try:
-                            raw_transfers = client.client._make_request('GET', '/transfers')
-                            logger.info(f"[check_downloaders] AirDC++: Raw /transfers response: {raw_transfers}")
-                        except Exception as e:
-                            logger.error(f"[check_downloaders] AirDC++: Error fetching raw transfers: {e}")
-                    
-                    for download_info in active_downloads:
-                        download_name = download_info.get('name', '')
-                        download_path = download_info.get('path', '')
-                        transfer_id = str(download_info.get('id', 0))
-                        
-                        # Remove "TTH: " prefix if present from /transfers endpoint
-                        if download_name.startswith('TTH: '):
-                            download_name = download_name[5:]
-                        
-                        # Handle size - can be -1 if not yet determined
-                        raw_size = download_info.get('size', 0)
-                        download_size = int(raw_size) if raw_size and raw_size > 0 else 0
-                        
-                        # Calculate bytes transferred - handle -1 values from API
-                        raw_bytes = download_info.get('bytes_transferred', 0)
-                        bytes_transferred = int(raw_bytes) if raw_bytes and raw_bytes > 0 else 0
-                        
-                        # Status is a dict like {"id": "finished", "str": "Finished, idle..."}
-                        status_obj = download_info.get('status', {})
-                        status = status_obj.get('id', '').lower() if isinstance(status_obj, dict) else str(status_obj).lower()
-                        
-                        logger.debug(f"[check_downloaders] AirDC++: Checking transfer '{download_name}' (status_obj={status_obj}, status={status}, {bytes_transferred}/{download_size})")
-                        
-                        # Try to find existing item - first by name, then by hash
-                        item = None
-                        
-                        # First, try to find by name (most reliable for AirDC++)
-                        try:
-                            item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
-                            if item:
-                                logger.debug(f"[check_downloaders] AirDC++: Found existing item by name match: {download_name}")
-                                # Update hash to track this transfer ID for future checks
-                                old_hash = item.hash
-                                if old_hash != transfer_id:
-                                    item.hash = transfer_id
-                                    item.save()
-                                    logger.info(f"[check_downloaders] AirDC++: Updated item hash from {old_hash} to {transfer_id}")
-                        except Exception as e:
-                            logger.debug(f"[check_downloaders] AirDC++: Error searching by name: {e}")
-                        
-                        # Don't fall back to hash lookup for AirDC++ since IDs are reused
-                        # If not found by name, it's a new transfer
-                        
-                        if item:
-                            logger.debug(f"[check_downloaders] AirDC++: Processing existing item for transfer {transfer_id}")
-                            
-                            # Update progress for active downloads
-                            if status in ['running', 'downloading']:
-                                if item.status != 'Grabbed':
-                                    logger.info(f"[check_downloaders] AirDC++: Transitioning '{item.name}' to Grabbed status")
-                                    item.status = 'Grabbed'
-                                    item.save()
-                                if item.received != bytes_transferred:
-                                    item.received = bytes_transferred
-                                    item.save()
-                            
-                            # Check for completion
-                            elif status in ['completed', 'done', 'finished', 'success']:
-                                # Download finished - transition to PostProcessing for transfer
-                                if item.status != 'PostProcessing':
-                                    logger.info(f"[check_downloaders] AirDC++: Download complete for '{item.name}', transitioning to PostProcessing")
-                                    item.status = 'PostProcessing'
-                                    item.received = download_size  # Set to full size
-                                    item.save()
-                                    ItemHistory.objects.create(
-                                        item=item,
-                                        details=f'AirDC++ download completed, ready for transfer'
-                                    )
-                                    postprocess_item.delay(item.hash)
-                        
-                        else:
-                            # No existing item - items are now created only from events
-                            logger.debug(f"[check_downloaders] AirDC++: No existing item for transfer {transfer_id} '{download_name}' - will be created via events if needed")
-                
+                            item = Item.objects.get(hash__iexact=hash_value)
+                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found item {item.name} (hash={hash_value}, status={item.status})")
+                            # Only call postprocess if not already processed/completed/failed AND has a downloader assigned
+                            if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                                if not item.downloader:
+                                    logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - no downloader assigned yet (will retry later)")
+                                else:
+                                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name} (status={item.status})")
+                                    postprocess_item.delay(hash_value)
+                            else:
+                                logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - already in status {item.status}")
+                        except Item.DoesNotExist:
+                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Hash {hash_value} not in database")
                 except Exception as e:
-                    logger.error(f"[check_downloaders] AirDC++: Error fetching transfers: {e}", exc_info=True)
-                
-                # Also check events for completed downloads (catches downloads that finished between API checks)
-                try:
-                    logger.debug(f"[check_downloaders] AirDC++: Checking events for completed downloads")
-                    # Ensure client is initialized
-                    client._ensure_client()
-                    if not client.client:
-                        logger.debug(f"[check_downloaders] AirDC++: Client not initialized for events")
-                    else:
-                         # Get recent events (last 20 to minimize re-detection of deleted items)
-                          events = client.client._make_request('GET', '/events/20')
-                          
-                          for event in events:
-                              text = event.get('text', '')
-                              
-                              # First, check for folder/bundle creation events
-                              if 'has been created with' in text and 'items' in text:
-                                  # Format: "The bundle Xena - Season 2 has been created with 22 items (Total size: 7.98 GiB)"
-                                  try:
-                                      parts = text.split('The bundle ', 1)
-                                      if len(parts) > 1:
-                                          rest = parts[1]
-                                          # Extract folder name and item count
-                                          if ' has been created with ' in rest:
-                                              folder_name, count_part = rest.split(' has been created with ', 1)
-                                              # Extract number of items
-                                              if ' items' in count_part:
-                                                  items_str = count_part.split(' items')[0].strip()
-                                                  try:
-                                                      item_count = int(items_str)
-                                                      logger.info(f"[check_downloaders] AirDC++: Detected folder bundle: '{folder_name}' with {item_count} items")
-                                                      
-                                                      # Check if we already have this folder item
-                                                      existing_folder = Item.objects.filter(name__iexact=folder_name, category='AirDC++').first()
-                                                      if not existing_folder:
-                                                          # Create item for the folder bundle
-                                                          target_folder_id = downloader.options.get('target_folder') if downloader.options else None
-                                                          if target_folder_id:
-                                                              folder_hash = folder_name.replace(' ', '_').replace('/', '_')[:50]
-                                                              folder_item = Item.objects.create(
-                                                                  name=folder_name,
-                                                                  hash=folder_hash,
-                                                                  downloader=downloader,
-                                                                  size=0,  # We don't know total size from event
-                                                                  received=0,
-                                                                  status='Grabbed',
-                                                                  category='AirDC++'
-                                                              )
-                                                              ItemHistory.objects.create(
-                                                                  item=folder_item,
-                                                                  details=f'Folder bundle detected: {item_count} items'
-                                                              )
-                                                              logger.info(f"[check_downloaders] AirDC++: Created folder item: {folder_name}")
-                                                      else:
-                                                          logger.debug(f"[check_downloaders] AirDC++: Folder item already exists: {folder_name}")
-                                                  except ValueError:
-                                                      logger.debug(f"[check_downloaders] AirDC++: Could not parse item count from: {count_part}")
-                                  except Exception as e:
-                                      logger.debug(f"[check_downloaders] AirDC++: Error parsing folder creation event: {e}")
-                              
-                              # Check for standalone file added to queue
-                              elif 'has been added in queue' in text and text.startswith('The file '):
-                                  # Format: "The file X has been added in queue (Y MiB)"
-                                  try:
-                                      parts = text.split('The file ', 1)
-                                      if len(parts) > 1:
-                                          rest = parts[1]
-                                          if ' has been added in queue' in rest:
-                                              file_name = rest.split(' has been added in queue')[0].strip()
-                                              logger.debug(f"[check_downloaders] AirDC++: Detected standalone file: '{file_name}'")
-                                              
-                                              # Check if item already exists
-                                              existing_file = Item.objects.filter(name__iexact=file_name, category='AirDC++').first()
-                                              if not existing_file:
-                                                  # Create item for the standalone file
-                                                  target_folder_id = downloader.options.get('target_folder') if downloader.options else None
-                                                  if target_folder_id:
-                                                      file_hash = file_name.replace(' ', '_').replace('/', '_')[:50]
-                                                      file_item = Item.objects.create(
-                                                          name=file_name,
-                                                          hash=file_hash,
-                                                          downloader=downloader,
-                                                          size=0,  # We don't know size from this event
-                                                          received=0,
-                                                          status='Grabbed',
-                                                          category='AirDC++'
-                                                      )
-                                                      ItemHistory.objects.create(
-                                                          item=file_item,
-                                                          details='Standalone file detected from queue'
-                                                      )
-                                                      logger.info(f"[check_downloaders] AirDC++: Created standalone file item: {file_name}")
-                                              else:
-                                                  logger.debug(f"[check_downloaders] AirDC++: File item already exists: {file_name}")
-                                  except Exception as e:
-                                      logger.debug(f"[check_downloaders] AirDC++: Error parsing file added event: {e}")
-                              
-                              # Look for completion events: "The bundle X has finished downloading"
-                              elif 'has finished downloading' in text:
-                                 # Extract the bundle/filename name from the event text
-                                 # Format: "The bundle <filename> has finished downloading"
-                                 parts = text.split('The bundle ', 1)
-                                 if len(parts) > 1:
-                                      download_name = parts[1].replace(' has finished downloading', '')
-                                      logger.debug(f"[check_downloaders] AirDC++: Found completed download event for '{download_name}'")
-                                      
-                                      # Check if we already have an item for this download (by name)
-                                      existing_item = None
-                                      try:
-                                          existing_item = Item.objects.filter(name__iexact=download_name, category='AirDC++').first()
-                                          if existing_item:
-                                              logger.debug(f"[check_downloaders] AirDC++: Found existing item for '{download_name}'")
-                                              
-                                              # Skip if already Completed (transfer finished)
-                                              if existing_item.status == 'Completed':
-                                                  logger.debug(f"[check_downloaders] AirDC++: Item already completed, skipping old event: {download_name}")
-                                                  continue
-                                              
-                                              # Update it to PostProcessing since download is complete
-                                              if existing_item.status != 'PostProcessing':
-                                                  logger.info(f"[check_downloaders] AirDC++: Transitioning existing item '{existing_item.name}' to PostProcessing")
-                                                  existing_item.status = 'PostProcessing'
-                                                  existing_item.save()
-                                                  ItemHistory.objects.create(
-                                                      item=existing_item,
-                                                      details='AirDC++ download completed (detected via event)'
-                                                  )
-                                                  postprocess_item.delay(existing_item.hash)
-                                              else:
-                                                  # Already in PostProcessing - don't re-queue or create new history
-                                                  logger.debug(f"[check_downloaders] AirDC++: Item already in PostProcessing, skipping: {download_name}")
-                                              continue
-                                      except Exception as e:
-                                          logger.debug(f"[check_downloaders] AirDC++: Error checking existing items: {e}")
-                                      
-                                      # No existing item found - create new one for untracked downloads
-                                      if not existing_item:
-                                          try:
-                                              target_folder_id = downloader.options.get('target_folder') if downloader.options else None
-                                              if not target_folder_id:
-                                                  logger.error(f"[check_downloaders] AirDC++: No target folder configured for {downloader.name}, skipping event download '{download_name}'")
-                                                  continue
-                                              
-                                              # Use filename as hash (unique identifier for events)
-                                              transfer_id = download_name.replace(' ', '_').replace('/', '_')[:50]
-                                              
-                                              new_item = Item.objects.create(
-                                                  name=download_name,
-                                                  hash=transfer_id,
-                                                  downloader=downloader,
-                                                  size=0,  # We don't know the size from event alone
-                                                  received=0,
-                                                  status='Grabbed',
-                                                  category='AirDC++'
-                                              )
-                                              
-                                              ItemHistory.objects.create(
-                                                  item=new_item,
-                                                  details=f'Auto-created from AirDC++ completion event (folder_id={target_folder_id})'
-                                              )
-                                              
-                                              logger.info(f"[check_downloaders] AirDC++: Created item from event: {new_item.name}")
-                                              
-                                              # Immediately transition to PostProcessing since it's already complete
-                                              new_item.status = 'PostProcessing'
-                                              new_item.save()
-                                              ItemHistory.objects.create(
-                                                  item=new_item,
-                                                  details='Download already finished, transitioning to PostProcessing'
-                                              )
-                                              logger.info(f"[check_downloaders] AirDC++: Event download already complete, transitioning {new_item.name} to PostProcessing")
-                                              postprocess_item.delay(transfer_id)
-                                              
-                                          except Exception as e:
-                                              logger.error(f"[check_downloaders] AirDC++: Failed to create item from event '{download_name}': {e}", exc_info=True)
-                
-                except Exception as e:
-                    logger.debug(f"[check_downloaders] AirDC++: Error checking events: {e}")
+                    logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
         except Exception as e:
             logger.error(f"[check_downloaders] Error checking downloader {downloader.name}: {e}", exc_info=True)
 

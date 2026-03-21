@@ -395,16 +395,11 @@ class AirDCppDownloader(BaseDownloader):
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
         """
-        if not self.seedbox:
-            return {
-                'remote_dir': '',
-                'files_to_copy': None,
-                'is_single_file': False,
-                'name': '',
-            }
+        # Get the base download folder from downloader config or use default
+        remote_dir = self.config.get('target_folder', '/Downloads')
         
         return {
-            'remote_dir': self.seedbox.base_download_folder,
+            'remote_dir': remote_dir,
             'files_to_copy': None,
             'is_single_file': False,
             'name': hash,
