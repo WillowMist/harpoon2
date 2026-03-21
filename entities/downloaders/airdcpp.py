@@ -539,14 +539,29 @@ class AirDCppDownloader(BaseDownloader):
             else:
                 full_path = airdc_base
             
-            logger.info(f"AirDC++ get_download_info: source_path={full_path}")
+            # Check if this is a bundle/folder by checking if it has a file extension
+            # Folders like "Xena - Season 5" don't have extensions, files do
+            basename = os.path.basename(full_path)
+            is_bundle = '.' not in basename
             
-            return {
-                'remote_dir': os.path.dirname(full_path),
-                'files_to_copy': [os.path.basename(full_path)],
-                'is_single_file': True,
-                'name': full_path,
-            }
+            logger.info(f"AirDC++ get_download_info: source_path={full_path}, is_bundle={is_bundle}")
+            
+            if is_bundle:
+                # For bundles/folders, transfer all files (no filtering)
+                return {
+                    'remote_dir': os.path.dirname(full_path),
+                    'files_to_copy': None,  # Transfer all files in folder
+                    'is_single_file': False,
+                    'name': full_path,
+                }
+            else:
+                # For individual files, use single file transfer
+                return {
+                    'remote_dir': os.path.dirname(full_path),
+                    'files_to_copy': [os.path.basename(full_path)],
+                    'is_single_file': True,
+                    'name': full_path,
+                }
         except Item.DoesNotExist:
             logger.debug(f"AirDC++ get_download_info: item not found for hash={hash}")
         
