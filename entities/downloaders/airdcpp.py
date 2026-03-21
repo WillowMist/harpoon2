@@ -327,12 +327,60 @@ class AirDCppDownloader(BaseDownloader):
     def get_completed(self) -> list:
         """Get completed downloads from AirDC++.
         
-        Uses the /events/20 endpoint to get recent events including completed downloads.
+        Uses the /events/40 endpoint to get recent events including completed downloads.
         
         Returns:
             List of completed download info dicts
         """
         if not self.client:
+            return []
+        
+        try:
+            events = self.client.get_events(limit=40)
+            completed = []
+            seen_hashes = set()
+            
+            for event in events:
+                text = event.get('text', '')
+                
+                # Look for "has finished downloading" in the event text
+                if 'has finished downloading' in text.lower():
+                    # Extract bundle name and path from text
+                    # Format: "The bundle <filename> has finished downloading"
+                    if text.startswith('The bundle '):
+                        # Extract the filename between "The bundle " and " has finished downloading"
+                        name = text.replace('The bundle ', '').replace(' has finished downloading', '').strip()
+                        
+                        # Skip if it's a directory notification (ends with /)
+                        if name.endswith('/'):
+                            continue
+                        
+                        # Build the full path - use the configured target folder as base
+                        # The name is the filename, so join with the base folder
+                        base_folder = self.config.get('target_folder', '/Downloads')
+                        path = f"{base_folder}/{name}" if not name.startswith('/') else name
+                        
+                        # Create a hash from the name for tracking
+                        import hashlib
+                        hash_value = hashlib.md5(name.encode()).hexdigest()
+                        
+                        # Avoid duplicates
+                        if hash_value in seen_hashes:
+                            continue
+                        seen_hashes.add(hash_value)
+                        
+                        completed.append({
+                            'hash': hash_value,
+                            'name': name,
+                            'completed': True,
+                            'size': 0,
+                            'path': path,
+                        })
+            
+            logger.info(f"AirDC++ get_completed() returned {len(completed)} items from events")
+            return completed
+        except Exception as e:
+            logger.error(f"Error getting AirDC++ completed downloads: {e}")
             return []
         
         try:
@@ -395,11 +443,28 @@ class AirDCppDownloader(BaseDownloader):
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
         """
-        # Get the base download folder from downloader config or use default
-        remote_dir = self.config.get('target_folder', '/Downloads')
+        # Build full path from the hash (which is MD5 of filename)
+        # We store the full path in the item name when creating
+        from itemqueue.models import Item
+        try:
+            item = Item.objects.get(hash=hash)
+            # The item.name should contain the full path for AirDC++
+            full_path = item.name if item.name.startswith('/') else None
+            if full_path:
+                import os
+                return {
+                    'remote_dir': os.path.dirname(full_path),
+                    'files_to_copy': [os.path.basename(full_path)],
+                    'is_single_file': True,
+                    'name': item.name,
+                }
+        except:
+            pass
         
+        # Fallback
+        base_folder = self.config.get('target_folder', '/Downloads')
         return {
-            'remote_dir': remote_dir,
+            'remote_dir': base_folder,
             'files_to_copy': None,
             'is_single_file': False,
             'name': hash,
