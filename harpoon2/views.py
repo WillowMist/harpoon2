@@ -291,16 +291,10 @@ def history(request):
         '-modified' if not show_archived else '-archived_at'
     )[:50])
     
-    counts = Item.objects.aggregate(
-        completed_active=Count('pk', filter=Q(status='Completed', archived=False)),
-        completed_archived=Count('pk', filter=Q(status='Completed', archived=True)),
-        failed_active=Count('pk', filter=Q(status='Failed', archived=False)),
-        failed_archived=Count('pk', filter=Q(status='Failed', archived=True)),
-    )
-    completed_count = counts['completed_active']
-    completed_archived_count = counts['completed_archived']
-    failed_count = counts['failed_active']
-    failed_archived_count = counts['failed_archived']
+    completed_count = len(completed_items)
+    failed_count = len(failed_items)
+    completed_archived_count = Item.objects.filter(status='Completed', archived=True).count()
+    failed_archived_count = Item.objects.filter(status='Failed', archived=True).count()
     
     downloaders = Downloader.objects.all().order_by('name')
     
