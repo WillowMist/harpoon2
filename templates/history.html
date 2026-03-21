@@ -249,6 +249,86 @@ tr.edit-mode .view-control {
 
 {% block content %}
 <script>
+const historyCache = {};
+const transfersCache = {};
+
+async function loadHistory(itemHash) {
+    if (historyCache[itemHash]) return historyCache[itemHash];
+    try {
+        const resp = await fetch(`/api/item/${itemHash}/history/`);
+        if (resp.ok) {
+            const data = await resp.json();
+            historyCache[itemHash] = data.history;
+            return data.history;
+        }
+    } catch (e) {
+        console.error('Failed to load history:', e);
+    }
+    return [];
+}
+
+function renderHistory(history, container) {
+    if (!history || history.length === 0) {
+        container.innerHTML = '<span style="color: #888;">No history</span>';
+        return;
+    }
+    container.innerHTML = history.map(h => 
+        `<div>[${new Date(h.created).toLocaleTimeString()}] ${h.details}</div>`
+    ).join('');
+}
+
+function renderTransfers(transfers, container) {
+    if (!transfers || transfers.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    let html = '<div><strong>Transfer Information:</strong></div>';
+    transfers.forEach(t => {
+        html += `<div>Filename: ${t.filename}</div>`;
+        html += `<div>Progress: ${t.percent_complete}% (${formatBytes(t.bytes_transferred)} / ${formatBytes(t.file_size)})</div>`;
+        html += `<div>Status: ${t.status}</div>`;
+        html += `<div>Started: ${t.started}</div>`;
+        html += `<div>Completed: ${t.completed || 'N/A'}</div>`;
+        if (t.error_message) html += `<div style="color: #ff6b6b;">Error: ${t.error_message}</div>`;
+    });
+    container.innerHTML = html;
+}
+
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+async function toggleDetails(btn, itemHash) {
+    const previewSpan = btn.querySelector('.details-preview');
+    const previewExpandedSpan = btn.querySelector('.details-preview.expanded');
+    const contentDiv = btn.nextElementSibling;
+    
+    if (btn.classList.contains('expanded')) {
+        btn.classList.remove('expanded');
+        previewSpan.classList.remove('expanded');
+        if (previewExpandedSpan) previewExpandedSpan.classList.remove('expanded');
+        contentDiv.classList.remove('expanded');
+        return;
+    }
+    
+    btn.classList.add('expanded');
+    previewSpan.classList.add('expanded');
+    if (previewExpandedSpan) previewExpandedSpan.classList.add('expanded');
+    contentDiv.classList.add('expanded');
+    
+    const historyDiv = contentDiv.querySelector('.history-content');
+    if (historyDiv && !historyDiv.dataset.loaded) {
+        historyDiv.innerHTML = '<span style="color: #888;">Loading...</span>';
+        const history = await loadHistory(itemHash);
+        renderHistory(history, historyDiv);
+        historyDiv.dataset.loaded = 'true';
+    }
+}
+
 function toggleEditMode(itemHash, event) {
     event.preventDefault();
     const row = document.querySelector(`tr[data-item-hash="${itemHash}"]`);
@@ -323,7 +403,6 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in failed_items %}
-                {% with history_list=item.history.all history_count=item.history_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
@@ -354,25 +433,16 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% with history_list=item.history.all history_count=item.history_count %}
-                        {% if history_count > 1 or history_list.0.details|length > 100 %}
-                        <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
-                            <span class="details-preview">{{ history_list.0.details|truncatechars:80 }}</span>
-                            <span class="details-preview expanded">
-                                {% for h in history_list %}
-                                    {{ h.details }}{% if not forloop.last %}<br>{% endif %}
-                                {% endfor %}
-                            </span>
+                        {% if item.history_count > 0 %}
+                        <div class="collapsible-details" onclick="event.stopPropagation(); toggleDetails(this, '{{ item.hash }}');">
+                            <span class="details-preview">Click to load {{ item.history_count }} history record{{ item.history_count|pluralize }}</span>
                         </div>
                         <div class="details-content">
-                            {% for h in history_list %}
-                            <div>{{ h.details }}</div>
-                            {% endfor %}
+                            <div class="history-content" data-loaded="false"></div>
                         </div>
                         {% else %}
-                        {{ history_list.0.details }}
+                        <span style="color: #888;">No history</span>
                         {% endif %}
-                        {% endwith %}
                     </td>
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
@@ -405,7 +475,6 @@ function autoSubmitForm(form) {
                         {% endif %}
                     </td>
                 </tr>
-                {% endwith %}
                 {% endfor %}
             </tbody>
         </table>
@@ -434,7 +503,6 @@ function autoSubmitForm(form) {
             </thead>
             <tbody>
                 {% for item in completed_items %}
-                {% with history_list=item.history.all transfers=item.transfers.all history_count=item.history_count transfers_count=item.transfers_count %}
                 <tr data-item-hash="{{ item.hash }}">
                     <td>{{ item.name|truncatechars:50 }}</td>
                     <td>{{ item.manager.name }}</td>
@@ -465,35 +533,31 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% if history_count > 0 or transfers_count > 0 %}
-                        <div class="collapsible-details" onclick="event.stopPropagation(); this.classList.toggle('expanded'); this.nextElementSibling.classList.toggle('expanded');">
+                        {% if item.history_count > 0 or item.transfers_count > 0 %}
+                        <div class="collapsible-details" onclick="event.stopPropagation(); toggleDetails(this, '{{ item.hash }}');">
                             <span class="details-preview">
-                                {% if transfers_count > 0 %}
-                                    Transfer: {{ transfers.0.percent_complete }}% ({{ transfers.0.file_size|filesizeformat }})
-                                {% elif history_count > 0 %}
-                                    {{ history_list.0.details|truncatechars:40 }}
+                                {% if item.transfers_count > 0 %}
+                                    {{ item.transfers.all.0.filename|truncatechars:30 }} - {{ item.transfers.all.0.percent_complete }}%
                                 {% else %}
-                                    No details
+                                    {{ item.history_count }} history record{{ item.history_count|pluralize }}
                                 {% endif %}
                             </span>
                         </div>
                         <div class="details-content">
-                            {% if transfers_count > 0 %}
+                            {% if item.transfers_count > 0 %}
                             <div><strong>Transfer Information:</strong></div>
-                            {% for transfer in transfers %}
+                            {% for transfer in item.transfers.all %}
                             <div>Filename: {{ transfer.filename }}</div>
                             <div>Progress: {{ transfer.percent_complete }}% ({{ transfer.bytes_transferred|filesizeformat }} / {{ transfer.file_size|filesizeformat }})</div>
                             <div>Status: {{ transfer.status }}</div>
                             <div>Started: {{ transfer.started }}</div>
-                            <div>Completed: {{ transfer.completed }}</div>
+                            <div>Completed: {{ transfer.completed|default:"N/A" }}</div>
                             {% if transfer.error_message %}<div style="color: #ff6b6b;">Error: {{ transfer.error_message }}</div>{% endif %}
                             {% endfor %}
                             {% endif %}
-                            {% if history_count > 0 %}
+                            {% if item.history_count > 0 %}
                             <div><strong>Event History:</strong></div>
-                            {% for h in history_list %}
-                            <div>[{{ h.created|date:"H:i:s" }}] {{ h.details }}</div>
-                            {% endfor %}
+                            <div class="history-content" data-loaded="false"></div>
                             {% endif %}
                         </div>
                         {% else %}
@@ -525,7 +589,6 @@ function autoSubmitForm(form) {
                         {% endif %}
                     </td>
                 </tr>
-                {% endwith %}
                 {% endfor %}
             </tbody>
         </table>

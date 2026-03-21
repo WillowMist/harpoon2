@@ -27,6 +27,7 @@ urlpatterns = [
     path('api/queue/', views.api_queue, name='api-queue'),
     path('api/history/', views.api_history, name='api-history'),
     path('api/version/', views.api_version_check, name='api-version'),
+    path('api/item/<str:item_hash>/history/', views.api_item_history, name='api-item-history'),
     path('search/', search_module.search, name='search'),
     path('entities/', include('entities.urls', namespace='entities')),
     path('users/', include('users.urls', namespace='users')),

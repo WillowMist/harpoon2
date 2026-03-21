@@ -280,21 +280,21 @@ def history(request):
     # Get show_archived parameter from query string
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    # Build querysets with simple prefetch (no Prefetch objects with slices)
+    # Build querysets - don't prefetch history (will be lazy-loaded via AJAX)
     if show_archived:
-        completed_items = list(Item.objects.filter(status='Completed', archived=True).select_related('manager', 'downloader').prefetch_related('history', 'transfers').order_by('-archived_at')[:50])
-        failed_items = list(Item.objects.filter(status='Failed', archived=True).select_related('manager', 'downloader').prefetch_related('history', 'transfers').order_by('-archived_at')[:50])
+        completed_items = list(Item.objects.filter(status='Completed', archived=True).select_related('manager', 'downloader').prefetch_related('transfers').order_by('-archived_at')[:50])
+        failed_items = list(Item.objects.filter(status='Failed', archived=True).select_related('manager', 'downloader').prefetch_related('transfers').order_by('-archived_at')[:50])
     else:
-        completed_items = list(Item.objects.filter(status='Completed', archived=False).select_related('manager', 'downloader').prefetch_related('history', 'transfers').order_by('-modified')[:50])
-        failed_items = list(Item.objects.filter(status='Failed', archived=False).select_related('manager', 'downloader').prefetch_related('history', 'transfers').order_by('-modified')[:50])
+        completed_items = list(Item.objects.filter(status='Completed', archived=False).select_related('manager', 'downloader').prefetch_related('transfers').order_by('-modified')[:50])
+        failed_items = list(Item.objects.filter(status='Failed', archived=False).select_related('manager', 'downloader').prefetch_related('transfers').order_by('-modified')[:50])
     
-    # Attach history/transfers counts to items (use len() to avoid DB hits on prefetched data)
+    # Only get history counts efficiently (COUNT query)
     for item in completed_items:
-        item.history_count = len(item.history.all())
-        item.transfers_count = len(item.transfers.all())
+        item.history_count = item.history.count()
+        item.transfers_count = item.transfers.count()
     for item in failed_items:
-        item.history_count = len(item.history.all())
-        item.transfers_count = len(item.transfers.all())
+        item.history_count = item.history.count()
+        item.transfers_count = item.transfers.count()
     
     # Get all counts in one query instead of 4 separate queries
     counts = Item.objects.aggregate(
@@ -925,6 +925,35 @@ def api_history(request):
         })
     
     return JsonResponse({'items': history_items})
+
+
+@login_required
+def api_item_history(request, item_hash):
+    """JSON API for fetching ItemHistory records for a specific item.
+    
+    Used for lazy-loading history when expanded in the UI.
+    """
+    try:
+        item = Item.objects.get(hash=item_hash)
+        # Fetch only the last 50 history entries, ordered by most recent first
+        history = item.history.order_by('-created')[:50]
+        
+        history_items = []
+        for h in history:
+            history_items.append({
+                'id': h.id,
+                'created': h.created.isoformat() if h.created else None,
+                'details': h.details,
+            })
+        
+        return JsonResponse({
+            'hash': item_hash,
+            'name': item.name,
+            'history': history_items,
+            'total': item.history.count(),
+        })
+    except Item.DoesNotExist:
+        return JsonResponse({'error': 'Item not found'}, status=404)
 
 
 def api_version_check(request):
