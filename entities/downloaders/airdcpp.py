@@ -437,6 +437,72 @@ class AirDCppDownloader(BaseDownloader):
         """
         return (True, "AirDC++ completion verified via events")
 
+    def process_completed(self):
+        """Process completed downloads from AirDC++.
+        
+        Gets completed downloads from events, creates items if needed,
+        and queues them for postprocessing.
+        
+        This is the main entry point called by check_downloaders.
+        """
+        from itemqueue.models import Item, ItemHistory
+        
+        if not self.client:
+            return
+        
+        try:
+            events = self.client.get_events(limit=40)
+            seen_hashes = set()
+            
+            for event in events:
+                text = event.get('text', '')
+                
+                if 'has finished downloading' in text.lower():
+                    if text.startswith('The bundle '):
+                        name = text.replace('The bundle ', '').replace(' has finished downloading', '').strip()
+                        
+                        if name.endswith('/'):
+                            continue
+                        
+                        base_folder = self.config.get('target_folder', '/Downloads')
+                        full_path = f"{base_folder}/{name}" if not name.startswith('/') else name
+                        
+                        import hashlib
+                        hash_value = hashlib.md5(name.encode()).hexdigest()
+                        
+                        if hash_value in seen_hashes:
+                            continue
+                        seen_hashes.add(hash_value)
+                        
+                        try:
+                            item = Item.objects.get(hash__iexact=hash_value)
+                            logger.debug(f"AirDC++: Found existing item {item.name} (status={item.status})")
+                            if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                                if item.downloader:
+                                    logger.info(f"AirDC++: Queueing postprocess for {item.name}")
+                                    from itemqueue.tasks import postprocess_item
+                                    postprocess_item.delay(hash_value)
+                        except Item.DoesNotExist:
+                            logger.info(f"AirDC++: Creating item for {name} (path: {full_path})")
+                            item = Item.objects.create(
+                                hash=hash_value,
+                                name=full_path,
+                                status='Grabbed',
+                                downloader=self.downloader if hasattr(self, 'downloader') else None,
+                                size=0,
+                            )
+                            ItemHistory.objects.create(
+                                item=item,
+                                details=f'Download completed in AirDC++: {name}'
+                            )
+                            from itemqueue.tasks import postprocess_item
+                            postprocess_item.delay(hash_value)
+            
+            logger.info(f"AirDC++ process_completed() completed")
+        except Exception as e:
+            logger.error(f"AirDC++ process_completed() error: {e}")
+
+
     def get_download_info(self, hash: str) -> dict:
         """Get information needed for file transfer post-processing.
         

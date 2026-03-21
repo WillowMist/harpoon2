@@ -1039,47 +1039,8 @@ def check_downloaders():
             client._ensure_client()
             
             if downloader.downloadertype == 'AirDC++':
-                # AirDC++ is independent - create items for completed downloads not in database
-                try:
-                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Calling get_completed()...")
-                    completed = client.get_completed()
-                    logger.info(f"[check_downloaders] {downloader.downloadertype}: get_completed() returned {len(completed)} items")
-                    for torrent_info in completed:
-                        hash_value = torrent_info.get('hash', '')
-                        name = torrent_info.get('name', '')
-                        if not hash_value:
-                            continue
-                        
-                        # Check if already in database
-                        try:
-                            item = Item.objects.get(hash__iexact=hash_value)
-                            logger.debug(f"[check_downloaders] {downloader.downloadertype}: Found item {item.name} (status={item.status})")
-                            if item.status not in ['Completed', 'Failed', 'PostProcessing']:
-                                if item.downloader:
-                                    logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name}")
-                                    postprocess_item.delay(hash_value)
-                        except Item.DoesNotExist:
-                            # Create new item for completed download
-                            # For AirDC++, store the full path in item.name for retrieval during transfer
-                            full_path = torrent_info.get('path', name)
-                            display_name = name  # Keep filename for display
-                            
-                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Creating item for completed download: {name} (path: {full_path})")
-                            item = Item.objects.create(
-                                hash=hash_value,
-                                name=full_path,  # Store full path for AirDC++
-                                status='Grabbed',
-                                downloader=downloader,
-                                size=torrent_info.get('size', 0),
-                            )
-                            ItemHistory.objects.create(
-                                item=item,
-                                details=f'Download completed in {downloader.name}: {display_name}'
-                            )
-                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Created item {display_name}, queueing postprocess")
-                            postprocess_item.delay(hash_value)
-                except Exception as e:
-                    logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
+                # AirDC++ has its own processing logic in the downloader class
+                client.process_completed()
             
             else:  # Generic handling for other downloader types
                 # Use the downloader's get_completed method
