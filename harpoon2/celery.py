@@ -12,9 +12,10 @@ app = Celery('harpoon2')
 from django.conf import settings
 app.config_from_object(settings)
 
-# Broker and result backend are configured in Django settings via environment variables
-# Don't hardcode them here - use what's in settings
+# Ensure broker and result backend are set from environment variables
 app.conf.update(
+    broker_url=settings.CELERY_BROKER_URL,
+    result_backend=settings.CELERY_RESULT_BACKEND,
     task_time_limit=3600,  # 1 hour hard limit
     task_soft_time_limit=3300,  # 55 minute soft limit
     task_acks_late=True,
