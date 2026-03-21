@@ -519,13 +519,8 @@ class AirDCppDownloader(BaseDownloader):
         import os
         from itemqueue.models import Item
         
-        # Get seedbox base folder for source files
-        seedbox = getattr(self, 'seedbox', None)
-        if seedbox:
-            # Source files are directly in the base_download_folder
-            base_folder = seedbox.base_download_folder
-        else:
-            base_folder = '/Downloads'
+        # AirDC++ always downloads to /Downloads/ on the seedbox
+        base_folder = '/Downloads'
         
         try:
             item = Item.objects.get(hash=hash)
