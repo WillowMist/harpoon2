@@ -301,10 +301,32 @@ class AirDCppDownloader(BaseDownloader):
     def get_completed(self) -> list:
         """Get completed downloads from AirDC++.
         
-        Note: AirDC++ doesn't have the same completed tracking as other downloaders.
-        This returns an empty list - completion is handled differently via events.
+        Returns:
+            List of completed download info dicts
         """
-        return []
+        if not self.client:
+            return []
+        
+        try:
+            transfers = self.client.get_transfers()
+            completed = []
+            
+            for transfer in transfers:
+                status = transfer.get('status', '')
+                if status and status.lower() in ['completed', 'done', 'finished']:
+                    completed.append({
+                        'hash': str(transfer.get('id', '')),
+                        'name': transfer.get('name', ''),
+                        'completed': True,
+                        'size': transfer.get('size', 0),
+                        'path': transfer.get('path', ''),
+                    })
+            
+            logger.info(f"AirDC++ get_completed() returned {len(completed)} items")
+            return completed
+        except Exception as e:
+            logger.error(f"Error getting AirDC++ completed downloads: {e}")
+            return []
 
     def verify_completion(self, hash: str) -> tuple:
         """Verify that a download is complete.
