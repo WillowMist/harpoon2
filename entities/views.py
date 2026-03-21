@@ -171,7 +171,7 @@ def downloaders(request):
 
 def managertest(request, pk):
     manager = models.Manager.objects.get(pk=pk)
-    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr', 'Whisparr']:
+    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr', 'Whisparr', 'Mylar', 'Mylar3', 'LazyLibrarian', 'Blackhole']:
         if manager.managertype == 'Sonarr':
             client = Sonarr(manager)
         elif manager.managertype == 'Radarr':
@@ -181,6 +181,15 @@ def managertest(request, pk):
         elif manager.managertype == 'Whisparr':
             from .managers import Whisparr
             client = Whisparr(manager)
+        elif manager.managertype in ['Mylar', 'Mylar3']:
+            from .managers import Mylar3
+            client = Mylar3(manager)
+        elif manager.managertype == 'LazyLibrarian':
+            from .managers import LazyLibrarian
+            client = LazyLibrarian(manager)
+        elif manager.managertype == 'Blackhole':
+            from .managers import Blackhole
+            client = Blackhole(manager)
         else:
             client = Lidarr(manager)
         success, message = client.test()
