@@ -443,23 +443,31 @@ class AirDCppDownloader(BaseDownloader):
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
         """
-        # Build full path from the hash (which is MD5 of filename)
-        # We store the full path in the item name when creating
+        import os
         from itemqueue.models import Item
         try:
             item = Item.objects.get(hash=hash)
             # The item.name should contain the full path for AirDC++
-            full_path = item.name if item.name.startswith('/') else None
-            if full_path:
-                import os
+            full_path = item.name
+            if full_path and full_path.startswith('/'):
                 return {
                     'remote_dir': os.path.dirname(full_path),
                     'files_to_copy': [os.path.basename(full_path)],
                     'is_single_file': True,
-                    'name': item.name,
+                    'name': full_path,
                 }
-        except:
-            pass
+            else:
+                # No full path stored, construct from base folder
+                base_folder = self.config.get('target_folder', '/Downloads')
+                constructed_path = f"{base_folder}/{full_path}" if full_path else base_folder
+                return {
+                    'remote_dir': os.path.dirname(constructed_path),
+                    'files_to_copy': [os.path.basename(constructed_path)],
+                    'is_single_file': True,
+                    'name': full_path or hash,
+                }
+        except Exception as e:
+            logger.debug(f"AirDC++ get_download_info error: {e}")
         
         # Fallback
         base_folder = self.config.get('target_folder', '/Downloads')

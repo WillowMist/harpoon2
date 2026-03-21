@@ -1060,19 +1060,23 @@ def check_downloaders():
                                     postprocess_item.delay(hash_value)
                         except Item.DoesNotExist:
                             # Create new item for completed download
-                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Creating item for completed download: {name}")
+                            # For AirDC++, store the full path in item.name for retrieval during transfer
+                            full_path = torrent_info.get('path', name)
+                            display_name = name  # Keep filename for display
+                            
+                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Creating item for completed download: {name} (path: {full_path})")
                             item = Item.objects.create(
                                 hash=hash_value,
-                                name=name,
+                                name=full_path,  # Store full path for AirDC++
                                 status='Grabbed',
                                 downloader=downloader,
                                 size=torrent_info.get('size', 0),
                             )
                             ItemHistory.objects.create(
                                 item=item,
-                                details=f'Download completed in {downloader.name}'
+                                details=f'Download completed in {downloader.name}: {display_name}'
                             )
-                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Created item {name}, queueing postprocess")
+                            logger.info(f"[check_downloaders] {downloader.downloadertype}: Created item {display_name}, queueing postprocess")
                             postprocess_item.delay(hash_value)
                 except Exception as e:
                     logger.error(f"[check_downloaders] {downloader.downloadertype}: Error getting completed downloads: {e}")
