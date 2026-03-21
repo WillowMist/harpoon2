@@ -979,7 +979,7 @@ def api_item_transfers(request, item_hash):
                 'filename': t.filename,
                 'file_size': t.file_size,
                 'bytes_transferred': t.bytes_transferred,
-                'percent_complete': t.percent_complete,
+                'percent_complete': t.percent_complete(),
                 'status': t.status,
                 'started': started,
                 'completed': completed,
