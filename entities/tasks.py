@@ -8,6 +8,48 @@ import requests
 logger = logging.getLogger(__name__)
 
 
+def poll_mylar3(manager):
+    """Poll Mylar3 for newly grabbed comics."""
+    from entities.managers import Mylar3
+    
+    try:
+        client = Mylar3(manager)
+        history = client.get_history()
+        
+        for record in history:
+            status = record.get('Status', '')
+            
+            # Check for newly grabbed comics
+            # Mylar3 status values: "Downloaded", "Snatched", "Skipped", "Wanted", etc.
+            if status in ('Snatched', 'Downloaded'):
+                download_id = record.get('nzb_id', record.get('nzbid', ''))
+                title = record.get('Title', record.get('ComicName', 'Unknown'))
+                size = record.get('Size', 0)
+                
+                if not download_id:
+                    continue
+                
+                item, created = Item.objects.get_or_create(
+                    hash=download_id,
+                    defaults={
+                        'name': title,
+                        'size': size,
+                        'status': 'Grabbed',
+                        'manager': manager,
+                    }
+                )
+                
+                if created:
+                    ItemHistory.objects.create(
+                        item=item,
+                        details=f'Grabbed by {manager.name}'
+                    )
+                    logger.info(f"[Mylar3] New grabbed item: {title} ({download_id})")
+    
+    except Exception as e:
+        logger.error(f"[Mylar3] Error polling {manager.name}: {e}")
+
+
 @shared_task
 def poll_managers():
     """Poll all managers for newly grabbed items."""
@@ -25,6 +67,11 @@ def poll_manager(manager_id):
     
     # Blackhole managers don't have an API - they poll a folder instead
     if manager.managertype == 'Blackhole':
+        return
+    
+    # Mylar3 uses its own API structure
+    if manager.managertype == 'Mylar3':
+        poll_mylar3(manager)
         return
     
     if not manager.url:

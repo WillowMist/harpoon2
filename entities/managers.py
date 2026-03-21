@@ -432,6 +432,188 @@ class Whisparr(Arr):
                 ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
+                message = f"Error initiating post-processing: {str(e)}"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+
+
+class Mylar3:
+    """Manager for Mylar3 - Comic Book downloader."""
+    
+    def __init__(self, manager):
+        self.manager = manager
+        self.url = manager.url
+        self.apikey = manager.apikey
+        self.label = manager.label
+        self.name = manager.name
+    
+    def _api_url(self, command):
+        """Build Mylar3 API URL."""
+        http_root = getattr(self.manager, 'http_root', '')
+        return f'{self.url}{http_root}/api?apikey={self.apikey}&cmd={command}'
+    
+    def test(self):
+        """Test Mylar3 API connection."""
+        try:
+            import logging
+            logger = logging.getLogger(__name__)
+            url = self._api_url('getVersion')
+            logger.info(f"[Mylar3 test] Testing connection to {url}")
+            
+            import requests
+            r = requests.get(url)
+            if r.status_code == 200:
+                return True, r.json()
+            else:
+                return False, f"HTTP {r.status_code}"
+        except Exception as e:
+            return False, str(e)
+    
+    def get_history(self, limit=50):
+        """Get download history from Mylar3.
+        
+        Returns:
+            list of history records with: Status, DateAdded, Title, URL, FolderName, ComicID, Size
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            import requests
+            url = self._api_url('getHistory')
+            logger.info(f"[Mylar3 get_history] Fetching from {url}")
+            
+            r = requests.get(url)
+            if r.status_code != 200:
+                logger.warning(f"[Mylar3 get_history] HTTP {r.status_code}")
+                return []
+            
+            data = r.json()
+            history = data.get('history', [])
+            logger.info(f"[Mylar3 get_history] Got {len(history)} history records")
+            return history
+        except Exception as e:
+            logger.error(f"[Mylar3 get_history] Error: {e}")
+            return []
+    
+    def get_wanted(self):
+        """Get wanted (missing) issues from Mylar3.
+        
+        Returns:
+            list of wanted issues
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            import requests
+            url = self._api_url('getWanted')
+            logger.info(f"[Mylar3 get_wanted] Fetching from {url}")
+            
+            r = requests.get(url)
+            if r.status_code != 200:
+                logger.warning(f"[Mylar3 get_wanted] HTTP {r.status_code}")
+                return []
+            
+            data = r.json()
+            wanted = data.get('wanted', [])
+            logger.info(f"[Mylar3 get_wanted] Got {len(wanted)} wanted issues")
+            return wanted
+        except Exception as e:
+            logger.error(f"[Mylar3 get_wanted] Error: {e}")
+            return []
+    
+    def find_comic(self, name):
+        """Search for comics by name.
+        
+        Args:
+            name: Search query string
+            
+        Returns:
+            list of matching comics
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            import requests
+            url = self._api_url(f'findComic&name={requests.utils.quote(name)}')
+            logger.info(f"[Mylar3 find_comic] Searching for: {name}")
+            
+            r = requests.get(url)
+            if r.status_code != 200:
+                logger.warning(f"[Mylar3 find_comic] HTTP {r.status_code}")
+                return []
+            
+            data = r.json()
+            results = data.get('results', data) if isinstance(data, dict) else data
+            logger.info(f"[Mylar3 find_comic] Found {len(results)} results")
+            return results
+        except Exception as e:
+            logger.error(f"[Mylar3 find_comic] Error: {e}")
+            return []
+    
+    def get_index(self):
+        """Get all series in watchlist.
+        
+        Returns:
+            list of series in the watchlist
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            import requests
+            url = self._api_url('getIndex')
+            logger.info(f"[Mylar3 get_index] Fetching watchlist from {url}")
+            
+            r = requests.get(url)
+            if r.status_code != 200:
+                logger.warning(f"[Mylar3 get_index] HTTP {r.status_code}")
+                return []
+            
+            data = r.json()
+            index = data.get('index', data) if isinstance(data, dict) else data
+            logger.info(f"[Mylar3 get_index] Got {len(index)} series")
+            return index
+        except Exception as e:
+            logger.error(f"[Mylar3 get_index] Error: {e}")
+            return []
+    
+    def post_process(self, item, download_path):
+        """Trigger post-processing in Mylar3 for a downloaded comic.
+        
+        Args:
+            item: Item object
+            download_path: Path where comic was downloaded
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            import requests
+            url = f'{self.url}/api?apikey={self.apikey}&cmd=forceProcess'
+            logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
+            
+            payload = {
+                'nzb_name': item.name,
+                'nzb_folder': download_path
+            }
+            
+            r = requests.post(url, json=payload)
+            
+            if r.status_code in [200, 201]:
+                message = f"Post-processing initiated: {download_path}"
+                ItemHistory.objects.create(item=item, details=message)
+                return True, message
+            else:
+                message = f"Post-processing failed (HTTP {r.status_code})"
+                ItemHistory.objects.create(item=item, details=message)
+                return False, message
+        except Exception as e:
             message = f"Error initiating post-processing: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
