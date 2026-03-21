@@ -547,9 +547,9 @@ class AirDCppDownloader(BaseDownloader):
             logger.info(f"AirDC++ get_download_info: source_path={full_path}, is_bundle={is_bundle}")
             
             if is_bundle:
-                # For bundles/folders, transfer all files (no filtering)
+                # For bundles/folders, transfer all files in that bundle folder
                 return {
-                    'remote_dir': os.path.dirname(full_path),
+                    'remote_dir': full_path,  # Use bundle folder as remote_dir, not parent
                     'files_to_copy': None,  # Transfer all files in folder
                     'is_single_file': False,
                     'name': full_path,
