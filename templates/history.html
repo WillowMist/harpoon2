@@ -322,6 +322,7 @@ function renderTransfers(transfers, container) {
 }
 
 async function toggleDetails(btn, itemHash) {
+    console.log('toggleDetails called', itemHash);
     const previewSpan = btn.querySelector('.details-preview');
     const contentDiv = btn.nextElementSibling;
     
@@ -340,19 +341,27 @@ async function toggleDetails(btn, itemHash) {
     const transfersDiv = contentDiv.querySelector('.transfers-content');
     
     if (historyDiv && !historyDiv.dataset.loaded) {
+        console.log('Loading history for', itemHash);
         historyDiv.innerHTML = '<span style="color: #888;">Loading...</span>';
         const history = await loadHistory(itemHash);
+        console.log('History loaded:', history);
         if (history !== null) {
             renderHistory(history, historyDiv);
+        } else {
+            historyDiv.innerHTML = '<span style="color: #ff6b6b;">Failed to load history</span>';
         }
         historyDiv.dataset.loaded = 'true';
     }
     
     if (transfersDiv && !transfersDiv.dataset.loaded) {
+        console.log('Loading transfers for', itemHash);
         transfersDiv.innerHTML = '<span style="color: #888;">Loading...</span>';
         const transfers = await loadTransfers(itemHash);
+        console.log('Transfers loaded:', transfers);
         if (transfers !== null) {
             renderTransfers(transfers, transfersDiv);
+        } else {
+            transfersDiv.innerHTML = '<span style="color: #ff6b6b;">Failed to load transfers</span>';
         }
         transfersDiv.dataset.loaded = 'true';
     }
