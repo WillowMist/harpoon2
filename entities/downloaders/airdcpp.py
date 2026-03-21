@@ -511,32 +511,38 @@ class AirDCppDownloader(BaseDownloader):
         """
         import os
         from itemqueue.models import Item
+        
+        # Get seedbox base folder for source files
+        seedbox = getattr(self, 'seedbox', None)
+        if seedbox:
+            # Source files are in /Downloads on the seedbox
+            base_folder = f"{seedbox.base_download_folder}/Downloads"
+        else:
+            base_folder = '/Downloads'
+        
         try:
             item = Item.objects.get(hash=hash)
-            # The item.name should contain the full path for AirDC++
-            full_path = item.name
-            if full_path and full_path.startswith('/'):
-                return {
-                    'remote_dir': os.path.dirname(full_path),
-                    'files_to_copy': [os.path.basename(full_path)],
-                    'is_single_file': True,
-                    'name': full_path,
-                }
+            item_name = item.name
+            
+            # The item_name from events is just the filename (e.g., "Xena.1x17...")
+            # Construct full source path
+            if item_name:
+                full_path = f"{base_folder}/{item_name}"
             else:
-                # No full path stored, construct from base folder
-                base_folder = self.config.get('target_folder', '/Downloads')
-                constructed_path = f"{base_folder}/{full_path}" if full_path else base_folder
-                return {
-                    'remote_dir': os.path.dirname(constructed_path),
-                    'files_to_copy': [os.path.basename(constructed_path)],
-                    'is_single_file': True,
-                    'name': full_path or hash,
-                }
-        except Exception as e:
-            logger.debug(f"AirDC++ get_download_info error: {e}")
+                full_path = base_folder
+            
+            logger.info(f"AirDC++ get_download_info: source_path={full_path}")
+            
+            return {
+                'remote_dir': os.path.dirname(full_path),
+                'files_to_copy': [os.path.basename(full_path)],
+                'is_single_file': True,
+                'name': full_path,
+            }
+        except Item.DoesNotExist:
+            logger.debug(f"AirDC++ get_download_info: item not found for hash={hash}")
         
         # Fallback
-        base_folder = self.config.get('target_folder', '/Downloads')
         return {
             'remote_dir': base_folder,
             'files_to_copy': None,
