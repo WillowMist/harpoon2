@@ -14,11 +14,12 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-RUN mkdir -p /data \
+RUN chmod +x entrypoint.sh \
+    && mkdir -p /data \
     && cp harpoon2/settings_template.py /data/settings.py \
     && chown -R 999:70 /data
 
 EXPOSE 4277 6379
 
-ENTRYPOINT ["/app/entrypoint.sh"]
+ENTRYPOINT ["./entrypoint.sh"]
 CMD ["start"]
