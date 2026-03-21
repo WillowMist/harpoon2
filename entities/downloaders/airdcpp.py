@@ -96,7 +96,9 @@ class AirDCppClient:
             List of event objects
         """
         try:
-            return self._make_request('GET', f'/events/{limit}')
+            events = self._make_request('GET', f'/events/{limit}')
+            logger.info(f"AirDC++ get_events() raw response: {events}")
+            return events
         except Exception as e:
             logger.debug(f"GET /events/{limit} failed: {e}")
             return []
