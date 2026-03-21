@@ -843,3 +843,7 @@ class Blackhole:
         )
         
         return True, f"Manual intervention required: {reason}"
+
+
+# Alias for backward compatibility
+Mylar = Mylar3
