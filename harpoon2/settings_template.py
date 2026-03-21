@@ -287,7 +287,7 @@ MANAGER_TYPES = [
     ('Readarr', 'Readarr'),
     ('Whisparr', 'Whisparr'),
     ('LazyLibrarian', 'LazyLibrarian'),
-    ('Mylar', 'Mylar'),
+    ('Mylar3', 'Mylar3'),
     ('Blackhole', 'Blackhole'),
 ]
 
