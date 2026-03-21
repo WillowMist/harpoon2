@@ -462,16 +462,12 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% if item.history_count > 0 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); toggleDetails(this, '{{ item.hash }}');">
-                            <span class="details-preview">Click to load {{ item.history_count }} history record{{ item.history_count|pluralize }}</span>
+                            <span class="details-preview">Click to load details</span>
                         </div>
                         <div class="details-content">
                             <div class="history-content" data-loaded="false"></div>
                         </div>
-                        {% else %}
-                        <span style="color: #888;">No history</span>
-                        {% endif %}
                     </td>
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>
@@ -562,28 +558,14 @@ function autoSubmitForm(form) {
                         </form>
                     </td>
                     <td class="details-cell">
-                        {% if item.history_count > 0 or item.transfers_count > 0 %}
                         <div class="collapsible-details" onclick="event.stopPropagation(); toggleDetails(this, '{{ item.hash }}');">
-                            <span class="details-preview">
-                                {% if item.transfers_count > 0 %}
-                                    {{ item.transfers_count }} transfer{{ item.transfers_count|pluralize }}
-                                {% elif item.history_count > 0 %}
-                                    {{ item.history_count }} history record{{ item.history_count|pluralize }}
-                                {% endif %}
-                            </span>
+                            <span class="details-preview">Click to load details</span>
                         </div>
                         <div class="details-content">
-                            {% if item.transfers_count > 0 %}
                             <div class="transfers-content" data-loaded="false"></div>
-                            {% endif %}
-                            {% if item.history_count > 0 %}
                             <div><strong>Event History:</strong></div>
                             <div class="history-content" data-loaded="false"></div>
-                            {% endif %}
                         </div>
-                        {% else %}
-                        <span style="color: #888;">No details</span>
-                        {% endif %}
                     </td>
                     <td>{{ item.modified|timesince }} ago</td>
                     <td>

@@ -279,29 +279,17 @@ def history(request):
     """History page - shows completed and failed items."""
     show_archived = request.GET.get('show_archived', 'false').lower() == 'true'
     
-    base_qs = Item.objects.filter(
-        status='Completed' if not show_archived else 'Completed',
-        archived=show_archived
-    )
-    completed_items = list(base_qs.filter(
-        status='Completed'
-    ).select_related('manager', 'downloader').prefetch_related(
-        'transfers'
-    ).annotate(
-        history_count=Count('history'),
-        transfers_count=Count('transfers')
-    ).order_by('-modified' if not show_archived else '-archived_at')[:50])
+    completed_items = list(Item.objects.filter(
+        status='Completed', archived=show_archived
+    ).select_related('manager', 'downloader').order_by(
+        '-modified' if not show_archived else '-archived_at'
+    )[:50])
     
-    base_qs_failed = Item.objects.filter(
-        status='Failed',
-        archived=show_archived
-    )
-    failed_items = list(base_qs_failed.select_related('manager', 'downloader').prefetch_related(
-        'transfers'
-    ).annotate(
-        history_count=Count('history'),
-        transfers_count=Count('transfers')
-    ).order_by('-modified' if not show_archived else '-archived_at')[:50])
+    failed_items = list(Item.objects.filter(
+        status='Failed', archived=show_archived
+    ).select_related('manager', 'downloader').order_by(
+        '-modified' if not show_archived else '-archived_at'
+    )[:50])
     
     counts = Item.objects.aggregate(
         completed_active=Count('pk', filter=Q(status='Completed', archived=False)),
