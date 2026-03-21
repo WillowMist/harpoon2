@@ -64,18 +64,29 @@ class AirDCppClient:
     
     def get_downloads(self) -> List[Dict]:
         """
-        Get list of downloads/bundles.
+        Get list of completed downloads/bundles.
         
         Returns:
             List of download/bundle objects
         """
-        # Endpoint may vary - could be /transfers or /queue or /downloads
         try:
             return self._make_request('GET', '/downloads')
         except Exception as e:
-            logger.debug(f"GET /downloads failed: {e}, trying /transfers")
-            # Fallback to transfers endpoint
-            return self.get_transfers()
+            logger.debug(f"GET /downloads failed: {e}")
+            return []
+    
+    def get_finished_bundles(self) -> List[Dict]:
+        """
+        Get list of finished bundles (completed downloads).
+        
+        Returns:
+            List of finished bundle objects
+        """
+        try:
+            return self._make_request('GET', '/finished-bundles')
+        except Exception as e:
+            logger.debug(f"GET /finished-bundles failed: {e}")
+            return []
     
     def get_share_info(self) -> Dict:
         """Get information about shared files/folders."""
@@ -301,6 +312,8 @@ class AirDCppDownloader(BaseDownloader):
     def get_completed(self) -> list:
         """Get completed downloads from AirDC++.
         
+        Uses the /finished-bundles endpoint to get completed downloads.
+        
         Returns:
             List of completed download info dicts
         """
@@ -308,21 +321,32 @@ class AirDCppDownloader(BaseDownloader):
             return []
         
         try:
-            transfers = self.client.get_transfers()
+            # Try /finished-bundles first (completed downloads)
+            bundles = self.client.get_finished_bundles()
             completed = []
             
-            for transfer in transfers:
-                status = transfer.get('status', '')
-                if status and status.lower() in ['completed', 'done', 'finished']:
-                    completed.append({
-                        'hash': str(transfer.get('id', '')),
-                        'name': transfer.get('name', ''),
-                        'completed': True,
-                        'size': transfer.get('size', 0),
-                        'path': transfer.get('path', ''),
-                    })
+            for bundle in bundles:
+                # Extract bundle info
+                bundle_id = str(bundle.get('id', ''))
+                bundle_name = bundle.get('name', '')
+                
+                # Get files within the bundle
+                files = bundle.get('files', [])
+                if not files:
+                    # If no files in bundle, try to get path from bundle
+                    bundle_path = bundle.get('path', '')
+                else:
+                    bundle_path = files[0].get('path', '') if files else ''
+                
+                completed.append({
+                    'hash': bundle_id,
+                    'name': bundle_name,
+                    'completed': True,
+                    'size': bundle.get('size', 0),
+                    'path': bundle_path,
+                })
             
-            logger.info(f"AirDC++ get_completed() returned {len(completed)} items")
+            logger.info(f"AirDC++ get_completed() returned {len(completed)} items from finished-bundles")
             return completed
         except Exception as e:
             logger.error(f"Error getting AirDC++ completed downloads: {e}")
