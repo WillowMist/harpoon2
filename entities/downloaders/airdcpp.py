@@ -169,13 +169,17 @@ class AirDCppDownloader(BaseDownloader):
         Args:
             downloader: Downloader model instance (can be None for initialization)
         """
+        self.downloader = downloader
+        
         if downloader is None:
             # Used when getting option fields from the API
             self.config = {}
             self.client = None
+            self.seedbox = None
             return
             
         self.config = downloader.options if downloader.options else {}
+        self.seedbox = downloader.seedbox
         self.client = AirDCppClient(
             host=self.config.get('host', ''),
             port=self.config.get('port', 5600),
@@ -202,6 +206,9 @@ class AirDCppDownloader(BaseDownloader):
                 password=self.config.get('password', ''),
                 use_https=self.config.get('use_https', False)
             )
+        # Ensure seedbox is also set from downloader model
+        if self.downloader and not self.seedbox:
+            self.seedbox = self.downloader.seedbox
     
     def add(self, file_path: str, **kwargs) -> str:
         """Not implemented for AirDC++ monitoring-only mode"""
