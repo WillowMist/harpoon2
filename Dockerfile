@@ -1,6 +1,8 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+RUN mkdir -p /opt/harpoon2 /data /var/log/harpoon2 /mnt/twilightsparkle
+
+WORKDIR /opt/harpoon2
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
