@@ -519,19 +519,25 @@ class AirDCppDownloader(BaseDownloader):
         import os
         from itemqueue.models import Item
         
-        # AirDC++ always downloads to /Downloads/ on the seedbox
-        base_folder = '/Downloads'
+        # Get seedbox base_download_folder to substitute for /Downloads
+        seedbox = getattr(self, 'seedbox', None)
+        if seedbox and seedbox.base_download_folder:
+            airdc_base = seedbox.base_download_folder
+        else:
+            airdc_base = '/Downloads'
         
         try:
             item = Item.objects.get(hash=hash)
             item_name = item.name
             
             # The item_name from events is just the filename (e.g., "Xena.1x17...")
-            # Construct full source path
-            if item_name:
-                full_path = f"{base_folder}/{item_name}"
+            # Replace /Downloads with the actual seedbox base folder
+            if item_name and item_name.startswith('/Downloads/'):
+                full_path = item_name.replace('/Downloads/', f'{airdc_base}/', 1)
+            elif item_name:
+                full_path = f"{airdc_base}/{item_name}"
             else:
-                full_path = base_folder
+                full_path = airdc_base
             
             logger.info(f"AirDC++ get_download_info: source_path={full_path}")
             
@@ -546,7 +552,7 @@ class AirDCppDownloader(BaseDownloader):
         
         # Fallback
         return {
-            'remote_dir': base_folder,
+            'remote_dir': airdc_base,
             'files_to_copy': None,
             'is_single_file': False,
             'name': hash,
