@@ -88,6 +88,19 @@ class AirDCppClient:
             logger.debug(f"GET /finished-bundles failed: {e}")
             return []
     
+    def get_events(self, limit: int = 20) -> List[Dict]:
+        """
+        Get recent events from AirDC++.
+        
+        Returns:
+            List of event objects
+        """
+        try:
+            return self._make_request('GET', f'/events/{limit}')
+        except Exception as e:
+            logger.debug(f"GET /events/{limit} failed: {e}")
+            return []
+    
     def get_share_info(self) -> Dict:
         """Get information about shared files/folders."""
         return self._make_request('GET', '/share')
@@ -312,7 +325,7 @@ class AirDCppDownloader(BaseDownloader):
     def get_completed(self) -> list:
         """Get completed downloads from AirDC++.
         
-        Uses the /finished-bundles endpoint to get completed downloads.
+        Uses the /events/20 endpoint to get recent events including completed downloads.
         
         Returns:
             List of completed download info dicts
@@ -321,32 +334,28 @@ class AirDCppDownloader(BaseDownloader):
             return []
         
         try:
-            # Try /finished-bundles first (completed downloads)
-            bundles = self.client.get_finished_bundles()
+            events = self.client.get_events(limit=20)
             completed = []
             
-            for bundle in bundles:
-                # Extract bundle info
-                bundle_id = str(bundle.get('id', ''))
-                bundle_name = bundle.get('name', '')
+            for event in events:
+                event_type = event.get('type', '')
+                event_name = event.get('name', '')
                 
-                # Get files within the bundle
-                files = bundle.get('files', [])
-                if not files:
-                    # If no files in bundle, try to get path from bundle
-                    bundle_path = bundle.get('path', '')
-                else:
-                    bundle_path = files[0].get('path', '') if files else ''
-                
-                completed.append({
-                    'hash': bundle_id,
-                    'name': bundle_name,
-                    'completed': True,
-                    'size': bundle.get('size', 0),
-                    'path': bundle_path,
-                })
+                # Look for download completed events
+                # Event types might be: 'bundle_finished', 'download_finished', etc.
+                if 'finish' in event_type.lower() or 'complet' in event_type.lower():
+                    # Try to extract download info from event data
+                    data = event.get('data', {})
+                    
+                    completed.append({
+                        'hash': str(event.get('id', event.get('target', ''))),
+                        'name': event_name or data.get('name', ''),
+                        'completed': True,
+                        'size': data.get('size', 0),
+                        'path': data.get('path', ''),
+                    })
             
-            logger.info(f"AirDC++ get_completed() returned {len(completed)} items from finished-bundles")
+            logger.info(f"AirDC++ get_completed() returned {len(completed)} items from events")
             return completed
         except Exception as e:
             logger.error(f"Error getting AirDC++ completed downloads: {e}")
