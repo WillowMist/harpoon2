@@ -515,8 +515,8 @@ class AirDCppDownloader(BaseDownloader):
         # Get seedbox base folder for source files
         seedbox = getattr(self, 'seedbox', None)
         if seedbox:
-            # Source files are in /Downloads on the seedbox
-            base_folder = f"{seedbox.base_download_folder}/Downloads"
+            # Source files are directly in the base_download_folder
+            base_folder = seedbox.base_download_folder
         else:
             base_folder = '/Downloads'
         
