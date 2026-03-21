@@ -954,6 +954,15 @@ def api_item_transfers(request, item_hash):
         
         transfer_items = []
         for t in transfers:
+            try:
+                started = t.started.isoformat() if t.started else None
+            except Exception:
+                started = None
+            try:
+                completed = t.completed.isoformat() if t.completed else None
+            except Exception:
+                completed = None
+            
             transfer_items.append({
                 'id': t.id,
                 'filename': t.filename,
@@ -961,8 +970,8 @@ def api_item_transfers(request, item_hash):
                 'bytes_transferred': t.bytes_transferred,
                 'percent_complete': t.percent_complete,
                 'status': t.status,
-                'started': t.started.isoformat() if t.started else None,
-                'completed': t.completed.isoformat() if t.completed else None,
+                'started': started,
+                'completed': completed,
                 'error_message': t.error_message,
             })
         
@@ -974,6 +983,10 @@ def api_item_transfers(request, item_hash):
         })
     except Item.DoesNotExist:
         return JsonResponse({'error': 'Item not found'}, status=404)
+    except Exception as e:
+        import logging
+        logging.error(f"api_item_transfers error: {e}")
+        return JsonResponse({'error': str(e)}, status=500)
 
 
 def api_version_check(request):
