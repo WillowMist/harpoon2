@@ -948,20 +948,25 @@ def api_item_transfers(request, item_hash):
     
     Used for lazy-loading transfers when expanded in the UI.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
         item = Item.objects.get(hash=item_hash)
-        transfers = item.transfers.all()
+        transfers = list(item.transfers.all())
         
         transfer_items = []
         for t in transfers:
             try:
                 started = t.started.isoformat() if t.started else None
-            except Exception:
-                started = None
+            except Exception as e:
+                logger.error(f"Error serializing started: {e}, value={t.started}")
+                started = str(t.started) if t.started else None
             try:
                 completed = t.completed.isoformat() if t.completed else None
-            except Exception:
-                completed = None
+            except Exception as e:
+                logger.error(f"Error serializing completed: {e}, value={t.completed}")
+                completed = str(t.completed) if t.completed else None
             
             transfer_items.append({
                 'id': t.id,
@@ -979,13 +984,12 @@ def api_item_transfers(request, item_hash):
             'hash': item_hash,
             'name': item.name,
             'transfers': transfer_items,
-            'total': item.transfers.count(),
+            'total': len(transfers),
         })
     except Item.DoesNotExist:
         return JsonResponse({'error': 'Item not found'}, status=404)
     except Exception as e:
-        import logging
-        logging.error(f"api_item_transfers error: {e}")
+        logger.error(f"api_item_transfers error: {e}", exc_info=True)
         return JsonResponse({'error': str(e)}, status=500)
 
 
