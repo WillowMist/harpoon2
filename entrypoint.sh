@@ -40,11 +40,6 @@ case "${1:-start}" in
         echo -e "${YELLOW}Collecting static files...${NC}"
         python3 manage.py collectstatic --noinput --clear || true
         
-        # Start Redis
-        echo -e "${YELLOW}Starting Redis server...${NC}"
-        redis-server --daemonize yes --logfile /var/log/harpoon2/redis.log
-        sleep 2
-        
         # Start Celery Beat in background
         echo -e "${YELLOW}Starting Celery Beat scheduler...${NC}"
         (celery -A harpoon2 beat -l info --schedule=/data/celerybeat-schedule --logfile=/var/log/harpoon2/celery-beat.log &)
