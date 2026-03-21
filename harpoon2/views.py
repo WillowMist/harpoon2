@@ -949,23 +949,29 @@ def api_item_transfers(request, item_hash):
     Used for lazy-loading transfers when expanded in the UI.
     """
     import logging
+    import traceback
     logger = logging.getLogger(__name__)
+    
+    logger.error(f"[api_item_transfers] START - item_hash={item_hash}")
     
     try:
         item = Item.objects.get(hash=item_hash)
+        logger.error(f"[api_item_transfers] Found item: {item.name}")
         transfers = list(item.transfers.all())
+        logger.error(f"[api_item_transfers] Got transfers: {len(transfers)}")
         
         transfer_items = []
-        for t in transfers:
+        for i, t in enumerate(transfers):
+            logger.error(f"[api_item_transfers] Processing transfer {i}: {t.filename}")
             try:
                 started = t.started.isoformat() if t.started else None
             except Exception as e:
-                logger.error(f"Error serializing started: {e}, value={t.started}")
+                logger.error(f"Error serializing started: {e}, type={type(t.started)}, value={t.started}")
                 started = str(t.started) if t.started else None
             try:
                 completed = t.completed.isoformat() if t.completed else None
             except Exception as e:
-                logger.error(f"Error serializing completed: {e}, value={t.completed}")
+                logger.error(f"Error serializing completed: {e}, type={type(t.completed)}, value={t.completed}")
                 completed = str(t.completed) if t.completed else None
             
             transfer_items.append({
@@ -980,6 +986,7 @@ def api_item_transfers(request, item_hash):
                 'error_message': t.error_message,
             })
         
+        logger.error(f"[api_item_transfers] Returning {len(transfer_items)} transfers")
         return JsonResponse({
             'hash': item_hash,
             'name': item.name,
@@ -987,9 +994,11 @@ def api_item_transfers(request, item_hash):
             'total': len(transfers),
         })
     except Item.DoesNotExist:
+        logger.error(f"[api_item_transfers] Item not found: {item_hash}")
         return JsonResponse({'error': 'Item not found'}, status=404)
     except Exception as e:
-        logger.error(f"api_item_transfers error: {e}", exc_info=True)
+        logger.error(f"[api_item_transfers] UNHANDLED ERROR: {e}")
+        logger.error(f"[api_item_transfers] Traceback: {traceback.format_exc()}")
         return JsonResponse({'error': str(e)}, status=500)
 
 
