@@ -260,11 +260,38 @@ async function loadHistory(itemHash) {
             const data = await resp.json();
             historyCache[itemHash] = data.history;
             return data.history;
+        } else {
+            console.error('History API error:', resp.status, resp.statusText);
         }
     } catch (e) {
         console.error('Failed to load history:', e);
     }
-    return [];
+    return null;
+}
+
+async function loadTransfers(itemHash) {
+    if (transfersCache[itemHash]) return transfersCache[itemHash];
+    try {
+        const resp = await fetch(`/api/item/${itemHash}/transfers/`);
+        if (resp.ok) {
+            const data = await resp.json();
+            transfersCache[itemHash] = data.transfers;
+            return data.transfers;
+        } else {
+            console.error('Transfers API error:', resp.status, resp.statusText);
+        }
+    } catch (e) {
+        console.error('Failed to load transfers:', e);
+    }
+    return null;
+}
+
+function formatBytes(bytes) {
+    if (!bytes) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
 function renderHistory(history, container) {
@@ -287,45 +314,47 @@ function renderTransfers(transfers, container) {
         html += `<div>Filename: ${t.filename}</div>`;
         html += `<div>Progress: ${t.percent_complete}% (${formatBytes(t.bytes_transferred)} / ${formatBytes(t.file_size)})</div>`;
         html += `<div>Status: ${t.status}</div>`;
-        html += `<div>Started: ${t.started}</div>`;
-        html += `<div>Completed: ${t.completed || 'N/A'}</div>`;
+        html += `<div>Started: ${t.started ? new Date(t.started).toLocaleString() : 'N/A'}</div>`;
+        html += `<div>Completed: ${t.completed ? new Date(t.completed).toLocaleString() : 'N/A'}</div>`;
         if (t.error_message) html += `<div style="color: #ff6b6b;">Error: ${t.error_message}</div>`;
     });
     container.innerHTML = html;
 }
 
-function formatBytes(bytes) {
-    if (!bytes) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
 async function toggleDetails(btn, itemHash) {
     const previewSpan = btn.querySelector('.details-preview');
-    const previewExpandedSpan = btn.querySelector('.details-preview.expanded');
     const contentDiv = btn.nextElementSibling;
     
     if (btn.classList.contains('expanded')) {
         btn.classList.remove('expanded');
         previewSpan.classList.remove('expanded');
-        if (previewExpandedSpan) previewExpandedSpan.classList.remove('expanded');
         contentDiv.classList.remove('expanded');
         return;
     }
     
     btn.classList.add('expanded');
     previewSpan.classList.add('expanded');
-    if (previewExpandedSpan) previewExpandedSpan.classList.add('expanded');
     contentDiv.classList.add('expanded');
     
     const historyDiv = contentDiv.querySelector('.history-content');
+    const transfersDiv = contentDiv.querySelector('.transfers-content');
+    
     if (historyDiv && !historyDiv.dataset.loaded) {
         historyDiv.innerHTML = '<span style="color: #888;">Loading...</span>';
         const history = await loadHistory(itemHash);
-        renderHistory(history, historyDiv);
+        if (history !== null) {
+            renderHistory(history, historyDiv);
+        }
         historyDiv.dataset.loaded = 'true';
+    }
+    
+    if (transfersDiv && !transfersDiv.dataset.loaded) {
+        transfersDiv.innerHTML = '<span style="color: #888;">Loading...</span>';
+        const transfers = await loadTransfers(itemHash);
+        if (transfers !== null) {
+            renderTransfers(transfers, transfersDiv);
+        }
+        transfersDiv.dataset.loaded = 'true';
     }
 }
 
@@ -386,7 +415,7 @@ function autoSubmitForm(form) {
 {% if failed_items %}
 <div class="card bg-dark text-white mb-4">
     <div class="card-header bg-danger">
-        <h5 class="card-title mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Failed ({{ failed_items.count }})</h5>
+        <h5 class="card-title mb-0"><i class="fas fa-exclamation-triangle me-2"></i>Failed ({{ failed_items|length }})</h5>
     </div>
     <div class="card-body p-0">
         <table class="table table-dark table-striped mb-0">
@@ -486,7 +515,7 @@ function autoSubmitForm(form) {
 {% if completed_items %}
 <div class="card bg-dark text-white mb-4">
     <div class="card-header bg-success">
-        <h5 class="card-title mb-0"><i class="fas fa-check-circle me-2"></i>Completed ({{ completed_items.count }})</h5>
+        <h5 class="card-title mb-0"><i class="fas fa-check-circle me-2"></i>Completed ({{ completed_items|length }})</h5>
     </div>
     <div class="card-body p-0">
         <table class="table table-dark table-striped mb-0">
@@ -537,23 +566,15 @@ function autoSubmitForm(form) {
                         <div class="collapsible-details" onclick="event.stopPropagation(); toggleDetails(this, '{{ item.hash }}');">
                             <span class="details-preview">
                                 {% if item.transfers_count > 0 %}
-                                    {{ item.transfers.all.0.filename|truncatechars:30 }} - {{ item.transfers.all.0.percent_complete }}%
-                                {% else %}
+                                    {{ item.transfers_count }} transfer{{ item.transfers_count|pluralize }}
+                                {% elif item.history_count > 0 %}
                                     {{ item.history_count }} history record{{ item.history_count|pluralize }}
                                 {% endif %}
                             </span>
                         </div>
                         <div class="details-content">
                             {% if item.transfers_count > 0 %}
-                            <div><strong>Transfer Information:</strong></div>
-                            {% for transfer in item.transfers.all %}
-                            <div>Filename: {{ transfer.filename }}</div>
-                            <div>Progress: {{ transfer.percent_complete }}% ({{ transfer.bytes_transferred|filesizeformat }} / {{ transfer.file_size|filesizeformat }})</div>
-                            <div>Status: {{ transfer.status }}</div>
-                            <div>Started: {{ transfer.started }}</div>
-                            <div>Completed: {{ transfer.completed|default:"N/A" }}</div>
-                            {% if transfer.error_message %}<div style="color: #ff6b6b;">Error: {{ transfer.error_message }}</div>{% endif %}
-                            {% endfor %}
+                            <div class="transfers-content" data-loaded="false"></div>
                             {% endif %}
                             {% if item.history_count > 0 %}
                             <div><strong>Event History:</strong></div>
