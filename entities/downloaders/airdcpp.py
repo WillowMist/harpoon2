@@ -338,24 +338,42 @@ class AirDCppDownloader(BaseDownloader):
         try:
             events = self.client.get_events(limit=20)
             completed = []
+            seen_hashes = set()
             
             for event in events:
-                event_type = event.get('type', '')
-                event_name = event.get('name', '')
+                text = event.get('text', '')
                 
-                # Look for download completed events
-                # Event types might be: 'bundle_finished', 'download_finished', etc.
-                if 'finish' in event_type.lower() or 'complet' in event_type.lower():
-                    # Try to extract download info from event data
-                    data = event.get('data', {})
-                    
-                    completed.append({
-                        'hash': str(event.get('id', event.get('target', ''))),
-                        'name': event_name or data.get('name', ''),
-                        'completed': True,
-                        'size': data.get('size', 0),
-                        'path': data.get('path', ''),
-                    })
+                # Look for "has finished downloading" in the event text
+                if 'has finished downloading' in text.lower():
+                    # Extract bundle name from text
+                    # Format: "The bundle Xena.1x17.The.Royal.Couple.of.Thieves.dvdrip-Jem_TVC.avi has finished downloading"
+                    if text.startswith('The bundle '):
+                        # Extract the filename between "The bundle " and " has finished downloading"
+                        name = text.replace('The bundle ', '').replace(' has finished downloading', '').strip()
+                        
+                        # Skip if it's a directory notification (ends with /)
+                        if name.endswith('/'):
+                            continue
+                        
+                        # Create a hash from the name for tracking
+                        import hashlib
+                        hash_value = hashlib.md5(name.encode()).hexdigest()
+                        
+                        # Avoid duplicates
+                        if hash_value in seen_hashes:
+                            continue
+                        seen_hashes.add(hash_value)
+                        
+                        # Extract path if present in a separate event
+                        path = ''
+                        
+                        completed.append({
+                            'hash': hash_value,
+                            'name': name,
+                            'completed': True,
+                            'size': 0,
+                            'path': path,
+                        })
             
             logger.info(f"AirDC++ get_completed() returned {len(completed)} items from events")
             return completed
