@@ -879,7 +879,23 @@ def transfer_files_async(item_hash):
                             success, pp_message = client.post_process(item, download_path)
                             
                             if success:
-                                logger.info(f"Manager post-processing initiated: {pp_message}")
+                                logger.info(f"Manager post-processing succeeded: {pp_message}")
+                                ItemHistory.objects.create(item=item, details=f'Post-processing succeeded: {pp_message}')
+                                
+                                # Cleanup seedbox files after successful post-processing
+                                # Get the first completed transfer to know what was transferred
+                                first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+                                if first_transfer and item.downloader:
+                                    try:
+                                        cleanup_success, cleanup_message = item.downloader.client.cleanup(first_transfer)
+                                        ItemHistory.objects.create(item=item, details=cleanup_message)
+                                        if cleanup_success:
+                                            logger.info(f"Seedbox cleanup: {cleanup_message}")
+                                        else:
+                                            logger.warning(f"Seedbox cleanup error: {cleanup_message}")
+                                    except Exception as e:
+                                        logger.warning(f"Error calling cleanup: {e}")
+                                        ItemHistory.objects.create(item=item, details=f'Cleanup error: {str(e)}')
                             else:
                                 logger.error(f"Manager post-processing failed: {pp_message}")
                                 ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
@@ -889,10 +905,11 @@ def transfer_files_async(item_hash):
                                     item_hash=item.hash
                                 )
                                 logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
+                                retry_postprocessing.apply_async(args=[item_hash], countdown=300)
                         except Exception as e:
                             logger.error(f"Error calling post-processing: {e}")
                             ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
-                        retry_postprocessing.apply_async(args=[item_hash], countdown=300)
+                            retry_postprocessing.apply_async(args=[item_hash], countdown=300)
             except Exception as e:
                 logger.error(f"Error calling manager post-processing: {e}")
                 ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
@@ -912,18 +929,6 @@ def transfer_files_async(item_hash):
             notification_type='item_completed',
             item_hash=item.hash
         )
-        
-        # Cleanup: Delete completed download from SABnzbd after everything is done (if enabled)
-        if item.downloader and item.downloader.downloadertype == 'SABNzbd':
-            cleanup_enabled = item.downloader.options.get('cleanup', False)
-            if cleanup_enabled and item.clientid:
-                try:
-                    client = item.downloader.client
-                    client.delete(item.clientid)
-                    logger.info(f"Cleaned up SABnzbd download: {item.clientid}")
-                    ItemHistory.objects.create(item=item, details=f'Cleaned up SABnzbd download: {item.clientid}')
-                except Exception as e:
-                    logger.warning(f"Failed to cleanup SABnzbd download: {e}")
 
         logger.info(f"[transfer_files_async] ========== COMPLETED successfully for {item.name} ==========")
         

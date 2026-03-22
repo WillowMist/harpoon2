@@ -538,6 +538,10 @@ class RTorrentDownloader(BaseDownloader):
             'name': name,
         }
 
+    def cleanup(self, file_transfer) -> tuple:
+        """Cleanup not implemented for RTorrent downloader."""
+        return (True, "Cleanup not implemented for RTorrent")
+
 
 def RTorrent(downloader=None):
     """Compatibility wrapper for original RTorrent class name."""

@@ -573,6 +573,10 @@ class AirDCppDownloader(BaseDownloader):
             'name': hash,
         }
 
+    def cleanup(self, file_transfer) -> tuple:
+        """Cleanup not implemented for AirDC++ downloader."""
+        return (True, "Cleanup not implemented for AirDC++")
+
 
 def AirDCpp(downloader=None):
     """Compatibility wrapper for AirDC++ downloader class name."""

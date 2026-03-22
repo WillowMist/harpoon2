@@ -84,3 +84,16 @@ class BaseDownloader(ABC):
             'is_single_file': False,
             'name': '',
         }
+
+    def cleanup(self, file_transfer) -> tuple:
+        """Clean up downloaded files from seedbox after successful post-processing.
+        
+        Args:
+            file_transfer: FileTransfer object containing remote_path
+            
+        Returns:
+            (success: bool, message: str)
+            - If success is True, cleanup completed (or was skipped if disabled)
+            - If success is False, message explains the error (but doesn't fail post-processing)
+        """
+        return (True, "Cleanup not implemented for this downloader type")

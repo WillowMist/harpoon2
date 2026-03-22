@@ -374,6 +374,10 @@ class QBittorrentDownloader(BaseDownloader):
         except Exception as e:
             return (False, f"Connection failed: {e}")
 
+    def cleanup(self, file_transfer) -> tuple:
+        """Cleanup not implemented for QBittorrent downloader."""
+        return (True, "Cleanup not implemented for QBittorrent")
+
 
 def QBittorrent(downloader=None):
     """Compatibility wrapper for QBittorrent downloader class name."""

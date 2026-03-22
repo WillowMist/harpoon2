@@ -370,6 +370,96 @@ class SABnzbdDownloader(BaseDownloader):
             'name': name,
         }
 
+    def cleanup(self, file_transfer) -> tuple:
+        """Clean up downloaded files from seedbox after successful post-processing.
+        
+        Args:
+            file_transfer: FileTransfer object containing remote_path
+            
+        Returns:
+            (success: bool, message: str)
+        """
+        # Check if cleanup is enabled for this downloader
+        if not self.cleanup:
+            return (True, "Cleanup disabled")
+        
+        if not file_transfer or not file_transfer.remote_path:
+            return (True, "No remote path to cleanup")
+        
+        try:
+            # Import here to avoid circular imports
+            from entities.models import Seedbox
+            
+            # Get the seedbox for this downloader
+            if not self.downloader.seedbox:
+                return (False, "No seedbox configured for cleanup")
+            
+            seedbox = self.downloader.seedbox
+            
+            # Establish SFTP connection
+            import paramiko
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            
+            logger.debug(f"[SABnzbd cleanup] Connecting to {seedbox.host}:{seedbox.port}")
+            ssh.connect(
+                hostname=seedbox.host,
+                port=seedbox.port,
+                username=seedbox.username,
+                password=seedbox.password,
+                timeout=10
+            )
+            sftp = ssh.open_sftp()
+            
+            path = file_transfer.remote_path
+            logger.debug(f"[SABnzbd cleanup] Attempting to delete {path}")
+            
+            # Check if it's a file or directory
+            try:
+                sftp.stat(path)
+                # Path exists - check if it's a directory or file
+                try:
+                    # Try to list it (only works for directories)
+                    sftp.listdir(path)
+                    # It's a directory - remove recursively
+                    logger.debug(f"[SABnzbd cleanup] Deleting directory {path}")
+                    self._sftp_remove_dir(sftp, path)
+                    message = f"Deleted directory {path}"
+                except IOError:
+                    # It's a file
+                    logger.debug(f"[SABnzbd cleanup] Deleting file {path}")
+                    sftp.remove(path)
+                    message = f"Deleted file {path}"
+            except FileNotFoundError:
+                message = f"Path not found for cleanup: {path}"
+                logger.warning(f"[SABnzbd cleanup] {message}")
+            
+            sftp.close()
+            ssh.close()
+            
+            return (True, message)
+            
+        except Exception as e:
+            logger.error(f"[SABnzbd cleanup] Error cleaning up {file_transfer.remote_path}: {e}")
+            return (False, f"Cleanup error: {str(e)}")
+
+    def _sftp_remove_dir(self, sftp, path):
+        """Recursively remove directory via SFTP."""
+        try:
+            for item in sftp.listdir(path):
+                item_path = f"{path}/{item}".replace("//", "/")
+                try:
+                    # Try to remove as file first
+                    sftp.remove(item_path)
+                except IOError:
+                    # If that fails, it's probably a directory
+                    self._sftp_remove_dir(sftp, item_path)
+            # Remove the now-empty directory
+            sftp.rmdir(path)
+        except Exception as e:
+            logger.error(f"[SABnzbd cleanup] Error removing directory {path}: {e}")
+            raise
+
 
 def SABNzbd(downloader=None):
     """Compatibility wrapper for original SABNzbd class name."""
