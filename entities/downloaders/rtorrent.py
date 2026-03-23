@@ -531,9 +531,16 @@ class RTorrentDownloader(BaseDownloader):
         
         is_single_file = name and ('.' in name.split('/')[-1])
         
+        # For single-file torrents, specify which file to copy
+        files_to_copy = None
+        if is_single_file:
+            # Extract just the filename if there's a path component
+            filename = name.split('/')[-1] if '/' in name else name
+            files_to_copy = [filename]
+        
         return {
             'remote_dir': directory,
-            'files_to_copy': None,
+            'files_to_copy': files_to_copy,
             'is_single_file': is_single_file,
             'name': name,
         }
