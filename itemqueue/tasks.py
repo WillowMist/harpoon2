@@ -517,8 +517,18 @@ def transfer_files_async(item_hash):
                                 media_file = filename
                                 break
                     
-                    # If still no match, take the first media file as fallback
+                    # If still no match, use files_to_copy if available
+                    if not media_file and files_to_copy:
+                        # Use the specific file from files_to_copy
+                        for filename in remote_files:
+                            if filename in files_to_copy:
+                                media_file = filename
+                                logger.info(f"[transfer_files_async] Matched file from files_to_copy: {media_file}")
+                                break
+                    
+                    # Last resort: take the first media file as fallback
                     if not media_file:
+                        logger.warning(f"[transfer_files_async] No match found in files_to_copy, using first media file as fallback")
                         for filename in remote_files:
                             if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
                                 media_file = filename
