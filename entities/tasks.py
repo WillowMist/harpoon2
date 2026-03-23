@@ -178,10 +178,12 @@ def poll_manager(manager_id):
                 # Just log that we received the import notification
                 try:
                     item = Item.objects.get(hash=download_id)
-                    ItemHistory.objects.create(
-                        item=item,
-                        details=f'Import event received from {manager.name} - awaiting transfer completion'
-                    )
+                    # Only log if not already completed
+                    if item.status != 'Completed':
+                        ItemHistory.objects.create(
+                            item=item,
+                            details=f'Import event received from {manager.name} - awaiting transfer completion'
+                        )
                     logger.debug(f"Received import event for item: {title} ({download_id})")
                 except Item.DoesNotExist:
                     logger.debug(f"Received import event for unknown item: {download_id}")
