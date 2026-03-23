@@ -162,7 +162,7 @@ class Arr(object):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             
@@ -216,7 +216,7 @@ class Sonarr(Arr):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             logger.info(f"[Sonarr post_process] Sending command to {url}")
@@ -270,7 +270,7 @@ class Radarr(Arr):
             payload = {
                 "name": "DownloadedMoviesScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -329,7 +329,7 @@ class Lidarr(Arr):
             payload = {
                 "name": "DownloadedAlbumsScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -388,7 +388,7 @@ class Readarr(Arr):
             payload = {
                 "name": "DownloadedBooksScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -438,7 +438,7 @@ class Whisparr(Arr):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                "downloadClientID": item.hash,
+                 "downloadClientID": item.clientid,
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
