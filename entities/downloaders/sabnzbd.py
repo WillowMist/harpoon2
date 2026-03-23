@@ -27,7 +27,7 @@ class SABnzbdDownloader(BaseDownloader):
         opts = self.options
         self.url = opts.get('url', '')
         self.apikey = opts.get('apikey', '')
-        self.cleanup = opts.get('cleanup', False)
+        self.cleanup_enabled = opts.get('cleanup', False)
         self.enabled = opts.get('enabled', True)
         
         if self.url and self.apikey:
@@ -380,7 +380,7 @@ class SABnzbdDownloader(BaseDownloader):
             (success: bool, message: str)
         """
         # Check if cleanup is enabled for this downloader
-        if not self.cleanup:
+        if not self.cleanup_enabled:
             return (True, "Cleanup disabled")
         
         if not file_transfer or not file_transfer.remote_path:
