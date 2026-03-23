@@ -119,21 +119,30 @@ def poll_manager(manager_id):
                     else:
                         continue
                 
-                # For Whisparr with SABnzbd, try to get the downloader from the download client info
+                # Try to get the downloader from the download client info
                 downloader = None
-                if manager.managertype == 'Whisparr' and download_id.startswith('SABnzbd_'):
-                    # Get the download client type
-                    data_field = record.get('data', {})
-                    if isinstance(data_field, dict):
-                        client_type = data_field.get('downloadClient', '')
-                        if client_type == 'SABnzbd':
-                            try:
-                                from entities.models import Downloader
-                                # Find SABnzbd downloader
-                                downloader = Downloader.objects.get(downloadertype='SABNzbd')
-                                logger.debug(f"Assigned SABnzbd downloader '{downloader.name}' to item {title}")
-                            except Downloader.DoesNotExist:
-                                logger.debug(f"SABnzbd downloader not found for item {title}")
+                data_field = record.get('data', {})
+                if isinstance(data_field, dict):
+                    client_name = data_field.get('downloadClient', '')
+                else:
+                    client_name = ''
+                
+                # Try to find downloader by client name for Radarr/Sonarr/etc
+                if client_name and manager.managertype in ('Radarr', 'Sonarr', 'Lidarr', 'Readarr', 'Whisparr'):
+                    try:
+                        from entities.models import Downloader
+                        # Try matching by name first
+                        downloader = Downloader.objects.filter(name__iexact=client_name).first()
+                        if not downloader:
+                            # Try matching by type (e.g., 'SABnzbd' -> 'SABNzbd')
+                            downloader = Downloader.objects.filter(downloadertype__iexact=client_name).first()
+                        
+                        if downloader:
+                            logger.debug(f"Assigned {client_name} downloader '{downloader.name}' to item {title}")
+                        else:
+                            logger.debug(f"Downloader '{client_name}' not found for item {title}")
+                    except Exception as e:
+                        logger.error(f"Error assigning downloader for item {title}: {e}")
                 
                 # Check if already in queue
                 item, created = Item.objects.get_or_create(

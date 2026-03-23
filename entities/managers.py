@@ -47,11 +47,15 @@ class Arr(object):
             recordinfo['statusmessages'] = record['statusMessages']
             recordinfo['downloadid'] = record['downloadId']
             recordinfo['clientid'] = record['id']
+            recordinfo['downloadclient'] = record.get('downloadClient', '')  # Extract downloader client name
             recordinfo['manager'] = self.manager
             records.append(recordinfo)
         return records
 
     def check_itemqueue(self, record):
+        import logging
+        logger = logging.getLogger(__name__)
+        
         queueitem, created = Item.objects.get_or_create(hash=record['downloadid'])
         if created:
             changed = {'hash': queueitem.hash}
@@ -65,6 +69,28 @@ class Arr(object):
             if getattr(queueitem, attr) != record[attr]:
                 changed[attr] = record[attr]
                 setattr(queueitem, attr, record[attr])
+        
+        # Try to assign downloader if not already assigned and downloadclient is provided
+        if not queueitem.downloader and record.get('downloadclient'):
+            from entities.models import Downloader
+            try:
+                # Map download client names to downloader types
+                client_name = record['downloadclient']
+                # Find matching downloader by name or type
+                downloader = Downloader.objects.filter(name__iexact=client_name).first()
+                if not downloader:
+                    # Try matching by type (e.g., 'SABnzbd' -> 'SABNzbd')
+                    downloader = Downloader.objects.filter(downloadertype__iexact=client_name).first()
+                
+                if downloader:
+                    queueitem.downloader = downloader
+                    changed['downloader'] = downloader.name
+                    logger.debug(f"Assigned downloader '{downloader.name}' to item {record['name']}")
+                else:
+                    logger.warning(f"Could not find downloader matching '{client_name}' for item {record['name']}")
+            except Exception as e:
+                logger.error(f"Error assigning downloader for item {record['name']}: {e}")
+        
         if changed:
             queueitem.save()
             # Re-apply archived status if it was changed
@@ -73,7 +99,10 @@ class Arr(object):
                 queueitem.archived_at = original_archived_at
                 queueitem.save(update_fields=['archived', 'archived_at'])
             for key in changed.keys():
-                history = ItemHistory.objects.create(item=queueitem, details=f'{key} set to "{changed[key]}"')
+                if key != 'downloader':  # Don't log downloader assignment as a generic change
+                    history = ItemHistory.objects.create(item=queueitem, details=f'{key} set to "{changed[key]}"')
+                else:
+                    history = ItemHistory.objects.create(item=queueitem, details=f'Downloader assigned: {changed[key]}')
         return
     
     def reject_download(self, item, reason):
