@@ -805,15 +805,17 @@ class Mylar3:
                         }
                         r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
                         issues_result = r.json()
-                        issues = issues_result.get('issue', [])  # Note: singular "issue", not "issues"
+                        # Response is wrapped: {"success": true, "data": {"issues": [...]}}
+                        data = issues_result.get('data', {})
+                        issues = data.get('issues', [])
                         logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
                         for issue in issues:
                             issue_name = issue.get('name', '')
-                            issue_num = str(issue.get('issue_number', ''))
+                            issue_num = str(issue.get('number', ''))  # Use 'number' not 'issue_number'
                             # Strip leading zeros for comparison
                             issue_num_stripped = issue_num.lstrip('0')
                             issue_number_stripped = str(issue_number).lstrip('0')
-                            logger.info(f"[Mylar3 post_process] Checking issue: {issue_name} (issue_number={issue_num})")
+                            logger.info(f"[Mylar3 post_process] Checking issue: {issue_name} (number={issue_num})")
                             # Match by issue number (with and without leading zeros)
                             if f'#{issue_number}' in issue_name or issue_number_stripped == issue_num_stripped:
                                 issueid = issue.get('id')
