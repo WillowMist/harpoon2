@@ -9,45 +9,73 @@ logger = logging.getLogger(__name__)
 
 
 def poll_mylar3(manager):
-    """Poll Mylar3 for newly grabbed comics."""
-    from entities.managers import Mylar3
+    """Poll Mylar3 logs for newly grabbed comics."""
+    import requests
+    import hashlib
+    from django.core.cache import cache
     
     try:
-        client = Mylar3(manager)
-        history = client.get_history()
+        # Get Mylar3 API URL and key
+        api_url = manager.url.rstrip('/') + '/api' if not manager.url.endswith('/api') else manager.url
+        apikey = manager.apikey
         
-        for record in history:
-            status = record.get('Status', '')
+        # Get logs
+        params = {'apikey': apikey, 'cmd': 'getLogs'}
+        response = requests.get(api_url, params=params, timeout=10)
+        logs = response.json()
+        
+        # Track the last processed log timestamp to avoid re-processing
+        cache_key = f'mylar3_{manager.id}_last_log_time'
+        last_log_time = cache.get(cache_key, '2000-01-01 00:00:00')
+        
+        # Look for download initiation logs
+        for entry in logs:
+            timestamp, message, level, category = entry
             
-            # Check for newly grabbed comics
-            # Mylar3 status values: "Downloaded", "Snatched", "Skipped", "Wanted", etc.
-            if status in ('Snatched', 'Downloaded'):
-                download_id = record.get('nzb_id', record.get('nzbid', ''))
-                title = record.get('Title', record.get('ComicName', 'Unknown'))
-                size = record.get('Size', 0)
-                
-                if not download_id:
-                    continue
-                
-                item, created = Item.objects.get_or_create(
-                    hash=download_id,
-                    defaults={
-                        'name': title,
-                        'size': size,
-                        'status': 'Grabbed',
-                        'manager': manager,
-                    }
-                )
-                
-                if created:
-                    ItemHistory.objects.create(
-                        item=item,
-                        details=f'Grabbed by {manager.name}'
-                    )
-                    logger.info(f"[Mylar3] New grabbed item: {title} ({download_id})")
+            # Skip logs we've already processed
+            if timestamp <= last_log_time:
+                continue
+            
+            msg_lower = message.lower()
+            
+            # Look for "Attempting to download" logs which indicate a grab
+            if 'attempting to download' in msg_lower and 'airdcpp' in msg_lower:
+                # Extract comic name from message
+                # Format: "Attempting to download COMIC_NAME with TTH: ..."
+                parts = message.split(' with ')
+                if len(parts) > 0:
+                    comic_part = parts[0].replace('Attempting to download ', '').strip()
+                    
+                    # Create hash from the comic name
+                    hash_value = hashlib.md5(comic_part.encode()).hexdigest()
+                    
+                    # Check if item already exists
+                    try:
+                        item = Item.objects.get(hash__iexact=hash_value)
+                        logger.debug(f"[Mylar3] Item already exists: {comic_part}")
+                    except Item.DoesNotExist:
+                        # Create new item
+                        item = Item.objects.create(
+                            hash=hash_value,
+                            name=comic_part,
+                            size=0,
+                            status='Grabbed',
+                            manager=manager,
+                        )
+                        ItemHistory.objects.create(
+                            item=item,
+                            details=f'Grabbed by {manager.name} via Mylar3'
+                        )
+                        logger.info(f"[Mylar3] New grabbed item: {comic_part} ({hash_value})")
+            
+            # Update last processed log time
+            last_log_time = timestamp
+        
+        # Cache the last log time for next poll
+        cache.set(cache_key, last_log_time, timeout=3600)  # Cache for 1 hour
     
     except Exception as e:
-        logger.error(f"[Mylar3] Error polling {manager.name}: {e}")
+        logger.error(f"[Mylar3] Error polling {manager.name}: {e}", exc_info=True)
 
 
 @shared_task
