@@ -710,8 +710,8 @@ class Mylar3:
         """Trigger post-processing in Mylar3 for a downloaded comic.
         
         Args:
-            item: Item object with downloader info
-            download_path: Path where comic was downloaded (local transfer path)
+            item: Item object
+            download_path: Path where comic was downloaded (file or directory)
             
         Returns:
             (success: bool, message: str)
@@ -726,23 +726,14 @@ class Mylar3:
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
             # forceProcess expects directory path and filename separately
-            # The path must be where Mylar3 can actually access the file
-            # For AirDC++, this is the downloader's configured target folder, not the local transfer path
-            
-            nzb_folder = None
+            # Files are already in the correct location based on manager config
             nzb_name = os.path.basename(download_path)
             
-            if item.downloader and item.downloader.downloadertype == 'AirDCpp':
-                # For AirDC++, get the target folder from downloader config
-                target_folder = item.downloader.options.get('target_folder', '/Downloads') if item.downloader.options else '/Downloads'
-                # Use the configured target folder
-                nzb_folder = target_folder
-                logger.info(f"[Mylar3 post_process] Using AirDC++ target folder: {nzb_folder}")
-            elif os.path.isfile(download_path):
-                # For other types, extract directory and filename from the download path
+            if os.path.isfile(download_path):
+                # Single file: extract directory
                 nzb_folder = os.path.dirname(download_path)
             else:
-                # If it's a directory, use it as-is
+                # Directory: use as-is
                 nzb_folder = download_path
             
             payload = {
