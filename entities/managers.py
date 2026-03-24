@@ -727,20 +727,23 @@ class Mylar3:
             
             # forceProcess expects directory path and filename separately
             # The path must be where Mylar3 can actually access the file
-            # For AirDC++, this is the downloader's folder, not the local transfer path
+            # For AirDC++, this is the downloader's configured target folder, not the local transfer path
             
-            if item.downloader and item.downloader.name and 'airdcpp' in item.downloader.name.lower():
-                # For AirDC++, use the AirDC++ download folder on the system Mylar3 can access
-                nzb_folder = '/mnt/twilightsparkle/processing/downloads/airdcpp'
-                nzb_name = os.path.basename(download_path)
+            nzb_folder = None
+            nzb_name = os.path.basename(download_path)
+            
+            if item.downloader and item.downloader.downloadertype == 'AirDCpp':
+                # For AirDC++, get the target folder from downloader config
+                target_folder = item.downloader.options.get('target_folder', '/Downloads') if item.downloader.options else '/Downloads'
+                # Use the configured target folder
+                nzb_folder = target_folder
+                logger.info(f"[Mylar3 post_process] Using AirDC++ target folder: {nzb_folder}")
             elif os.path.isfile(download_path):
                 # For other types, extract directory and filename from the download path
                 nzb_folder = os.path.dirname(download_path)
-                nzb_name = os.path.basename(download_path)
             else:
-                # If it's a directory, use it as-is and use item name
+                # If it's a directory, use it as-is
                 nzb_folder = download_path
-                nzb_name = item.name
             
             payload = {
                 'nzb_name': nzb_name,
