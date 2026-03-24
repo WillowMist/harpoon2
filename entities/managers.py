@@ -871,6 +871,24 @@ class Mylar3:
                 'nzb_folder': folder,
             }
             
+            # Check issue status - skip if already processed
+            if issueid:
+                issue_info_params = {
+                    'apikey': self.apikey,
+                    'cmd': 'getIssueInfo',
+                    'id': issueid
+                }
+                r_issue = requests.get(f'{self.url}/api', params=issue_info_params, timeout=30)
+                issue_data = r_issue.json()
+                issue_list = issue_data.get('data', [])
+                if issue_list and len(issue_list) > 0:
+                    issue_status = issue_list[0].get('status', '')
+                    logger.info(f"[Mylar3 post_process] Issue {issueid} status: {issue_status}")
+                    if issue_status in ['Downloaded', 'Post-Processed']:
+                        message = f"Skipping post-processing: issue already {issue_status} (issueid={issueid})"
+                        ItemHistory.objects.create(item=item, details=message)
+                        return True, message
+            
             # Add comicid and issueid if found
             if comicid:
                 params['comicid'] = comicid
