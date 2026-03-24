@@ -810,10 +810,13 @@ class Mylar3:
                         logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
                         for issue in issues:
                             issue_name = issue.get('name', '')
-                            issue_num = issue.get('issue_number', '')
+                            issue_num = str(issue.get('issue_number', ''))
+                            # Strip leading zeros for comparison
+                            issue_num_stripped = issue_num.lstrip('0')
+                            issue_number_stripped = str(issue_number).lstrip('0')
                             logger.info(f"[Mylar3 post_process] Checking issue: {issue_name} (issue_number={issue_num})")
-                            # Match by issue number in the name or issue_number field
-                            if f'#{issue_number}' in issue_name or issue_number.lstrip('0') == issue_num.lstrip('0') or issue_number == issue_num:
+                            # Match by issue number (with and without leading zeros)
+                            if f'#{issue_number}' in issue_name or issue_number_stripped == issue_num_stripped:
                                 issueid = issue.get('id')
                                 logger.info(f"[Mylar3 post_process] Found issueid: {issueid} for {issue_name}")
                                 break
