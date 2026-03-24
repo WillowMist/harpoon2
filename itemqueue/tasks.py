@@ -647,11 +647,9 @@ def transfer_files_async(item_hash):
         skipped_count = 0
         
         if len(transfer_list) == 0:
-            logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
-            ItemHistory.objects.create(item=item, details=f'No files found to transfer - remote_dir may be empty or inaccessible')
-            sftp.close()
-            ssh.close()
-            return
+             logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
+            # Don't return early - still proceed to post_process since files may already exist locally
+            # Continue to the post-process section below
         
         for remote_file_path, relative_path in transfer_list:
             # Build local path preserving folder structure
