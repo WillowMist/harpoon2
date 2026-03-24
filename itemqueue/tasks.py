@@ -899,11 +899,16 @@ def transfer_files_async(item_hash):
                         logger.warning(f"Could not check for single video file: {e}")
                     
                     # Only call post_process if the manager supports it
-                    client = item.manager.client
-                    if hasattr(client, 'post_process'):
+                    if item.manager and item.manager.managertype == 'Mylar3':
+                        from entities.managers import Mylar3
+                        manager_client = Mylar3(item.manager)
+                    else:
+                        manager_client = None
+                    
+                    if manager_client and hasattr(manager_client, 'post_process'):
                         logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
                         try:
-                            success, pp_message = client.post_process(item, download_path)
+                            success, pp_message = manager_client.post_process(item, download_path)
                             
                             if success:
                                 logger.info(f"Manager post-processing succeeded: {pp_message}")
