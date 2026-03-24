@@ -49,10 +49,15 @@ def poll_mylar3(manager):
                 comic_name = None
                 
                 if 'attempting to download' in msg_lower:
-                    # For AIRDCPP: "Attempting to download COMIC_NAME with TTH: ..."
+                    # For AIRDCPP: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
                     parts = message.split(' with ')
                     if len(parts) > 0:
-                        comic_name = parts[0].replace('Attempting to download ', '').replace('[airdcpp] ', '').replace('[rtorrent] ', '').strip()
+                        comic_name = parts[0]
+                        # Remove downloader prefix and method prefix
+                        for prefix in ['[AIRDCPP]', '[RTORRENT]', '[QBITTORRENT]', '[SABNZBD]', '[airdcpp]', '[rtorrent]', '[qbittorrent]', '[sabnzbd]']:
+                            if prefix in comic_name:
+                                comic_name = comic_name.replace(prefix, '').strip()
+                        comic_name = comic_name.replace('Attempting to download ', '').strip()
                 elif 'download initiated' in msg_lower:
                     # For SABNZBD and others
                     parts = message.split(' for ')
