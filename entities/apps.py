@@ -42,23 +42,9 @@ class EntitiesConfig(AppConfig):
                             item.save()
                             logger.info(f"[Startup] Assigned downloader {item.downloader.name} to item {item.name}")
             
-            # Also check for items in PostProcessing without any FileTransfer records
-            # and queue their transfers
-            pp_items = Item.objects.filter(status='PostProcessing')
-            for item in pp_items:
-                has_transfers = FileTransfer.objects.filter(item=item).exists()
-                if not has_transfers:
-                    logger.info(f"[Startup] Item {item.name} in PostProcessing but has no transfers, queueing transfer")
-                    try:
-                        # Import and queue the transfer task with retry
-                        from itemqueue.tasks import transfer_files_async
-                        # Delay queueing by 5 seconds to allow Celery to fully boot
-                        transfer_files_async.apply_async(args=[item.hash], countdown=5)
-                        logger.info(f"[Startup] Queued transfer for {item.name}")
-                    except Exception as te:
-                        # Log but don't fail startup if task queueing fails
-                        # The transfer will be retried by check_stalled_transfers task
-                        logger.warning(f"[Startup] Failed to queue transfer for {item.name}: {te}")
+            # Note: Items in PostProcessing without FileTransfer records will be handled
+            # by the check_downloader_failures periodic task, which runs every 5 minutes.
+            # We don't queue tasks here to avoid Celery broker connectivity issues during startup.
                     
         except Exception as e:
             logger.warning(f"[Startup] Error checking stuck items: {e}")
