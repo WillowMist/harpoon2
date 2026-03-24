@@ -25,16 +25,18 @@ def poll_mylar3(manager):
         logs = response.json()
         
         # Track the last processed log timestamp to avoid re-processing
+        # Logs are returned newest-first, so we process from the beginning
         cache_key = f'mylar3_{manager.id}_last_log_time'
         last_log_time = cache.get(cache_key, '2000-01-01 00:00:00')
         
         # Look for download initiation logs from any downloader
+        # Logs are ordered newest-first, so stop when we reach previously seen entries
         for entry in logs:
             timestamp, message, level, category = entry
             
-            # Skip logs we've already processed
+            # Stop processing when we reach entries we've already seen
             if timestamp <= last_log_time:
-                continue
+                break
             
             msg_lower = message.lower()
             
