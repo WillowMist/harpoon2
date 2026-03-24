@@ -724,10 +724,19 @@ class Mylar3:
             import requests
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
-            # Mylar3's forceProcess API: pass full path in nzb_folder with filename in nzb_name
-            # This tells Mylar3 exactly where the file is
-            nzb_name = os.path.basename(download_path)
-            nzb_folder = download_path
+            # Mylar3's forceProcess API: folder and filename separately
+            # Strip file extension from nzb_name (cbr, cbz, pdf, etc.)
+            filename = os.path.basename(download_path)
+            folder = os.path.dirname(download_path)
+            
+            # Remove common comic file extensions from the name
+            nzb_name = filename
+            for ext in ['.cbr', '.cbz', '.pdf']:
+                if nzb_name.lower().endswith(ext):
+                    nzb_name = nzb_name[:-len(ext)]
+                    break
+            
+            nzb_folder = folder
             
             url = f'{self.url}/api'
             params = {
