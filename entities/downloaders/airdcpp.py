@@ -485,15 +485,9 @@ class AirDCppDownloader(BaseDownloader):
                             item = Item.objects.get(hash__iexact=hash_value)
                             logger.debug(f"AirDC++: Found existing item {item.name} (status={item.status})")
                             
-                            # For items that are already Completed, check if they still need post-processing
-                            # (e.g., if they came from Mylar3 polling and haven't been post-processed yet)
+                            # Skip already-completed items - don't re-process them on restart
                             if item.status == 'Completed':
-                                # Item is completed - check if it needs post-processing
-                                # If it has a manager, queue post-processing if not already done
-                                if item.manager and item.downloader:
-                                    logger.info(f"AirDC++: Item {item.name} is completed, queueing postprocess")
-                                    from itemqueue.tasks import postprocess_item
-                                    postprocess_item.delay(hash_value)
+                                logger.debug(f"AirDC++: Skipping already completed item {item.name}")
                             elif item.status not in ['Failed', 'PostProcessing']:
                                 # For non-completed items, assign downloader and queue
                                 # If item has no downloader (e.g., from Mylar3 polling), assign AirDC++ as downloader
