@@ -50,11 +50,14 @@ class EntitiesConfig(AppConfig):
                 if not has_transfers:
                     logger.info(f"[Startup] Item {item.name} in PostProcessing but has no transfers, queueing transfer")
                     try:
-                        # Import and queue the transfer task
+                        # Import and queue the transfer task with retry
                         from itemqueue.tasks import transfer_files_async
-                        transfer_files_async.delay(item.hash)
+                        # Delay queueing by 5 seconds to allow Celery to fully boot
+                        transfer_files_async.apply_async(args=[item.hash], countdown=5)
                         logger.info(f"[Startup] Queued transfer for {item.name}")
                     except Exception as te:
+                        # Log but don't fail startup if task queueing fails
+                        # The transfer will be retried by check_stalled_transfers task
                         logger.warning(f"[Startup] Failed to queue transfer for {item.name}: {te}")
                     
         except Exception as e:
