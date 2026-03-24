@@ -609,6 +609,107 @@ class Mylar3:
             logger.error(f"[Mylar3 get_index] Error: {e}")
             return []
     
+    def poll(self):
+        """Poll Mylar3 logs for newly grabbed comics.
+        
+        Returns:
+            None (results are saved to database)
+        """
+        import logging
+        import requests
+        import hashlib
+        from django.core.cache import cache
+        
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Get logs
+            api_url = self.url.rstrip('/') + '/api' if not self.url.endswith('/api') else self.url
+            params = {'apikey': self.apikey, 'cmd': 'getLogs'}
+            response = requests.get(api_url, params=params, timeout=10)
+            logs = response.json()
+            
+            # Track the last processed log timestamp to avoid re-processing
+            # Logs are returned newest-first, so we process from the beginning
+            cache_key = f'mylar3_{self.manager.id}_last_log_time'
+            last_log_time = cache.get(cache_key, '2000-01-01 00:00:00')
+            
+            # Look for download initiation logs from any downloader
+            # Logs are ordered newest-first, so we track the newest one we've seen
+            newest_log_time = last_log_time
+            
+            for entry in logs:
+                timestamp, message, level, category = entry
+                
+                # Stop processing when we reach entries we've already seen
+                if timestamp <= last_log_time:
+                    break
+                
+                # Track the newest log we're processing
+                if timestamp > newest_log_time:
+                    newest_log_time = timestamp
+                
+                msg_lower = message.lower()
+                
+                # Look for "Attempting to download" or "Download initiated" logs which indicate a grab
+                # Works with any downloader (AIRDCPP, SABNZBD, RTORRENT, QBITTORRENT, etc.)
+                if 'attempting to download' in msg_lower or 'download initiated' in msg_lower:
+                    # Extract comic name from message
+                    # Log formats vary by downloader but all contain the comic name
+                    
+                    comic_name = None
+                    
+                    if 'attempting to download' in msg_lower:
+                        # For AIRDCPP: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
+                        parts = message.split(' with ')
+                        if len(parts) > 0:
+                            comic_name = parts[0]
+                            # Remove downloader prefix and method prefix
+                            for prefix in ['[AIRDCPP]', '[RTORRENT]', '[QBITTORRENT]', '[SABNZBD]', '[airdcpp]', '[rtorrent]', '[qbittorrent]', '[sabnzbd]']:
+                                if prefix in comic_name:
+                                    comic_name = comic_name.replace(prefix, '').strip()
+                            comic_name = comic_name.replace('Attempting to download ', '').strip()
+                    elif 'download initiated' in msg_lower:
+                        # For SABNZBD and others
+                        parts = message.split(' for ')
+                        if len(parts) > 0:
+                            comic_name = parts[-1].strip()
+                    
+                    if comic_name:
+                        # Create hash from the comic name
+                        hash_value = hashlib.md5(comic_name.encode()).hexdigest()
+                        
+                        # Check if item already exists
+                        try:
+                            item = Item.objects.get(hash__iexact=hash_value)
+                            # If item exists but has no manager, assign Mylar3 as the manager
+                            if not item.manager:
+                                item.manager = self.manager
+                                item.save()
+                                logger.info(f"[Mylar3] Assigned manager to existing item: {comic_name}")
+                            else:
+                                logger.debug(f"[Mylar3] Item already has manager: {comic_name}")
+                        except Item.DoesNotExist:
+                            # Create new item
+                            item = Item.objects.create(
+                                hash=hash_value,
+                                name=comic_name,
+                                size=0,
+                                status='Grabbed',
+                                manager=self.manager,
+                            )
+                            ItemHistory.objects.create(
+                                item=item,
+                                details=f'Grabbed by {self.manager.name} via Mylar3'
+                            )
+                            logger.info(f"[Mylar3] New grabbed item: {comic_name} ({hash_value})")
+            
+            # Cache the newest log time for next poll
+            cache.set(cache_key, newest_log_time, timeout=3600)  # Cache for 1 hour
+        
+        except Exception as e:
+            logger.error(f"[Mylar3] Error polling {self.name}: {e}", exc_info=True)
+    
     def post_process(self, item, download_path):
         """Trigger post-processing in Mylar3 for a downloaded comic.
         
