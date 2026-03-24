@@ -862,6 +862,9 @@ def transfer_files_async(item_hash):
                     first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
                     if first_transfer and first_transfer.local_path:
                         local_folder = os.path.dirname(first_transfer.local_path)
+                    elif item.manager and item.manager.folder:
+                        # If no transfer record, use manager's folder (files may already exist locally)
+                        local_folder = item.manager.folder.folder
                 
                 # Always try to call post_process - log even if local_folder is None
                 logger.info(f"Attempting manager post-processing for {item.name}, local_folder={local_folder}")
