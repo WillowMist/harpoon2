@@ -792,6 +792,7 @@ class Mylar3:
                     
                     # Get issues for this comic to find the right issue
                     if comicid and issue_number:
+                        logger.info(f"[Mylar3 post_process] Looking for issue {issue_number} in comic {comicid}")
                         issues_params = {
                             'apikey': self.apikey,
                             'cmd': 'getIssues',
@@ -799,12 +800,17 @@ class Mylar3:
                         }
                         r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
                         issues_result = r.json()
+                        logger.info(f"[Mylar3 post_process] getIssues result: {issues_result}")
                         issues = issues_result.get('issues', [])
+                        logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
                         for issue in issues:
-                            # Match by issue number in the name
-                            if f'#{issue_number}' in issue.get('name', '') or issue_number == issue.get('issue_number'):
+                            issue_name = issue.get('name', '')
+                            issue_num = issue.get('issue_number', '')
+                            logger.info(f"[Mylar3 post_process] Checking issue: {issue_name} (issue_number={issue_num})")
+                            # Match by issue number in the name or issue_number field
+                            if f'#{issue_number}' in issue_name or issue_number.lstrip('0') == issue_num.lstrip('0') or issue_number == issue_num:
                                 issueid = issue.get('id')
-                                logger.info(f"[Mylar3 post_process] Found issueid: {issueid} for {issue.get('name')}")
+                                logger.info(f"[Mylar3 post_process] Found issueid: {issueid} for {issue_name}")
                                 break
             except Exception as e:
                 logger.warning(f"[Mylar3 post_process] Could not fetch comic/issue IDs: {e}")
