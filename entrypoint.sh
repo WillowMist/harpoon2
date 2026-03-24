@@ -40,19 +40,9 @@ case "${1:-start}" in
         echo -e "${YELLOW}Collecting static files...${NC}"
         python3 manage.py collectstatic --noinput --clear || true
         
-        # Start Celery Beat in background
-        echo -e "${YELLOW}Starting Celery Beat scheduler...${NC}"
-        (celery -A harpoon2 beat -l info --schedule=/data/celerybeat-schedule --logfile=/var/log/harpoon2/celery-beat.log &)
-        sleep 1
-        
-        # Start Celery Worker in background  
-        echo -e "${YELLOW}Starting Celery worker...${NC}"
-        (celery -A harpoon2 worker -l debug --logfile=/var/log/harpoon2/celery-worker.log &)
-        sleep 1
-        
-        # Start Django development server in foreground
-        echo -e "${GREEN}Starting Django development server on 0.0.0.0:4277${NC}"
-        exec python3 manage.py runserver 0.0.0.0:4277
+        # Start all services with Supervisor
+        echo -e "${GREEN}Starting all services with Supervisor...${NC}"
+        exec supervisord -c /opt/harpoon2/supervisord.conf
         ;;
         
     django)

@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libpq-dev \
     curl \
+    supervisor \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
@@ -19,7 +20,8 @@ COPY . .
 RUN chmod +x entrypoint.sh \
     && mkdir -p /data \
     && cp harpoon2/settings_template.py /data/settings.py \
-    && chown -R 999:70 /data
+    && chown -R 999:70 /data \
+    && mkdir -p /var/run/supervisor
 
 EXPOSE 4277 6379
 
