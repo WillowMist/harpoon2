@@ -770,20 +770,25 @@ class Mylar3:
                 # findComic returns a list of matching comics
                 comicid = None
                 if isinstance(result, list) and len(result) > 0:
-                    # Try to match by year if available in the filename
-                    year_match = re.search(r'\((\d{4})\)', name_without_ext)
-                    year = year_match.group(1) if year_match else None
+                    # Try to find the best match: prefer the one with more issues (actual series)
+                    best_comic = None
+                    max_issues = 0
                     
                     for comic in result:
-                        if year and comic.get('comicyear') == year:
-                            comicid = comic.get('comicid')
-                            logger.info(f"[Mylar3 post_process] Found comicid: {comicid} (matched year {year})")
-                            break
+                        issues = comic.get('issues', '0')
+                        try:
+                            issues_count = int(issues) if isinstance(issues, str) else issues
+                        except:
+                            issues_count = 0
+                        
+                        # Prefer series with more issues (actual ongoing series vs TPB/one-shot)
+                        if issues_count > max_issues:
+                            max_issues = issues_count
+                            best_comic = comic
                     
-                    # If no year match, use first result
-                    if not comicid:
-                        comicid = result[0].get('comicid')
-                        logger.info(f"[Mylar3 post_process] Using first match: {comicid}")
+                    if best_comic:
+                        comicid = best_comic.get('comicid')
+                        logger.info(f"[Mylar3 post_process] Found comicid: {comicid} (matched series with {max_issues} issues)")
                 elif isinstance(result, dict):
                     comicid = result.get('comicid')
                 
