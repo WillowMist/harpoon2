@@ -899,9 +899,17 @@ def transfer_files_async(item_hash):
                         logger.warning(f"Could not check for single video file: {e}")
                     
                     # Only call post_process if the manager supports it
-                    if item.manager and item.manager.managertype == 'Mylar3':
-                        from entities.managers import Mylar3
-                        manager_client = Mylar3(item.manager)
+                    if item.manager:
+                        # Instantiate the appropriate manager class
+                        from entities.managers import Sonarr, Radarr, Whisparr, Mylar3
+                        manager_classes = {
+                            'Sonarr': Sonarr,
+                            'Radarr': Radarr,
+                            'Whisparr': Whisparr,
+                            'Mylar3': Mylar3
+                        }
+                        manager_class = manager_classes.get(item.manager.managertype)
+                        manager_client = manager_class(item.manager) if manager_class else None
                     else:
                         manager_client = None
                     
