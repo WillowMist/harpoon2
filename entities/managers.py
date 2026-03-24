@@ -724,24 +724,14 @@ class Mylar3:
             import requests
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
-            # forceProcess expects directory path and filename separately
-            # Files are already in the correct location based on manager config
-            nzb_name = os.path.basename(download_path)
-            
-            if os.path.isfile(download_path):
-                # Single file: extract directory
-                nzb_folder = os.path.dirname(download_path)
-            else:
-                # Directory: use as-is
-                nzb_folder = download_path
-            
-            # Mylar3's older API expects query parameters, not JSON body
+            # Mylar3's forceProcess API: pass full path in nzb_folder, empty nzb_name
+            # This tells Mylar3 exactly where the file is
             url = f'{self.url}/api'
             params = {
                 'apikey': self.apikey,
                 'cmd': 'forceProcess',
-                'nzb_name': nzb_name,
-                'nzb_folder': nzb_folder
+                'nzb_name': '',
+                'nzb_folder': download_path
             }
             
             logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={nzb_folder}, name={nzb_name}")
