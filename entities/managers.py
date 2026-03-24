@@ -766,8 +766,28 @@ class Mylar3:
                 r = requests.get(f'{self.url}/api', params=find_params, timeout=10)
                 result = r.json()
                 logger.info(f"[Mylar3 post_process] findComic result: {result}")
-                if result.get('comicid'):
-                    comicid = result['comicid']
+                
+                # findComic returns a list of matching comics
+                comicid = None
+                if isinstance(result, list) and len(result) > 0:
+                    # Try to match by year if available in the filename
+                    year_match = re.search(r'\((\d{4})\)', name_without_ext)
+                    year = year_match.group(1) if year_match else None
+                    
+                    for comic in result:
+                        if year and comic.get('comicyear') == year:
+                            comicid = comic.get('comicid')
+                            logger.info(f"[Mylar3 post_process] Found comicid: {comicid} (matched year {year})")
+                            break
+                    
+                    # If no year match, use first result
+                    if not comicid:
+                        comicid = result[0].get('comicid')
+                        logger.info(f"[Mylar3 post_process] Using first match: {comicid}")
+                elif isinstance(result, dict):
+                    comicid = result.get('comicid')
+                
+                if comicid:
                     logger.info(f"[Mylar3 post_process] Found comicid: {comicid}")
                     
                     # Get issues for this comic to find the right issue
