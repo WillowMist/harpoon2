@@ -490,10 +490,10 @@ class AirDCppDownloader(BaseDownloader):
                                     from itemqueue.tasks import postprocess_item
                                     postprocess_item.delay(hash_value)
                         except Item.DoesNotExist:
-                            logger.info(f"AirDC++: Creating item for {name} (path: {full_path})")
+                            logger.info(f"AirDC++: Creating item for {name}")
                             item = Item.objects.create(
                                 hash=hash_value,
-                                name=full_path,
+                                name=name,
                                 status='Grabbed',
                                 downloader=self.downloader if hasattr(self, 'downloader') else None,
                                 size=0,
