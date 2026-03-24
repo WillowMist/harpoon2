@@ -485,6 +485,13 @@ class AirDCppDownloader(BaseDownloader):
                             item = Item.objects.get(hash__iexact=hash_value)
                             logger.debug(f"AirDC++: Found existing item {item.name} (status={item.status})")
                             if item.status not in ['Completed', 'Failed', 'PostProcessing']:
+                                # If item has no downloader (e.g., from Mylar3 polling), assign AirDC++ as downloader
+                                if not item.downloader:
+                                    item.downloader = self.downloader if hasattr(self, 'downloader') else None
+                                    item.save()
+                                    logger.info(f"AirDC++: Assigned downloader to {item.name}")
+                                
+                                # Queue for postprocessing if downloader is now assigned
                                 if item.downloader:
                                     logger.info(f"AirDC++: Queueing postprocess for {item.name}")
                                     from itemqueue.tasks import postprocess_item
