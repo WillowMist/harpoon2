@@ -730,6 +730,12 @@ class Mylar3:
             filename = os.path.basename(download_path)
             folder = os.path.dirname(download_path)
             
+            # If download_path is a directory (no extension), use item.name instead
+            if not os.path.splitext(filename)[1]:
+                logger.info(f"[Mylar3 post_process] download_path is a directory, using item.name: {item.name}")
+                filename = item.name
+                folder = download_path
+            
             # Remove file extension
             name_without_ext = filename
             for ext in ['.cbr', '.cbz', '.pdf']:
