@@ -39,13 +39,10 @@ def poll_mylar3(manager):
             msg_lower = message.lower()
             
             # Look for "Attempting to download" or "Download initiated" logs which indicate a grab
-            # Works with AIRDCPP, SABNZBD, RTORRENT, and other downloaders
+            # Works with any downloader (AIRDCPP, SABNZBD, RTORRENT, QBITTORRENT, etc.)
             if 'attempting to download' in msg_lower or 'download initiated' in msg_lower:
                 # Extract comic name from message
-                # Format varies by downloader:
-                # AIRDCPP: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
-                # SABNZBD: "[SABNZBD] Download initiated for COMIC_NAME"
-                # RTORRENT: "[RTORRENT] Attempting to download COMIC_NAME"
+                # Log formats vary by downloader but all contain the comic name
                 
                 comic_name = None
                 
