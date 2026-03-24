@@ -530,6 +530,11 @@ class AirDCppDownloader(BaseDownloader):
             item = Item.objects.get(hash=hash)
             item_name = item.name
             
+            # Strip directory prefix from item name (e.g., "13/A-Next..." -> "A-Next...")
+            # This happens when AirDC++ returns path with subdirectory prefix for multi-file bundles
+            if '/' in item_name:
+                item_name = os.path.basename(item_name)
+            
             # The item_name from events is just the filename (e.g., "Xena.1x17...")
             # Replace /Downloads with the actual seedbox base folder
             if item_name and item_name.startswith('/Downloads/'):
