@@ -28,7 +28,7 @@ def poll_mylar3(manager):
         cache_key = f'mylar3_{manager.id}_last_log_time'
         last_log_time = cache.get(cache_key, '2000-01-01 00:00:00')
         
-        # Look for download initiation logs
+        # Look for download initiation logs from any downloader
         for entry in logs:
             timestamp, message, level, category = entry
             
@@ -38,26 +38,41 @@ def poll_mylar3(manager):
             
             msg_lower = message.lower()
             
-            # Look for "Attempting to download" logs which indicate a grab
-            if 'attempting to download' in msg_lower and 'airdcpp' in msg_lower:
+            # Look for "Attempting to download" or "Download initiated" logs which indicate a grab
+            # Works with AIRDCPP, SABNZBD, RTORRENT, and other downloaders
+            if 'attempting to download' in msg_lower or 'download initiated' in msg_lower:
                 # Extract comic name from message
-                # Format: "Attempting to download COMIC_NAME with TTH: ..."
-                parts = message.split(' with ')
-                if len(parts) > 0:
-                    comic_part = parts[0].replace('Attempting to download ', '').strip()
-                    
+                # Format varies by downloader:
+                # AIRDCPP: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
+                # SABNZBD: "[SABNZBD] Download initiated for COMIC_NAME"
+                # RTORRENT: "[RTORRENT] Attempting to download COMIC_NAME"
+                
+                comic_name = None
+                
+                if 'attempting to download' in msg_lower:
+                    # For AIRDCPP: "Attempting to download COMIC_NAME with TTH: ..."
+                    parts = message.split(' with ')
+                    if len(parts) > 0:
+                        comic_name = parts[0].replace('Attempting to download ', '').replace('[airdcpp] ', '').replace('[rtorrent] ', '').strip()
+                elif 'download initiated' in msg_lower:
+                    # For SABNZBD and others
+                    parts = message.split(' for ')
+                    if len(parts) > 0:
+                        comic_name = parts[-1].strip()
+                
+                if comic_name:
                     # Create hash from the comic name
-                    hash_value = hashlib.md5(comic_part.encode()).hexdigest()
+                    hash_value = hashlib.md5(comic_name.encode()).hexdigest()
                     
                     # Check if item already exists
                     try:
                         item = Item.objects.get(hash__iexact=hash_value)
-                        logger.debug(f"[Mylar3] Item already exists: {comic_part}")
+                        logger.debug(f"[Mylar3] Item already exists: {comic_name}")
                     except Item.DoesNotExist:
                         # Create new item
                         item = Item.objects.create(
                             hash=hash_value,
-                            name=comic_part,
+                            name=comic_name,
                             size=0,
                             status='Grabbed',
                             manager=manager,
@@ -66,7 +81,7 @@ def poll_mylar3(manager):
                             item=item,
                             details=f'Grabbed by {manager.name} via Mylar3'
                         )
-                        logger.info(f"[Mylar3] New grabbed item: {comic_part} ({hash_value})")
+                        logger.info(f"[Mylar3] New grabbed item: {comic_name} ({hash_value})")
             
             # Update last processed log time
             last_log_time = timestamp
