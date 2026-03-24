@@ -725,17 +725,9 @@ class Mylar3:
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
             # Mylar3's forceProcess API: folder and filename separately
-            # Use the downloader's actual folder (where files really are on seedbox)
-            # not the local manager folder
+            # Strip file extension from nzb_name (cbr, cbz, pdf, etc.)
             filename = os.path.basename(download_path)
-            
-            # If item has a downloader, use its configured target folder
-            if item.downloader and item.downloader.options:
-                target_folder = item.downloader.options.get('target_folder', '/root/airdc++/downloads')
-                nzb_folder = target_folder
-            else:
-                # Fallback to the provided path's directory
-                nzb_folder = os.path.dirname(download_path)
+            folder = os.path.dirname(download_path)
             
             # Remove common comic file extensions from the name
             nzb_name = filename
@@ -743,6 +735,8 @@ class Mylar3:
                 if nzb_name.lower().endswith(ext):
                     nzb_name = nzb_name[:-len(ext)]
                     break
+            
+            nzb_folder = folder
             
             url = f'{self.url}/api'
             params = {
