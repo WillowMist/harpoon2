@@ -651,29 +651,25 @@ class Mylar3:
                 
                 msg_lower = message.lower()
                 
-                # Look for "Attempting to download" or "Download initiated" logs which indicate a grab
-                # Works with any downloader (AIRDCPP, SABNZBD, RTORRENT, QBITTORRENT, etc.)
-                if 'attempting to download' in msg_lower or 'download initiated' in msg_lower:
+                # Look for "Attempting to download" logs which indicate a grab
+                # This is the reliable message that contains the comic name
+                # "Download initiated" is just a status message without comic name
+                if 'attempting to download' in msg_lower:
                     # Extract comic name from message
-                    # Log formats vary by downloader but all contain the comic name
+                    # Format: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
                     
                     comic_name = None
                     
-                    if 'attempting to download' in msg_lower:
-                        # For AIRDCPP: "[AIRDCPP] Attempting to download COMIC_NAME with TTH: ..."
-                        parts = message.split(' with ')
-                        if len(parts) > 0:
-                            comic_name = parts[0]
-                            # Remove downloader prefix and method prefix
-                            for prefix in ['[AIRDCPP]', '[RTORRENT]', '[QBITTORRENT]', '[SABNZBD]', '[airdcpp]', '[rtorrent]', '[qbittorrent]', '[sabnzbd]']:
-                                if prefix in comic_name:
-                                    comic_name = comic_name.replace(prefix, '').strip()
-                            comic_name = comic_name.replace('Attempting to download ', '').strip()
-                    elif 'download initiated' in msg_lower:
-                        # For SABNZBD and others
-                        parts = message.split(' for ')
-                        if len(parts) > 0:
-                            comic_name = parts[-1].strip()
+                    # Split on " with " to get the part before TTH/other details
+                    parts = message.split(' with ')
+                    if len(parts) > 0:
+                        comic_name = parts[0]
+                        # Remove downloader prefix
+                        for prefix in ['[AIRDCPP]', '[RTORRENT]', '[QBITTORRENT]', '[SABNZBD]', '[airdcpp]', '[rtorrent]', '[qbittorrent]', '[sabnzbd]']:
+                            if prefix in comic_name:
+                                comic_name = comic_name.replace(prefix, '').strip()
+                        # Remove the method name
+                        comic_name = comic_name.replace('Attempting to download ', '').strip()
                     
                     if comic_name:
                         # Create hash from the comic name
