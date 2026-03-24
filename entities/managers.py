@@ -738,7 +738,7 @@ class Mylar3:
                     break
             
             # Try to find comic name and issue number
-            # Pattern: "Comic Name #009" or "Comic Name 009"
+            # Pattern: "Comic Name #009 (2019)" or "Comic Name 009"
             match = re.search(r'^(.+?)\s*#?(\d+)', name_without_ext)
             if match:
                 comic_search_name = match.group(1).strip()
@@ -747,7 +747,10 @@ class Mylar3:
                 comic_search_name = name_without_ext
                 issue_number = None
             
-            logger.info(f"[Mylar3 post_process] Searching for: {comic_search_name} issue {issue_number}")
+            # Remove year and other extras from comic name for API search
+            comic_search_name = re.sub(r'\s*\(\d{4}\).*$', '', comic_search_name).strip()
+            
+            logger.info(f"[Mylar3 post_process] Searching for: '{comic_search_name}' issue {issue_number}")
             
             # Fetch comic ID from Mylar3
             comicid = None
