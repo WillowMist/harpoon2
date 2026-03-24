@@ -795,17 +795,16 @@ class Mylar3:
                 if comicid:
                     logger.info(f"[Mylar3 post_process] Found comicid: {comicid}")
                     
-                    # Get issues for this comic to find the right issue
+                    # Get issues for this comic to find the right issue using getComic
                     if comicid and issue_number:
                         logger.info(f"[Mylar3 post_process] Looking for issue {issue_number} in comic {comicid}")
                         issues_params = {
                             'apikey': self.apikey,
-                            'cmd': 'getIssues',
+                            'cmd': 'getComic',
                             'id': comicid
                         }
                         r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
                         issues_result = r.json()
-                        logger.info(f"[Mylar3 post_process] getIssues result: {issues_result}")
                         issues = issues_result.get('issues', [])
                         logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
                         for issue in issues:
