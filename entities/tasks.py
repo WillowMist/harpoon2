@@ -71,7 +71,13 @@ def poll_mylar3(manager):
                     # Check if item already exists
                     try:
                         item = Item.objects.get(hash__iexact=hash_value)
-                        logger.debug(f"[Mylar3] Item already exists: {comic_name}")
+                        # If item exists but has no manager, assign Mylar3 as the manager
+                        if not item.manager:
+                            item.manager = manager
+                            item.save()
+                            logger.info(f"[Mylar3] Assigned manager to existing item: {comic_name}")
+                        else:
+                            logger.debug(f"[Mylar3] Item already has manager: {comic_name}")
                     except Item.DoesNotExist:
                         # Create new item
                         item = Item.objects.create(
