@@ -805,7 +805,7 @@ class Mylar3:
                         }
                         r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
                         issues_result = r.json()
-                        issues = issues_result.get('issues', [])
+                        issues = issues_result.get('issue', [])  # Note: singular "issue", not "issues"
                         logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
                         for issue in issues:
                             issue_name = issue.get('name', '')
