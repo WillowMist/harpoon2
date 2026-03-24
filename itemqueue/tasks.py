@@ -418,26 +418,40 @@ def transfer_files_async(item_hash):
             except:
                 pass
          
-        # Determine destination folder - create subfolder for item
-        if item.manager and item.manager.folder:
-            final_base_folder = item.manager.folder.folder
-        elif item.downloader and item.downloader.options:
-            # For downloaders like AirDC++ without a manager, get folder from downloader config
-            from entities.models import DownloadFolder
-            target_folder_id = item.downloader.options.get('target_folder')
-            if target_folder_id:
-                try:
-                    target_folder = DownloadFolder.objects.get(id=target_folder_id)
-                    final_base_folder = target_folder.folder
-                    logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
-                except Exception as e:
-                    logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
-                    final_base_folder = '/tmp'
-            else:
-                logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
-                final_base_folder = '/tmp'
-        else:
-            final_base_folder = '/tmp'
+         # Determine destination folder - create subfolder for item
+         # Priority: manager folder > downloader folder > /tmp
+         final_base_folder = None
+         
+         if item.manager and item.manager.folder:
+             # If item has a manager with folder config, use that
+             final_base_folder = item.manager.folder.folder
+             logger.info(f"[transfer_files_async] Using manager folder: {final_base_folder}")
+         elif item.downloader:
+             # Otherwise, use downloader's configured folder
+             if item.downloader.options:
+                 # Try to get target_folder from downloader config
+                 # It could be a path string or a DownloadFolder ID
+                 target_folder_setting = item.downloader.options.get('target_folder')
+                 if target_folder_setting:
+                     # Check if it's a DownloadFolder ID (integer) or a path string
+                     from entities.models import DownloadFolder
+                     if isinstance(target_folder_setting, (int, str)) and str(target_folder_setting).isdigit():
+                         # It's a DownloadFolder ID
+                         try:
+                             target_folder = DownloadFolder.objects.get(id=int(target_folder_setting))
+                             final_base_folder = target_folder.folder
+                             logger.info(f"[transfer_files_async] Using target folder from downloader: {final_base_folder}")
+                         except Exception as e:
+                             logger.warning(f"[transfer_files_async] Could not find target folder {target_folder_setting}: {e}")
+                     else:
+                         # It's a path string
+                         final_base_folder = target_folder_setting
+                         logger.info(f"[transfer_files_async] Using downloader target folder: {final_base_folder}")
+         
+         # Fallback to /tmp if no folder found
+         if not final_base_folder:
+             logger.warning(f"[transfer_files_async] No manager or downloader folder configured, using /tmp")
+             final_base_folder = '/tmp'
         
         # Check if this is a Blackhole manager
         is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
