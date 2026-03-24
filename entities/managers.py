@@ -742,14 +742,19 @@ class Mylar3:
             }
             
             logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={nzb_folder}, name={nzb_name}")
+            logger.info(f"[Mylar3 post_process] Full URL: {url}")
+            logger.info(f"[Mylar3 post_process] Payload: {payload}")
             r = requests.post(url, json=payload)
+            
+            logger.info(f"[Mylar3 post_process] Response status: {r.status_code}")
+            logger.info(f"[Mylar3 post_process] Response body: {r.text}")
             
             if r.status_code in [200, 201]:
                 message = f"Post-processing initiated: {download_path}"
                 ItemHistory.objects.create(item=item, details=message)
                 return True, message
             else:
-                message = f"Post-processing failed (HTTP {r.status_code})"
+                message = f"Post-processing failed (HTTP {r.status_code}): {r.text}"
                 ItemHistory.objects.create(item=item, details=message)
                 return False, message
         except Exception as e:
