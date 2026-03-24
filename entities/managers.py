@@ -722,7 +722,6 @@ class Mylar3:
         
         try:
             import requests
-            url = f'{self.url}/api?apikey={self.apikey}&cmd=forceProcess'
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
             # forceProcess expects directory path and filename separately
@@ -736,15 +735,18 @@ class Mylar3:
                 # Directory: use as-is
                 nzb_folder = download_path
             
-            payload = {
+            # Mylar3's older API expects query parameters, not JSON body
+            url = f'{self.url}/api'
+            params = {
+                'apikey': self.apikey,
+                'cmd': 'forceProcess',
                 'nzb_name': nzb_name,
                 'nzb_folder': nzb_folder
             }
             
             logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={nzb_folder}, name={nzb_name}")
-            logger.info(f"[Mylar3 post_process] Full URL: {url}")
-            logger.info(f"[Mylar3 post_process] Payload: {payload}")
-            r = requests.post(url, json=payload)
+            logger.info(f"[Mylar3 post_process] Full URL: {url}?{('&').join([f'{k}={v}' for k, v in params.items()])}")
+            r = requests.post(url, params=params)
             
             logger.info(f"[Mylar3 post_process] Response status: {r.status_code}")
             logger.info(f"[Mylar3 post_process] Response body: {r.text}")
