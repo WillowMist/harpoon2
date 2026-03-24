@@ -765,75 +765,92 @@ class Mylar3:
                 }
                 r = requests.get(f'{self.url}/api', params=find_params, timeout=30)
                 result = r.json()
-                logger.info(f"[Mylar3 post_process] findComic result: {result}")
                 
-                # findComic returns a list of matching comics
-                comicid = None
-                if isinstance(result, list) and len(result) > 0:
-                    # Try to match by year from filename first
+                if not isinstance(result, list) or len(result) == 0:
+                    logger.warning(f"[Mylar3 post_process] No comics found for: {comic_search_name}")
+                else:
                     year_match = re.search(r'\((\d{4})\)', name_without_ext)
-                    year = year_match.group(1) if year_match else None
+                    filename_year = int(year_match.group(1)) if year_match else None
                     
-                    best_comic = None
-                    
-                    if year:
-                        # Try to find comic with matching year
-                        for comic in result:
-                            if comic.get('comicyear') == year:
-                                best_comic = comic
-                                logger.info(f"[Mylar3 post_process] Found comicid by year {year}: {comic.get('comicid')}")
-                                break
-                    
-                    # If no year match or no year, try to find the one with more issues
-                    if not best_comic:
-                        max_issues = 0
-                        for comic in result:
-                            issues = comic.get('issues', '0')
-                            try:
-                                issues_count = int(issues) if isinstance(issues, str) else issues
-                            except:
-                                issues_count = 0
+                    def get_comic_with_issue(comics, issue_num):
+                        """Try each comic until we find one that has the issue."""
+                        for comic in comics:
+                            cid = comic.get('comicid')
+                            if not cid:
+                                continue
                             
-                            # Prefer series with more issues (actual ongoing series vs TPB/one-shot)
-                            if issues_count > max_issues:
-                                max_issues = issues_count
-                                best_comic = comic
+                            issues_params = {
+                                'apikey': self.apikey,
+                                'cmd': 'getComic',
+                                'id': cid
+                            }
+                            r = requests.get(f'{self.url}/api', params=issues_params, timeout=30)
+                            issues_result = r.json()
+                            data = issues_result.get('data', {})
+                            issues = data.get('issues', [])
+                            
+                            for issue in issues:
+                                issue_num_str = str(issue.get('number', ''))
+                                issue_num_stripped = issue_num_str.lstrip('0')
+                                issue_num_compare = str(issue_num).lstrip('0') if issue_num else None
+                                
+                                if issue_num and issue_num_compare == issue_num_stripped:
+                                    logger.info(f"[Mylar3 post_process] Found issue {issue_num} in comicid {cid}")
+                                    return cid, issue.get('id')
+                            
+                            logger.info(f"[Mylar3 post_process] Issue {issue_num} not found in comicid {cid}, trying next")
+                        
+                        return None, None
                     
-                    if best_comic:
-                        comicid = best_comic.get('comicid')
-                        logger.info(f"[Mylar3 post_process] Found comicid: {comicid} (year={year if year else 'unknown'})")
-                elif isinstance(result, dict):
-                    comicid = result.get('comicid')
-                
-                if comicid:
-                    logger.info(f"[Mylar3 post_process] Found comicid: {comicid}")
+                    if filename_year:
+                        logger.info(f"[Mylar3 post_process] Matching by year: {filename_year}")
+                        
+                        scored_comics = []
+                        for comic in result:
+                            try:
+                                start_year = int(comic.get('comicyear', 0))
+                                issues_count = int(comic.get('issues', 0))
+                            except (ValueError, TypeError):
+                                continue
+                            
+                            if start_year <= 0:
+                                continue
+                            
+                            estimated_end_year = start_year + int(issues_count / 12)
+                            
+                            in_range = start_year <= filename_year <= estimated_end_year
+                            logger.info(f"[Mylar3 post_process] Comic {comic.get('name')}: start={start_year}, end={estimated_end_year}, in_range={in_range}")
+                            
+                            scored_comics.append({
+                                'comic': comic,
+                                'start_year': start_year,
+                                'estimated_end_year': estimated_end_year,
+                                'issues_count': issues_count,
+                                'in_range': in_range,
+                            })
+                        
+                        scored_comics.sort(key=lambda x: (
+                            x['in_range'],
+                            x['issues_count'],
+                            x['start_year']
+                        ), reverse=True)
+                        
+                        comics_to_try = [c['comic'] for c in scored_comics]
+                        logger.info(f"[Mylar3 post_process] Comics sorted by year match: {[c.get('name') for c in comics_to_try[:5]]}")
+                    else:
+                        logger.info(f"[Mylar3 post_process] No year in filename, using newest by start_year")
+                        
+                        sorted_comics = sorted(result, key=lambda x: int(x.get('comicyear', 0) or 0), reverse=True)
+                        comics_to_try = sorted_comics
+                        logger.info(f"[Mylar3 post_process] Comics sorted by newest: {[c.get('name') for c in comics_to_try[:5]]}")
                     
-                    # Get issues for this comic to find the right issue using getComic
-                    if comicid and issue_number:
-                        logger.info(f"[Mylar3 post_process] Looking for issue {issue_number} in comic {comicid}")
-                        issues_params = {
-                            'apikey': self.apikey,
-                            'cmd': 'getComic',
-                            'id': comicid
-                        }
-                        r = requests.get(f'{self.url}/api', params=issues_params, timeout=30)
-                        issues_result = r.json()
-                        # Response is wrapped: {"success": true, "data": {"issues": [...]}}
-                        data = issues_result.get('data', {})
-                        issues = data.get('issues', [])
-                        logger.info(f"[Mylar3 post_process] Found {len(issues)} issues")
-                        for issue in issues:
-                            issue_name = issue.get('name', '')
-                            issue_num = str(issue.get('number', ''))  # Use 'number' not 'issue_number'
-                            # Strip leading zeros for comparison
-                            issue_num_stripped = issue_num.lstrip('0')
-                            issue_number_stripped = str(issue_number).lstrip('0')
-                            logger.info(f"[Mylar3 post_process] Checking issue: {issue_name} (number={issue_num})")
-                            # Match by issue number (with and without leading zeros)
-                            if f'#{issue_number}' in issue_name or issue_number_stripped == issue_num_stripped:
-                                issueid = issue.get('id')
-                                logger.info(f"[Mylar3 post_process] Found issueid: {issueid} for {issue_name}")
-                                break
+                    comicid, issueid = get_comic_with_issue(comics_to_try, issue_number)
+                    
+                    if comicid:
+                        logger.info(f"[Mylar3 post_process] Selected comicid: {comicid}, issueid: {issueid}")
+                    else:
+                        logger.warning(f"[Mylar3 post_process] Could not find comic with matching issue")
+                        
             except Exception as e:
                 logger.warning(f"[Mylar3 post_process] Could not fetch comic/issue IDs: {e}")
             
