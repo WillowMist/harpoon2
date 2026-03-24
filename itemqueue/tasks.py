@@ -854,7 +854,8 @@ def transfer_files_async(item_hash):
         
         # Call manager post-processing BEFORE marking as Completed
         # This sends to Sonarr/Radarr/etc while item is still in PostProcessing
-        if copied_count > 0 and item.manager and hasattr(item.manager, 'client'):
+        # Call even if copied_count is 0 (files may have already existed locally)
+        if item.manager and hasattr(item.manager, 'client'):
             try:
                 # Get local_folder from first completed transfer if not set
                 if not local_folder:
