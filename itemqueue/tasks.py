@@ -1195,6 +1195,18 @@ def check_stalled_transfers():
                     except Exception as e:
                         logger.error(f"Failed to requeue transfer for {item.name}: {e}")
                 elif all_completed:
+                    # Check if post-processing already ran recently (within last 2 minutes)
+                    # to avoid re-running every 20 seconds
+                    recent_pp = ItemHistory.objects.filter(
+                        item=item,
+                        details__icontains='Post-processing initiated',
+                        created__gte=timezone.now() - timedelta(minutes=2)
+                    ).exists()
+                    
+                    if recent_pp:
+                        logger.info(f"Item {item.name} already had post-processing initiated recently, skipping")
+                        continue
+                    
                     # All transfers completed - this might be a re-run of post-processing
                     # Run the post-processing (extraction) now
                     logger.info(f"Item {item.name} all transfers completed, running post-processing")
