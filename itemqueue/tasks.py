@@ -900,23 +900,9 @@ def transfer_files_async(item_hash):
                     
                     # Only call post_process if the manager supports it
                     if item.manager:
-                        # Instantiate the appropriate manager class
-                        from entities.managers import Sonarr, Radarr, Whisparr, Mylar3
-                        manager_classes = {
-                            'Sonarr': Sonarr,
-                            'Radarr': Radarr,
-                            'Whisparr': Whisparr,
-                            'Mylar3': Mylar3
-                        }
-                        manager_class = manager_classes.get(item.manager.managertype)
-                        manager_client = manager_class(item.manager) if manager_class else None
-                    else:
-                        manager_client = None
-                    
-                    if manager_client and hasattr(manager_client, 'post_process'):
                         logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
                         try:
-                            success, pp_message = manager_client.post_process(item, download_path)
+                            success, pp_message = item.manager.post_process(item, download_path)
                             
                             if success:
                                 logger.info(f"Manager post-processing succeeded: {pp_message}")

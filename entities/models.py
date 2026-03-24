@@ -42,6 +42,17 @@ class Manager(models.Model):
         # cache value went from the base
         new.client = getattr(managers, new.managertype)(new)
         return new
+    
+    def post_process(self, item, download_path):
+        """Call post_process on the appropriate manager class.
+        
+        This method delegates to the actual manager class (Sonarr, Radarr, etc.)
+        keeping manager logic compartmentalized in each class.
+        """
+        if self.client and hasattr(self.client, 'post_process'):
+            return self.client.post_process(item, download_path)
+        else:
+            return False, f"Manager {self.name} does not support post_process"
 
 
 class Downloader(models.Model):
