@@ -736,7 +736,10 @@ class Mylar3:
                 filename = item.name
                 folder = download_path
             
-            # Remove file extension
+            # Keep filename with extension for forceProcess
+            filename_for_api = filename
+            
+            # Remove file extension for parsing comic name
             name_without_ext = filename
             for ext in ['.cbr', '.cbz', '.pdf']:
                 if name_without_ext.lower().endswith(ext):
@@ -864,7 +867,7 @@ class Mylar3:
             params = {
                 'apikey': self.apikey,
                 'cmd': 'forceProcess',
-                'nzb_name': name_without_ext,
+                'nzb_name': filename_for_api,
                 'nzb_folder': folder,
             }
             
