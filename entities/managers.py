@@ -711,12 +711,13 @@ class Mylar3:
         
         Args:
             item: Item object
-            download_path: Path where comic was downloaded
+            download_path: Path where comic was downloaded (file or directory)
             
         Returns:
             (success: bool, message: str)
         """
         import logging
+        import os
         logger = logging.getLogger(__name__)
         
         try:
@@ -724,11 +725,22 @@ class Mylar3:
             url = f'{self.url}/api?apikey={self.apikey}&cmd=forceProcess'
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
+            # forceProcess expects directory path and filename separately
+            # If download_path is a file, extract directory and filename
+            if os.path.isfile(download_path):
+                nzb_folder = os.path.dirname(download_path)
+                nzb_name = os.path.basename(download_path)
+            else:
+                # If it's a directory, use it as-is and use item name
+                nzb_folder = download_path
+                nzb_name = item.name
+            
             payload = {
-                'nzb_name': item.name,
-                'nzb_folder': download_path
+                'nzb_name': nzb_name,
+                'nzb_folder': nzb_folder
             }
             
+            logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={nzb_folder}, name={nzb_name}")
             r = requests.post(url, json=payload)
             
             if r.status_code in [200, 201]:
