@@ -718,43 +718,96 @@ class Mylar3:
         """
         import logging
         import os
+        import re
+        import requests
         logger = logging.getLogger(__name__)
         
         try:
-            import requests
             logger.info(f"[Mylar3 post_process] Triggering post-process for {download_path}")
             
-            # Mylar3's forceProcess API: folder and filename separately
-            # Strip file extension from nzb_name (cbr, cbz, pdf, etc.)
+            # Extract comic name and issue number from item name
+            # Format: "Comic Name #009 (2019) (Digital) (Publisher).cbr"
             filename = os.path.basename(download_path)
             folder = os.path.dirname(download_path)
             
-            # Remove common comic file extensions from the name
-            nzb_name = filename
+            # Remove file extension
+            name_without_ext = filename
             for ext in ['.cbr', '.cbz', '.pdf']:
-                if nzb_name.lower().endswith(ext):
-                    nzb_name = nzb_name[:-len(ext)]
+                if name_without_ext.lower().endswith(ext):
+                    name_without_ext = name_without_ext[:-len(ext)]
                     break
             
-            nzb_folder = folder
+            # Try to find comic name and issue number
+            # Pattern: "Comic Name #009" or "Comic Name 009"
+            match = re.search(r'^(.+?)\s*#?(\d+)', name_without_ext)
+            if match:
+                comic_search_name = match.group(1).strip()
+                issue_number = match.group(2).strip()
+            else:
+                comic_search_name = name_without_ext
+                issue_number = None
             
-            url = f'{self.url}/api'
+            logger.info(f"[Mylar3 post_process] Searching for: {comic_search_name} issue {issue_number}")
+            
+            # Fetch comic ID from Mylar3
+            comicid = None
+            issueid = None
+            
+            try:
+                # Find comic by name
+                find_params = {
+                    'apikey': self.apikey,
+                    'cmd': 'findComic',
+                    'name': comic_search_name
+                }
+                r = requests.get(f'{self.url}/api', params=find_params, timeout=10)
+                result = r.json()
+                if result.get('comicid'):
+                    comicid = result['comicid']
+                    logger.info(f"[Mylar3 post_process] Found comicid: {comicid}")
+                    
+                    # Get issues for this comic to find the right issue
+                    if comicid and issue_number:
+                        issues_params = {
+                            'apikey': self.apikey,
+                            'cmd': 'getIssues',
+                            'id': comicid
+                        }
+                        r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
+                        issues_result = r.json()
+                        issues = issues_result.get('issues', [])
+                        for issue in issues:
+                            # Match by issue number in the name
+                            if f'#{issue_number}' in issue.get('name', '') or issue_number == issue.get('issue_number'):
+                                issueid = issue.get('id')
+                                logger.info(f"[Mylar3 post_process] Found issueid: {issueid} for {issue.get('name')}")
+                                break
+            except Exception as e:
+                logger.warning(f"[Mylar3 post_process] Could not fetch comic/issue IDs: {e}")
+            
+            # Build forceProcess parameters
             params = {
                 'apikey': self.apikey,
                 'cmd': 'forceProcess',
-                'nzb_name': nzb_name,
-                'nzb_folder': nzb_folder
+                'nzb_name': name_without_ext,
+                'nzb_folder': folder,
             }
             
-            logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={nzb_folder}, name={nzb_name}")
-            logger.info(f"[Mylar3 post_process] Full URL: {url}?{('&').join([f'{k}={v}' for k, v in params.items()])}")
-            r = requests.post(url, params=params)
+            # Add comicid and issueid if found
+            if comicid:
+                params['comicid'] = comicid
+            if issueid:
+                params['issueid'] = issueid
+            
+            logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={folder}, name={name_without_ext}, comicid={comicid}, issueid={issueid}")
+            logger.info(f"[Mylar3 post_process] Full URL: {self.url}/api?{('&').join([f'{k}={v}' for k, v in params.items()])}")
+            r = requests.post(f'{self.url}/api', params=params)
             
             logger.info(f"[Mylar3 post_process] Response status: {r.status_code}")
             logger.info(f"[Mylar3 post_process] Response body: {r.text}")
             
             if r.status_code in [200, 201]:
-                message = f"Post-processing initiated: {download_path}"
+                message = f"Post-processing initiated: {download_path} (comicid={comicid}, issueid={issueid})"
                 ItemHistory.objects.create(item=item, details=message)
                 return True, message
             else:
