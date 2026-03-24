@@ -765,6 +765,7 @@ class Mylar3:
                 }
                 r = requests.get(f'{self.url}/api', params=find_params, timeout=10)
                 result = r.json()
+                logger.info(f"[Mylar3 post_process] findComic result: {result}")
                 if result.get('comicid'):
                     comicid = result['comicid']
                     logger.info(f"[Mylar3 post_process] Found comicid: {comicid}")
