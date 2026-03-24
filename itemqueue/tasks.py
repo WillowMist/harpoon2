@@ -879,7 +879,21 @@ def transfer_files_async(item_hash):
                             base_remote_path = item.manager.folder.remote_folder_name
                         else:
                             base_remote_path = item.manager.folder.folder
-                        download_path = os.path.join(base_remote_path, sanitized_item_name)
+                        
+                        # For single-file items, check if the file exists directly in the base folder
+                        # (new logic puts single files directly in base folder, not in subfolder)
+                        actual_file_path = os.path.join(base_remote_path, sanitized_item_name)
+                        actual_file_in_base = os.path.join(base_remote_path, item.name)
+                        
+                        if os.path.isfile(actual_file_in_base):
+                            # File is directly in base folder (single file, new logic)
+                            download_path = actual_file_in_base
+                        elif os.path.isdir(actual_file_path):
+                            # File is in subfolder (old logic or multi-file)
+                            download_path = actual_file_path
+                        else:
+                            # Fallback to constructed path
+                            download_path = actual_file_path
                     else:
                         download_path = local_folder
                     
