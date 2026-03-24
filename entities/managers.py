@@ -763,7 +763,7 @@ class Mylar3:
                     'cmd': 'findComic',
                     'name': comic_search_name
                 }
-                r = requests.get(f'{self.url}/api', params=find_params, timeout=10)
+                r = requests.get(f'{self.url}/api', params=find_params, timeout=30)
                 result = r.json()
                 logger.info(f"[Mylar3 post_process] findComic result: {result}")
                 
@@ -803,7 +803,7 @@ class Mylar3:
                             'cmd': 'getComic',
                             'id': comicid
                         }
-                        r = requests.get(f'{self.url}/api', params=issues_params, timeout=10)
+                        r = requests.get(f'{self.url}/api', params=issues_params, timeout=30)
                         issues_result = r.json()
                         # Response is wrapped: {"success": true, "data": {"issues": [...]}}
                         data = issues_result.get('data', {})
