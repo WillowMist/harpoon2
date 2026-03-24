@@ -460,20 +460,37 @@ def transfer_files_async(item_hash):
             final_base_folder = os.path.join(final_base_folder, category)
         
         # Create a subfolder for this item using a sanitized name
+        # Single files go directly in base folder, multi-file downloads get a subfolder
         import re
         sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
         sanitized_name = sanitized_name.strip()
         
+        # For single files, don't create a subfolder - put directly in base folder
+        # For multi-file downloads, create a subfolder for organization
+        if not is_single_file:
+            # Multi-file: create subfolder
+            subfolder_name = sanitized_name
+        else:
+            # Single file: no subfolder
+            subfolder_name = None
+        
         # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
         if is_blackhole and temp_base_folder:
-            temp_folder = os.path.join(temp_base_folder, sanitized_name)
-            final_folder = os.path.join(final_base_folder, sanitized_name)
+            if subfolder_name:
+                temp_folder = os.path.join(temp_base_folder, subfolder_name)
+                final_folder = os.path.join(final_base_folder, subfolder_name)
+            else:
+                temp_folder = temp_base_folder
+                final_folder = final_base_folder
             
             os.makedirs(temp_folder, exist_ok=True)
             logger.info(f"Created temp folder for transfer: {temp_folder}")
         else:
             temp_folder = None
-            final_folder = os.path.join(final_base_folder, sanitized_name)
+            if subfolder_name:
+                final_folder = os.path.join(final_base_folder, subfolder_name)
+            else:
+                final_folder = final_base_folder
             
             os.makedirs(final_folder, exist_ok=True)
             logger.info(f"Created folder for transfer: {final_folder}")
