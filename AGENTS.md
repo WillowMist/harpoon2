@@ -37,6 +37,11 @@ Harpoon2 is a Django-based download manager that integrates with Sonarr/Radarr/W
 3. User will pull the updated image and restart the container
 4. For celery workers after restart: `pkill -HUP -f 'celery.*worker'` to reload code (if needed)
 
+### Testing in Container
+- Access the running harpoon2 container with: `ssh docker` (no credentials required)
+- Once inside: `docker exec harpoon2-app python manage.py shell` for Django shell
+- Use this for database queries, testing code changes, and debugging
+
 ### Git Workflow
 - Commit often with clear messages
 - Push after each logical change
