@@ -160,6 +160,7 @@ class AirDCppDownloader(BaseDownloader):
         'password': 'string',
         'use_https': 'boolean',
         'target_folder': 'folder',
+        'polling_history': 'int',
     }
     
     def __init__(self, downloader=None):
@@ -187,6 +188,10 @@ class AirDCppDownloader(BaseDownloader):
             password=self.config.get('password', ''),
             use_https=self.config.get('use_https', False)
         )
+    
+    def get_polling_history(self) -> int:
+        """Get the polling history limit from config, with a default of 100."""
+        return self.config.get('polling_history', 100)
     
     def test(self) -> tuple:
         """Test connection to AirDC++. Returns (success: bool, message: str)"""
@@ -342,8 +347,9 @@ class AirDCppDownloader(BaseDownloader):
         if not self.client:
             return []
         
+        polling_limit = self.get_polling_history()
         try:
-            events = self.client.get_events(limit=80)
+            events = self.client.get_events(limit=polling_limit)
             completed = []
             seen_hashes = set()
             
@@ -390,8 +396,9 @@ class AirDCppDownloader(BaseDownloader):
             logger.error(f"Error getting AirDC++ completed downloads: {e}")
             return []
         
+        polling_limit = self.get_polling_history()
         try:
-            events = self.client.get_events(limit=40)
+            events = self.client.get_events(limit=polling_limit)
             completed = []
             seen_hashes = set()
             
@@ -457,8 +464,9 @@ class AirDCppDownloader(BaseDownloader):
         if not self.client:
             return
         
+        polling_limit = self.get_polling_history()
         try:
-            events = self.client.get_events(limit=80)
+            events = self.client.get_events(limit=polling_limit)
             seen_hashes = set()
             
             for event in events:
