@@ -343,7 +343,7 @@ class AirDCppDownloader(BaseDownloader):
             return []
         
         try:
-            events = self.client.get_events(limit=40)
+            events = self.client.get_events(limit=80)
             completed = []
             seen_hashes = set()
             
@@ -391,7 +391,7 @@ class AirDCppDownloader(BaseDownloader):
             return []
         
         try:
-            events = self.client.get_events(limit=20)
+            events = self.client.get_events(limit=40)
             completed = []
             seen_hashes = set()
             
@@ -458,7 +458,7 @@ class AirDCppDownloader(BaseDownloader):
             return
         
         try:
-            events = self.client.get_events(limit=40)
+            events = self.client.get_events(limit=80)
             seen_hashes = set()
             
             for event in events:
