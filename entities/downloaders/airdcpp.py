@@ -580,11 +580,12 @@ class AirDCppDownloader(BaseDownloader):
                     'name': full_path,
                 }
             else:
-                # For individual files, use single file transfer
+                # For individual files, use multi-file code path (is_single_file=False)
+                # This ensures the transfer code properly handles the file
                 return {
                     'remote_dir': os.path.dirname(full_path),
                     'files_to_copy': [os.path.basename(full_path)],
-                    'is_single_file': True,
+                    'is_single_file': False,
                     'name': full_path,
                 }
         except Item.DoesNotExist:
