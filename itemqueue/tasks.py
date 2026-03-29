@@ -569,7 +569,9 @@ def transfer_files_async(item_hash):
                 return
         
         # AirDC++ single file handling - directly add files_to_copy to transfer_list
+        print(f"DEBUG: is_single_file={is_single_file}, downloader={downloader.downloadertype}, files_to_copy={files_to_copy}")
         if is_single_file and downloader.downloadertype == 'AirDC++' and files_to_copy:
+            print(f"DEBUG: Adding files to transfer_list: {files_to_copy}")
             logger.info(f"[transfer_files_async] AirDC++ single file: adding {files_to_copy} from {remote_dir}")
             for filename in files_to_copy:
                 remote_path = os.path.join(remote_dir, filename)
