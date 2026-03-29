@@ -504,7 +504,7 @@ def transfer_files_async(item_hash):
         # Use temp_folder for transfer if Blackhole, else use final_folder
         item_folder = temp_folder if temp_folder else final_folder
         
-        logger.info(f"[transfer_files_async] About to list files from remote_dir={remote_dir}")
+        logger.info(f"[transfer_files_async] About to list files from remote_dir={remote_dir}, files_to_copy={files_to_copy}, is_single_file={is_single_file}, downloader={downloader.downloadertype}")
         
         if is_single_file and downloader.downloadertype == 'RTorrent':
             # Single-file torrent: find and transfer the actual media file
@@ -607,6 +607,7 @@ def transfer_files_async(item_hash):
                     # For all downloaders, only transfer items matching files_to_copy list (if specified)
                     if files_to_copy:
                         # Check if this file/folder matches any in files_to_copy
+                        logger.info(f"[transfer_files_async] files_to_copy={files_to_copy}, checking {item_name}")
                         if item_name not in files_to_copy:
                             logger.debug(f"[transfer_files_async] Skipping {item_name} (not in files_to_copy)")
                             continue
