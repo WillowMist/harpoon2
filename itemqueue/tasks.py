@@ -568,6 +568,14 @@ def transfer_files_async(item_hash):
                 ssh.close()
                 return
         
+        # AirDC++ single file handling - directly add files_to_copy to transfer_list
+        if is_single_file and downloader.downloadertype == 'AirDC++' and files_to_copy:
+            logger.info(f"[transfer_files_async] AirDC++ single file: adding {files_to_copy} from {remote_dir}")
+            for filename in files_to_copy:
+                remote_path = os.path.join(remote_dir, filename)
+                transfer_list.append((remote_path, filename))
+            logger.info(f"[transfer_files_async] Added {len(transfer_list)} files to transfer list")
+        
         # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
         # Only run if transfer_list is still empty
         if len(transfer_list) == 0:
