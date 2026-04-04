@@ -316,26 +316,15 @@ def cancel_download(request, item_hash):
         try:
             item = Item.objects.get(hash=item_hash)
             
-            # Mark item as failed
-            old_status = item.status
-            item.status = 'Failed'
-            item.save()
+            # Delete related history and transfers first to avoid FK constraints
+            ItemHistory.objects.filter(item=item).delete()
+            FileTransfer.objects.filter(item=item).delete()
             
-            # Create history entry
-            ItemHistory.objects.create(
-                item=item,
-                details=f'Download cancelled by user (was {old_status})'
-            )
+            # Now delete the item
+            item_name = item.name
+            item.delete()
             
-            # Send notification
-            from users.models import Notification
-            Notification.create_for_admin(
-                f"Download cancelled by user: {item.name}",
-                notification_type='downloader_failure',
-                item_hash=item.hash
-            )
-            
-            messages.success(request, f'Download cancelled: {item.name}')
+            messages.success(request, f'Download removed: {item_name}')
         except Item.DoesNotExist:
             messages.error(request, 'Item not found')
         except Exception as e:
