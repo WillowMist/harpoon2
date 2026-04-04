@@ -549,7 +549,7 @@ def archive_all_completed(request):
 
 def clear_archive(request):
     """Delete all archived items."""
-    if request.method == 'POST':
+    if request.method in ['POST', 'GET']:
         try:
             archived_items = Item.objects.filter(archived=True)
             count = archived_items.count()
@@ -566,7 +566,7 @@ def clear_archive(request):
         except Exception as e:
             messages.error(request, f'Error clearing archive: {str(e)}')
     
-    return redirect('history')
+    return redirect('history?show_archived=true')
 
 
 def update_item_status(request, item_hash):
