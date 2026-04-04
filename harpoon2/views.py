@@ -566,10 +566,11 @@ def clear_archive(request):
             archived_items.delete()
             print(f"DEBUG: Deleted {count} archived items")
             
-            messages.success(request, f'Deleted {count} archived item(s)')
+            # Skip messages for now due to middleware issue
+            # messages.success(request, f'Deleted {count} archived item(s)')
         except Exception as e:
             print(f"DEBUG: Error clearing archive: {e}")
-            messages.error(request, f'Error clearing archive: {str(e)}')
+            # messages.error(request, f'Error clearing archive: {str(e)}')
     
     return redirect('history?show_archived=true')
 
