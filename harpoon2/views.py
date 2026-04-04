@@ -337,21 +337,25 @@ def cancel_download(request, item_hash):
 
 def cancel_transfer(request, item_name):
     """Cancel an SFTP transfer."""
+    print(f"DEBUG cancel_transfer: item_name={item_name}")
     if request.method == 'POST':
         try:
             # Find the item by name
             item = Item.objects.get(name=item_name)
+            print(f"DEBUG cancel_transfer: found item {item.name}, status={item.status}")
             
             # Mark all its transfers as cancelled/failed
             from itemqueue.models import FileTransfer
             transfers = FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring'])
             transfer_count = transfers.count()
+            print(f"DEBUG cancel_transfer: {transfer_count} transfers to cancel")
             transfers.update(status='failed')
             
             # Mark item as failed
             old_status = item.status
             item.status = 'Failed'
             item.save()
+            print(f"DEBUG cancel_transfer: marked as Failed")
             
             # Create history entry
             ItemHistory.objects.create(
@@ -359,20 +363,12 @@ def cancel_transfer(request, item_name):
                 details=f'Transfer cancelled by user - {transfer_count} file(s) cancelled (was {old_status})'
             )
             
-            # Send notification
-            from users.models import Notification
-            Notification.create_for_admin(
-                f"Transfer cancelled by user: {item.name}",
-                notification_type='transfer_failure',
-                item_hash=item.hash
-            )
-            
             return redirect('home')
         except Item.DoesNotExist:
-            messages.error(request, 'Item not found')
+            print(f"DEBUG cancel_transfer: Item not found: {item_name}")
             return redirect('home')
         except Exception as e:
-            messages.error(request, f'Error cancelling transfer: {str(e)}')
+            print(f"DEBUG cancel_transfer: Error: {e}")
             return redirect('home')
     
     return redirect('home')
