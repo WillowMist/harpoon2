@@ -145,7 +145,7 @@ function showTransferModal(itemName, totalSize, completed, fileCount, speed) {
 }
 
 function cancelTransfer(itemName) {
-    fetch('/transfer/' + encodeURIComponent(itemName) + '/cancel/', {
+    fetch('/cancel/transfer/' + encodeURIComponent(itemName) + '/', {
         method: 'POST',
         headers: {
             'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]')?.value || ''

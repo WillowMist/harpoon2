@@ -408,9 +408,12 @@ function autoSubmitForm(form) {
                 <i class="fas fa-archive me-1"></i>Archived Items ({{ completed_archived_count }}C / {{ failed_archived_count }}F)
             </a>
             {% if show_archived and total_archived_count > 0 %}
-            <a href="{% url 'clear_archive' %}" class="btn btn-outline-secondary" onclick="return confirm('Delete all {{ total_archived_count }} archived item(s)? This cannot be undone.')">
-                <i class="fas fa-trash me-1"></i>Clear Archive
-            </a>
+            <form id="clearArchiveForm" method="post" action="/archive/clear/">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-outline-secondary" onclick="return confirm('Delete all {{ total_archived_count }} archived item(s)? This cannot be undone.')">
+                    <i class="fas fa-trash me-1"></i>Clear Archive ({{ total_archived_count }})
+                </button>
+            </form>
             {% endif %}
         </div>
     </div>

@@ -2,7 +2,7 @@ from django.shortcuts import get_object_or_404, render, redirect
 from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.db.models import Prefetch, Count, Q
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login, get_user_model
@@ -80,6 +80,10 @@ def login_view(request):
 @login_required
 def home(request):
     """Dashboard - shows active downloads (grabbing), file transfers, and quick summary by manager."""
+    import sys
+    print("DEBUG home: CALLED", file=sys.stderr)
+    sys.stderr.flush()
+    
     managers = Manager.objects.all()
     
     # Get counts by manager (exclude archived items)
@@ -540,29 +544,30 @@ def archive_all_completed(request):
 @login_required
 def clear_archive(request):
     """Delete all archived items."""
-    print(f"DEBUG clear_archive: method={request.method}, user={request.user}")
-    if request.method in ['POST', 'GET']:
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.error(f"=== clear_archive CALLED === method={request.method}, user={request.user}, path={request.path}")
+    
+    deleted_count = 0
+    if request.method == 'POST':
         try:
-            archived_items = Item.objects.filter(archived=True)
-            count = archived_items.count()
-            print(f"DEBUG: Found {count} archived items to delete")
+            archived_items = list(Item.objects.filter(archived=True))
+            deleted_count = len(archived_items)
+            logger.error(f"clear_archive: Found {deleted_count} items")
             
-            # First delete related history and transfers
             for item in archived_items:
                 ItemHistory.objects.filter(item=item).delete()
                 FileTransfer.objects.filter(item=item).delete()
             
-            # Then delete the items
-            archived_items.delete()
-            print(f"DEBUG: Deleted {count} archived items")
-            
-            # Skip messages for now due to middleware issue
-            # messages.success(request, f'Deleted {count} archived item(s)')
+            Item.objects.filter(archived=True).delete()
+            logger.error(f"clear_archive: Deleted {deleted_count} items")
         except Exception as e:
-            print(f"DEBUG: Error clearing archive: {e}")
-            # messages.error(request, f'Error clearing archive: {str(e)}')
+            logger.error(f"clear_archive: Error: {e}")
     
-    return redirect('history?show_archived=true')
+    response = redirect('history')
+    response['Location'] = '/history/?show_archived=true'
+    return response
 
 
 def update_item_status(request, item_hash):
@@ -670,7 +675,7 @@ def api_dashboard(request):
     logger = logging.getLogger(__name__)
     
     try:
-        from django.http import JsonResponse
+        from django.http import JsonResponse, HttpResponse
         from django.utils import timezone
         from datetime import timedelta
         
