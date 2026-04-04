@@ -553,6 +553,7 @@ def clear_archive(request):
         try:
             archived_items = Item.objects.filter(archived=True)
             count = archived_items.count()
+            print(f"DEBUG: Found {count} archived items to delete")
             
             # First delete related history and transfers
             for item in archived_items:
@@ -561,9 +562,11 @@ def clear_archive(request):
             
             # Then delete the items
             archived_items.delete()
+            print(f"DEBUG: Deleted {count} archived items")
             
             messages.success(request, f'Deleted {count} archived item(s)')
         except Exception as e:
+            print(f"DEBUG: Error clearing archive: {e}")
             messages.error(request, f'Error clearing archive: {str(e)}')
     
     return redirect('history?show_archived=true')
