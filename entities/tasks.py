@@ -120,6 +120,21 @@ def poll_manager(manager_id):
                 )
                 
                 if created:
+                    # Check if this might be a re-download of an old item
+                    # Skip if the manager already has this item in its history (older than 7 days)
+                    from datetime import timedelta
+                    from django.utils import timezone
+                    seven_days_ago = timezone.now() - timedelta(days=7)
+                    existing_in_history = ItemHistory.objects.filter(
+                        item__hash=download_id,
+                        created__lt=seven_days_ago
+                    ).exists()
+                    
+                    if existing_in_history:
+                        logger.info(f"Skipping grabbed item {title} - appears to be a re-download of old item")
+                        item.delete()
+                        continue
+                    
                     ItemHistory.objects.create(
                         item=item,
                         details=f'Grabbed by {manager.name}'
