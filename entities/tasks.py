@@ -69,6 +69,7 @@ def poll_manager(manager_id):
                 download_id = record.get('downloadId', '')
                 title = record.get('title', record.get('sourceTitle', 'Unknown'))
                 size = record.get('size', 0)
+                date_str = record.get('date', record.get('dateAdded', ''))
                 
                 # For Whisparr with Blackhole downloaders (Torrent/Usenet Blackhole),
                 # downloadId will be empty. Use sourceTitle as the hash instead.
@@ -81,6 +82,22 @@ def poll_manager(manager_id):
                         logger.debug(f"Using sourceTitle as hash for Whisparr blackhole: {download_id}")
                     else:
                         continue
+                
+                # Check if this grab is older than 2 days
+                from datetime import timedelta
+                from django.utils import timezone
+                two_days_ago = timezone.now() - timedelta(days=2)
+                
+                if date_str:
+                    try:
+                        # Parse the date from the record
+                        from django.utils.dateparse import parse_datetime
+                        record_date = parse_datetime(date_str)
+                        if record_date and record_date < two_days_ago:
+                            logger.info(f"Skipping grabbed item {title} - date {date_str} is older than 2 days")
+                            continue
+                    except Exception:
+                        pass
                 
                 # Try to get the downloader from the download client info
                 downloader = None
@@ -120,28 +137,16 @@ def poll_manager(manager_id):
                 )
                 
                 if created:
-                    # Check if this might be a re-download of an old item
-                    from datetime import timedelta
-                    from django.utils import timezone
-                    two_days_ago = timezone.now() - timedelta(days=2)
-                    
-                    # Check if there's any history record for this download_id (from previous runs)
-                    existing_history = ItemHistory.objects.filter(
-                        item__hash=download_id
-                    ).order_by('-created').first()
-                    
-                    if existing_history:
-                        # If history exists and is older than 2 days, skip this grab
-                        if existing_history.created < two_days_ago:
-                            logger.info(f"Skipping grabbed item {title} - history is older than 2 days")
-                            item.delete()
-                            continue
-                    
-                    # Also check if item was previously archived
+                    # Check if item was previously archived
                     if Item.objects.filter(hash=download_id, archived=True).exists():
                         logger.info(f"Skipping grabbed item {title} - was previously archived")
                         item.delete()
                         continue
+                    
+                    # Also check if item exists in history (not just DB)
+                    if ItemHistory.objects.filter(item__hash=download_id).exists():
+                        # Item exists in history - just log it as a re-download
+                        logger.info(f"Re-download detected for {title}")
                     
                     ItemHistory.objects.create(
                         item=item,
