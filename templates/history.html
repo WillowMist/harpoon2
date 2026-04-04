@@ -407,6 +407,14 @@ function autoSubmitForm(form) {
             <a href="{% url 'history' %}?show_archived=true" class="btn btn-outline-secondary {% if show_archived %}active{% endif %}">
                 <i class="fas fa-archive me-1"></i>Archived Items ({{ completed_archived_count }}C / {{ failed_archived_count }}F)
             </a>
+            {% if show_archived and total_archived_count > 0 %}
+            <form method="post" action="{% url 'clear_archive' %}" style="display:inline;">
+                {% csrf_token %}
+                <button type="submit" class="btn btn-sm btn-danger" onclick="return confirm('Delete all {{ total_archived_count }} archived item(s)? This cannot be undone.')">
+                    <i class="fas fa-trash me-1"></i>Clear Archive
+                </button>
+            </form>
+            {% endif %}
         </div>
     </div>
     {% if not show_archived %}

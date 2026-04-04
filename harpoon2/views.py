@@ -295,6 +295,7 @@ def history(request):
     failed_count = len(failed_items)
     completed_archived_count = Item.objects.filter(status='Completed', archived=True).count()
     failed_archived_count = Item.objects.filter(status='Failed', archived=True).count()
+    total_archived_count = completed_archived_count + failed_archived_count
     
     downloaders = Downloader.objects.all().order_by('name')
     
@@ -306,6 +307,7 @@ def history(request):
         'completed_archived_count': completed_archived_count,
         'failed_count': failed_count,
         'failed_archived_count': failed_archived_count,
+        'total_archived_count': total_archived_count,
         'downloaders': downloaders,
     })
 
@@ -541,6 +543,28 @@ def archive_all_completed(request):
             messages.success(request, f'Archived {count} completed item(s)')
         except Exception as e:
             messages.error(request, f'Error archiving completed items: {str(e)}')
+    
+    return redirect('history')
+
+
+def clear_archive(request):
+    """Delete all archived items."""
+    if request.method == 'POST':
+        try:
+            archived_items = Item.objects.filter(archived=True)
+            count = archived_items.count()
+            
+            # First delete related history and transfers
+            for item in archived_items:
+                ItemHistory.objects.filter(item=item).delete()
+                FileTransfer.objects.filter(item=item).delete()
+            
+            # Then delete the items
+            archived_items.delete()
+            
+            messages.success(request, f'Deleted {count} archived item(s)')
+        except Exception as e:
+            messages.error(request, f'Error clearing archive: {str(e)}')
     
     return redirect('history')
 

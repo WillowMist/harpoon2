@@ -20,6 +20,7 @@ urlpatterns = [
     path('unarchive/<str:item_hash>/', views.unarchive_item, name='unarchive_item'),
     path('archive/all/failed/', views.archive_all_failed, name='archive_all_failed'),
     path('archive/all/completed/', views.archive_all_completed, name='archive_all_completed'),
+    path('archive/clear/', views.clear_archive, name='clear_archive'),
     path('update/item/status/<str:item_hash>/', views.update_item_status, name='update_item_status'),
     path('update/item/downloader/<str:item_hash>/', views.update_item_downloader, name='update_item_downloader'),
     path('retry/failed/<str:item_hash>/', views.retry_failed_item, name='retry_failed_item'),
