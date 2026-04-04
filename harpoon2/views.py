@@ -549,6 +549,7 @@ def archive_all_completed(request):
 
 def clear_archive(request):
     """Delete all archived items."""
+    print(f"DEBUG clear_archive: method={request.method}")
     if request.method in ['POST', 'GET']:
         try:
             archived_items = Item.objects.filter(archived=True)
