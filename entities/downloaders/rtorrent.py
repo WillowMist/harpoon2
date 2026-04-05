@@ -529,13 +529,14 @@ class RTorrentDownloader(BaseDownloader):
         directory = torrent_info.get('directory', '')
         name = torrent_info.get('name', '')
         
-        is_single_file = name and ('.' in name.split('/')[-1])
+        # Check if single-file by looking for actual video file extensions
+        filename = name.split('/')[-1] if '/' in name else name
+        video_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm', '.mp3', '.flac')
+        is_single_file = filename.lower().endswith(video_extensions)
         
         # For single-file torrents, specify which file to copy
         files_to_copy = None
         if is_single_file:
-            # Extract just the filename if there's a path component
-            filename = name.split('/')[-1] if '/' in name else name
             files_to_copy = [filename]
         
         return {

@@ -345,6 +345,7 @@ def transfer_files_async(item_hash):
         files_to_copy = download_info.get('files_to_copy')
         is_single_file = download_info.get('is_single_file', False)
         name = download_info.get('name', item.name)
+        torrent_name = name  # Use the name from download_info as the torrent name
         
         if not remote_dir:
             logger.error(f"[transfer_files_async] No remote directory found for {hash_value}")
