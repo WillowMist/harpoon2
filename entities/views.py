@@ -187,6 +187,9 @@ def managertest(request, pk):
         elif manager.managertype == 'LazyLibrarian':
             from .managers import LazyLibrarian
             client = LazyLibrarian(manager)
+        elif manager.managertype == 'Bindery':
+            from .managers import Bindery
+            client = Bindery(manager)
         elif manager.managertype == 'Blackhole':
             from .managers import Blackhole
             client = Blackhole(manager)
