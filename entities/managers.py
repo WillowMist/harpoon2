@@ -934,12 +934,11 @@ class Bindery:
         import requests
         logger = logging.getLogger(__name__)
         
-        testurl = self.apiUrl + '/health'
+        url = self.apiurl + '/health'
+        logger.info(f"[Bindery test] Testing connection to {url}")
+        
         try:
-            url = self.apiurl + '/health'
-            logger.info(f"[Bindery test] Testing connection to {url}")
-            
-            r = requests.get(url, headers=self.headers)
+            r = requests.get(url, headers=self.headers, timeout=10)
             if r.status_code == 200:
                 return True, r.json()
             elif r.status_code == 401:
@@ -959,7 +958,7 @@ class Bindery:
             url = self.apiurl + '/queue'
             logger.info(f"[Bindery check_queue] Fetching from {url}")
             
-            r = requests.get(url, headers=self.headers)
+            r = requests.get(url, headers=self.headers, timeout=10)
             if r.status_code == 401:
                 logger.error(f"[Bindery check_queue] API key invalid")
                 return False, "API key invalid"
