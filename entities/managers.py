@@ -461,9 +461,9 @@ class Whisparr(Arr):
                 ItemHistory.objects.create(item=item, details=history_details)
                 return False, message
         except Exception as e:
-                message = f"Error initiating post-processing: {str(e)}"
-                ItemHistory.objects.create(item=item, details=message)
-                return False, message
+            message = f"Error initiating post-processing: {str(e)}"
+            ItemHistory.objects.create(item=item, details=message)
+            return False, message
 
 
 class Mylar3:
@@ -914,6 +914,181 @@ class Mylar3:
             message = f"Error initiating post-processing: {str(e)}"
             ItemHistory.objects.create(item=item, details=message)
             return False, message
+
+
+class Bindery:
+    """Manager for Bindery - Book download manager."""
+    
+    def __init__(self, manager):
+        self.manager = manager
+        self.url = manager.url
+        self.apikey = manager.apikey
+        self.label = manager.label
+        self.name = manager.name
+        self.apiurl = self.url.rstrip('/') + '/api/v1'
+        self.headers = {'X-Api-Key': self.apikey, 'Accept': 'application/json'}
+    
+    def test(self):
+        """Test Bindery API connection."""
+        import logging
+        import requests
+        logger = logging.getLogger(__name__)
+        
+        testurl = self.apiUrl + '/health'
+        try:
+            url = self.apiurl + '/health'
+            logger.info(f"[Bindery test] Testing connection to {url}")
+            
+            r = requests.get(url, headers=self.headers)
+            if r.status_code == 200:
+                return True, r.json()
+            elif r.status_code == 401:
+                return False, "API key invalid (401 Unauthorized)"
+            else:
+                return False, f"HTTP {r.status_code}"
+        except Exception as e:
+            return False, str(e)
+    
+    def check_queue(self):
+        """Get active downloads from Bindery queue."""
+        import logging
+        import requests
+        logger = logging.getLogger(__name__)
+        
+        try:
+            url = self.apiurl + '/queue'
+            logger.info(f"[Bindery check_queue] Fetching from {url}")
+            
+            r = requests.get(url, headers=self.headers)
+            if r.status_code == 401:
+                logger.error(f"[Bindery check_queue] API key invalid")
+                return False, "API key invalid"
+            if r.status_code != 200:
+                logger.warning(f"[Bindery check_queue] HTTP {r.status_code}")
+                return False, f"HTTP {r.status_code}"
+            
+            response_data = r.json()
+            dt = self.parse_queue(response_data)
+            return True, dt
+        except Exception as e:
+            logger.error(f"[Bindery check_queue] Error: {e}")
+            return False, str(e)
+    
+    def parse_queue(self, queue):
+        """Parse Bindery queue response to Harpoon format.
+        
+        Bindery queue response format (estimated):
+        {
+            "data": [
+                {
+                    "id": "...",
+                    "title": "...",
+                    "size": 123456789,
+                    "status": "downloading|completed|failed",
+                    "downloadClient": "SABnzbd|qBittorrent|..."
+                }
+            ]
+        }
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        records = []
+        
+        queue_data = queue.get('data', queue)  # Handle both wrapped and unwrapped responses
+        if isinstance(queue_data, dict) and 'data' in queue_data:
+            queue_data = queue_data['data']
+        
+        logger.info(f"[Bindery parse_queue] Processing {len(queue_data)} queue items")
+        
+        for record in queue_data:
+            recordinfo = {}
+            recordinfo['size'] = record.get('size', 0)
+            recordinfo['name'] = record.get('title', record.get('name', 'Unknown'))
+            recordinfo['status'] = record.get('status', 'unknown')
+            recordinfo['tdstate'] = record.get('status', '')
+            recordinfo['tdstatus'] = record.get('status', '')
+            recordinfo['statusmessages'] = record.get('error', '')
+            recordinfo['downloadid'] = record.get('id', str(record.get('downloadId', '')))
+            recordinfo['clientid'] = record.get('id', 0)
+            recordinfo['downloadclient'] = record.get('downloadClient', record.get('downloadClient', ''))
+            recordinfo['manager'] = self.manager
+            records.append(recordinfo)
+        
+        return records
+    
+    def check_itemqueue(self, record):
+        """Update Item record from Bindery queue data."""
+        import logging
+        from itemqueue.models import Item, ItemHistory
+        logger = logging.getLogger(__name__)
+        
+        queueitem, created = Item.objects.get_or_create(hash=record['downloadid'])
+        if created:
+            changed = {'hash': queueitem.hash}
+        else:
+            changed = {}
+        
+        # Preserve archived status
+        original_archived = queueitem.archived
+        original_archived_at = queueitem.archived_at
+        
+        for attr in ['size', 'name', 'status', 'clientid', 'manager']:
+            if getattr(queueitem, attr) != record[attr]:
+                changed[attr] = record[attr]
+                setattr(queueitem, attr, record[attr])
+        
+        # Try to assign downloader if not already assigned
+        if not queueitem.downloader and record.get('downloadclient'):
+            from entities.models import Downloader
+            client_name = record['downloadclient']
+            downloader = Downloader.objects.filter(name__iexact=client_name).first()
+            if not downloader:
+                downloader = Downloader.objects.filter(downloadertype__iexact=client_name).first()
+            
+            if downloader:
+                queueitem.downloader = downloader
+                changed['downloader'] = downloader.name
+        
+        # Restore archived status
+        queueitem.archived = original_archived
+        queueitem.archived_at = original_archived_at
+        
+        # Mark status based on Bindery status
+        status_map = {
+            'downloading': 'Grabbed',
+            'completed': 'Completed',
+            'failed': 'Failed',
+            'pending': 'Grabbed',
+        }
+        new_status = status_map.get(record.get('status', '').lower(), 'Grabbed')
+        if queueitem.status != new_status:
+            changed['status'] = new_status
+            queueitem.status = new_status
+        
+        if changed:
+            queueitem.save()
+            if created:
+                ItemHistory.objects.create(
+                    item=queueitem,
+                    details=f"Created from {self.manager.name} queue"
+                )
+        
+        return queueitem, changed
+    
+    def post_process(self, item, download_path):
+        """Trigger post-processing in Bindery.
+        
+        Bindery doesn't have a direct command endpoint like Arr.
+        This will need to be implemented when Bindery adds support,
+        or we can poll for completed status and auto-import.
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        # TODO: Request Bindery team to add import command endpoint
+        logger.warning(f"[Bindery post_process] Not implemented - Bindery auto-imports when files complete")
+        
+        return True, "Bindery handles import automatically when download completes"
 
 
 class Blackhole:

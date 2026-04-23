@@ -288,6 +288,7 @@ MANAGER_TYPES = [
     ('Whisparr', 'Whisparr'),
     ('LazyLibrarian', 'LazyLibrarian'),
     ('Mylar3', 'Mylar3'),
+    ('Bindery', 'Bindery'),
     ('Blackhole', 'Blackhole'),
 ]
 
