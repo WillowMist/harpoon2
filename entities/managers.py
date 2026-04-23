@@ -932,13 +932,19 @@ class Bindery:
         """Test Bindery API connection."""
         import logging
         import requests
+        import sys
         logger = logging.getLogger(__name__)
         
+        print(f"[Bindery test] DEBUG: url={self.apiurl}", flush=True)
+        print(f"[Bindery test] DEBUG: headers={self.headers}", flush=True)
+        
         url = self.apiurl + '/health'
-        logger.info(f"[Bindery test] Testing connection to {url}")
         
         try:
+            print(f"[Bindery test] Making request to {url}", flush=True)
             r = requests.get(url, headers=self.headers, timeout=10)
+            print(f"[Bindery test] Response: {r.status_code}", flush=True)
+            
             if r.status_code == 200:
                 return True, r.json()
             elif r.status_code == 401:
@@ -946,6 +952,7 @@ class Bindery:
             else:
                 return False, f"HTTP {r.status_code}"
         except Exception as e:
+            print(f"[Bindery test] ERROR: {e}", flush=True)
             return False, str(e)
     
     def check_queue(self):
