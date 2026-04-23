@@ -171,7 +171,7 @@ def downloaders(request):
 
 def managertest(request, pk):
     manager = models.Manager.objects.get(pk=pk)
-    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr', 'Whisparr', 'Mylar', 'Mylar3', 'LazyLibrarian', 'Blackhole']:
+    if manager.managertype in ['Sonarr', 'Radarr', 'Lidarr', 'Readarr', 'Whisparr', 'Mylar', 'Mylar3', 'LazyLibrarian', 'Bindery', 'Blackhole']:
         if manager.managertype == 'Sonarr':
             client = Sonarr(manager)
         elif manager.managertype == 'Radarr':
