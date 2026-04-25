@@ -993,9 +993,12 @@ class Bindery:
         logger = logging.getLogger(__name__)
         records = []
         
-        queue_data = queue.get('data', queue)  # Handle both wrapped and unwrapped responses
-        if isinstance(queue_data, dict) and 'data' in queue_data:
-            queue_data = queue_data['data']
+        if isinstance(queue, list):
+            queue_data = queue
+        else:
+            queue_data = queue.get('data', queue)
+            if isinstance(queue_data, dict) and 'data' in queue_data:
+                queue_data = queue_data['data']
         
         logger.info(f"[Bindery parse_queue] Processing {len(queue_data)} queue items")
         
