@@ -18,7 +18,7 @@ class Manager(models.Model):
     name = models.CharField(max_length=30, unique=True)
     managertype = models.CharField(max_length=20, choices=MANAGER_TYPES)
     url = models.URLField(blank=True, null=True)
-    apikey = models.CharField(max_length=50, blank=True, null=True)
+    apikey = models.CharField(max_length=100, blank=True, null=True)
     folder = models.ForeignKey(DownloadFolder, on_delete=models.CASCADE, null=True, blank=True)
     label = models.CharField(max_length=25, blank=True, null=True)
 
