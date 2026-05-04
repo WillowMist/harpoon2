@@ -78,7 +78,8 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:4277/"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 30
+      start_period: 60s
 
   # Optional: Nginx reverse proxy (for production)
   # Uncomment to use
