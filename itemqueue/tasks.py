@@ -585,38 +585,40 @@ def transfer_files_async(item_hash):
                 # This prevents picking up files from other torrents in the same base folder
                 actual_remote_dir = remote_dir
                 if downloader.downloadertype == 'QBittorrent' and not is_single_file and torrent_name:
-                    # Check if torrent name is a subfolder of remote_dir
+                    # qBittorrent may create a shorter folder name than the full torrent name
+                    # Try multiple strategies to find the correct subfolder
+                    
+                    # Strategy 1: Try exact torrent name
                     potential_subfolder = os.path.join(remote_dir, torrent_name)
                     try:
                         subfolder_stat = sftp.stat(potential_subfolder)
                         import stat
                         if stat.S_ISDIR(subfolder_stat.st_mode):
                             actual_remote_dir = potential_subfolder
-                            logger.info(f"[transfer_files_async] QBittorrent: using subfolder {actual_remote_dir}")
-                        else:
-                            logger.warning(f"[transfer_files_async] QBittorrent: {potential_subfolder} exists but is not a directory, using base dir")
+                            logger.info(f"[transfer_files_async] QBittorrent: using exact subfolder {actual_remote_dir}")
                     except FileNotFoundError:
-                        logger.warning(f"[transfer_files_async] QBittorrent: subfolder {potential_subfolder} not found, listing base dir to find match")
-                        # Try to find a matching folder in the base directory
+                        # Strategy 2: List base dir and find matching folder
+                        logger.warning(f"[transfer_files_async] QBittorrent: exact subfolder not found, searching in base dir")
                         try:
                             base_contents = sftp.listdir(remote_dir)
-                            # Look for folder that starts with the torrent name (handles truncation/characters)
-                            torrent_basename = os.path.basename(torrent_name)
+                            # Extract first part of torrent name (before ' - ' or similar)
+                            # e.g. "Vampire Crawlers [FitGirl Repack]" from full name
+                            name_lower = torrent_name.lower()
                             for item in base_contents:
-                                if item == torrent_basename or torrent_basename.startswith(item) or item.startswith(torrent_basename[:20]):
+                                item_lower = item.lower()
+                                # Check if torrent name contains the folder name or vice versa
+                                if item_lower in name_lower or name_lower in item_lower:
                                     item_path = os.path.join(remote_dir, item)
                                     try:
                                         item_stat = sftp.stat(item_path)
                                         if stat.S_ISDIR(item_stat.st_mode):
                                             actual_remote_dir = item_path
-                                            logger.info(f"[transfer_files_async] QBittorrent: matched subfolder by name: {actual_remote_dir}")
+                                            logger.info(f"[transfer_files_async] QBittorrent: matched subfolder by name similarity: {actual_remote_dir}")
                                             break
                                     except:
                                         pass
-                        except:
-                            pass
-                    except Exception as e:
-                        logger.warning(f"[transfer_files_async] QBittorrent: error checking subfolder: {e}, using base dir")
+                        except Exception as e2:
+                            logger.warning(f"[transfer_files_async] QBittorrent: error searching base dir: {e2}")
                 
                 try:
                     logger.info(f"[transfer_files_async] Listing files in multi-file dir {actual_remote_dir}")
