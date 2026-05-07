@@ -321,8 +321,30 @@ class QBittorrentDownloader(BaseDownloader):
             if is_single_file:
                 files_to_copy = [t.name]
             
+            # Determine the actual remote directory
+            # For multi-file torrents with subfolders, get the first file's path to find the subfolder
+            remote_dir = t.save_path
+            if not is_single_file:
+                try:
+                    files = self.client.torrents_files(hash)
+                    if files and len(files) > 0:
+                        # Get the first file's full path (relative to save_path)
+                        first_file_path = files[0].name
+                        # The file path is relative to save_path
+                        # e.g. "Vampire Crawlers [FitGirl Repack]/MD5/QuickSFV.EXE"
+                        # We want the top-level subfolder
+                        import os
+                        # Get the first component of the relative path
+                        rel_path = first_file_path.replace('\\', '/')  # Normalize path separators
+                        top_folder = rel_path.split('/')[0]
+                        # Join with save_path to get the actual subfolder
+                        potential_subfolder = os.path.join(t.save_path, top_folder)
+                        remote_dir = potential_subfolder
+                except:
+                    pass  # Use save_path if we can't determine subfolder
+            
             return {
-                'remote_dir': t.save_path,
+                'remote_dir': remote_dir,
                 'files_to_copy': files_to_copy,
                 'is_single_file': is_single_file,
                 'name': t.name,
