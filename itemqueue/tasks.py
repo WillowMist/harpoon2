@@ -583,8 +583,6 @@ def transfer_files_async(item_hash):
                 # Multi-file torrent: recursively traverse directories
                 actual_remote_dir = remote_dir
                 try:
-                
-                try:
                     logger.info(f"[transfer_files_async] Listing files in multi-file dir {actual_remote_dir}")
                     remote_files = sftp.listdir(actual_remote_dir)
                     logger.info(f"[transfer_files_async] Found {len(remote_files)} files in multi-file dir")
