@@ -840,10 +840,17 @@ def transfer_files_async(item_hash):
                         logger.info(f"RAR processing completed: {message}")
             except Exception as e:
                 logger.error(f"Error during archive processing: {e}")
-        
+         
         # THEN move from temp folder to final destination (Blackhole manager only)
         # This happens AFTER extraction
-        if is_blackhole and failed_count == 0 and temp_folder and os.path.exists(temp_folder):
+        # Verify ALL transfers have completed (success or failure) before moving
+        total_transfers = FileTransfer.objects.filter(item=item).count()
+        completed_transfers = FileTransfer.objects.filter(
+            item=item
+        ).exclude(status__in=['pending', 'transferring']).count()
+        all_transfers_done = (total_transfers > 0 and completed_transfers == total_transfers)
+        
+        if is_blackhole and all_transfers_done and temp_folder and os.path.exists(temp_folder):
             try:
                 # Create category folder if it doesn't exist
                 if not os.path.exists(final_base_folder):
