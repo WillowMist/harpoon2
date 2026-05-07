@@ -639,6 +639,7 @@ def transfer_files_async(item_hash):
                         transfer_list.append((remote_item_path, relative_item_path))
             
             walk_remote_sftp(sftp, actual_remote_dir, actual_remote_dir)
+            logger.info(f"[transfer_files_async] walk_remote_sftp completed, transfer_list has {len(transfer_list)} items")
         logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files

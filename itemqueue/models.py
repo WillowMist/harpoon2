@@ -4,7 +4,7 @@ from django.db.models import Q
 # Create your models here.
 
 class Item(models.Model):
-    name = models.CharField(max_length=200, default='', blank=True)
+    name = models.CharField(max_length=500, default='', blank=True)
     hash = models.CharField(max_length=200, primary_key=True)
     manager = models.ForeignKey('entities.Manager', on_delete=models.CASCADE, null=True, blank=True)
     downloader = models.ForeignKey('entities.Downloader', on_delete=models.CASCADE, null=True, blank=True)
