@@ -577,19 +577,19 @@ def transfer_files_async(item_hash):
                 transfer_list.append((remote_path, filename))
             logger.info(f"[transfer_files_async] Added {len(transfer_list)} files to transfer list")
         
-            # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
-            # Only run if transfer_list is still empty
-            if len(transfer_list) == 0:
-                # Multi-file torrent: recursively traverse directories
-                actual_remote_dir = remote_dir
-                try:
-                    remote_files = sftp.listdir(actual_remote_dir)
-                    logger.info(f"[transfer_files_async] Found {len(remote_files)} files in {actual_remote_dir}")
-                except Exception as e:
-                    logger.error(f"Cannot access remote directory {actual_remote_dir}: {e}")
-                    sftp.close()
-                    ssh.close()
-                    return
+        # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
+        # Only run if transfer_list is still empty
+        if len(transfer_list) == 0:
+            # Multi-file torrent: recursively traverse directories
+            actual_remote_dir = remote_dir
+            try:
+                remote_files = sftp.listdir(actual_remote_dir)
+                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in {actual_remote_dir}")
+            except Exception as e:
+                logger.error(f"Cannot access remote directory {actual_remote_dir}: {e}")
+                sftp.close()
+                ssh.close()
+                return
             
             def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
                 """Recursively walk remote directory and collect files while preserving structure."""
