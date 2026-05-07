@@ -601,10 +601,10 @@ def transfer_files_async(item_hash):
                     remote_files = sftp.listdir(actual_remote_dir)
                     logger.info(f"[transfer_files_async] Found {len(remote_files)} files in multi-file dir")
                 except Exception as e:
-                logger.error(f"Cannot access remote directory {remote_dir}: {e}")
-                sftp.close()
-                ssh.close()
-                return
+                    logger.error(f"Cannot access remote directory {actual_remote_dir}: {e}")
+                    sftp.close()
+                    ssh.close()
+                    return
             
             def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
                 """Recursively walk remote directory and collect files while preserving structure."""
