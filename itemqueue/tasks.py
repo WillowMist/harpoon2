@@ -857,14 +857,19 @@ def transfer_files_async(item_hash):
                     os.makedirs(final_base_folder)
                     logger.info(f"Created category folder: {final_base_folder}")
                 
-                # If final folder exists, remove it first
-                if os.path.exists(final_folder):
-                    import shutil
-                    shutil.rmtree(final_folder)
-                # Rename temp to final (atomic on same filesystem)
-                os.rename(temp_folder, final_folder)
-                logger.info(f"Moved temp folder to final: {final_folder}")
-                ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
+                # Only delete final folder if temp folder exists (meaning we're replacing it)
+                # This prevents accidental deletion of existing extracted content
+                if os.path.exists(temp_folder):
+                    if os.path.exists(final_folder):
+                        import shutil
+                        shutil.rmtree(final_folder)
+                        logger.info(f"Removed existing final folder: {final_folder}")
+                    # Rename temp to final (atomic on same filesystem)
+                    os.rename(temp_folder, final_folder)
+                    logger.info(f"Moved temp folder to final: {final_folder}")
+                    ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
+                else:
+                    logger.warning(f"Temp folder does not exist: {temp_folder}. Final folder may already be in place.")
             except Exception as e:
                 logger.error(f"Failed to move temp folder to final: {e}")
                 ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
