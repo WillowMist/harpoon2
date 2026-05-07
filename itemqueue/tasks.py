@@ -581,7 +581,7 @@ def transfer_files_async(item_hash):
             # Only run if transfer_list is still empty
             if len(transfer_list) == 0:
                 # Multi-file torrent: recursively traverse directories
-                # For qBittorrent, use the torrent name as subfolder if it exists
+                # For qBittorrent, try to use the torrent name as subfolder if it exists
                 # This prevents picking up files from other torrents in the same base folder
                 actual_remote_dir = remote_dir
                 if downloader.downloadertype == 'QBittorrent' and not is_single_file and torrent_name:
@@ -593,8 +593,30 @@ def transfer_files_async(item_hash):
                         if stat.S_ISDIR(subfolder_stat.st_mode):
                             actual_remote_dir = potential_subfolder
                             logger.info(f"[transfer_files_async] QBittorrent: using subfolder {actual_remote_dir}")
-                    except:
-                        pass  # Use base remote_dir if subfolder doesn't exist
+                        else:
+                            logger.warning(f"[transfer_files_async] QBittorrent: {potential_subfolder} exists but is not a directory, using base dir")
+                    except FileNotFoundError:
+                        logger.warning(f"[transfer_files_async] QBittorrent: subfolder {potential_subfolder} not found, listing base dir to find match")
+                        # Try to find a matching folder in the base directory
+                        try:
+                            base_contents = sftp.listdir(remote_dir)
+                            # Look for folder that starts with the torrent name (handles truncation/characters)
+                            torrent_basename = os.path.basename(torrent_name)
+                            for item in base_contents:
+                                if item == torrent_basename or torrent_basename.startswith(item) or item.startswith(torrent_basename[:20]):
+                                    item_path = os.path.join(remote_dir, item)
+                                    try:
+                                        item_stat = sftp.stat(item_path)
+                                        if stat.S_ISDIR(item_stat.st_mode):
+                                            actual_remote_dir = item_path
+                                            logger.info(f"[transfer_files_async] QBittorrent: matched subfolder by name: {actual_remote_dir}")
+                                            break
+                                    except:
+                                        pass
+                        except:
+                            pass
+                    except Exception as e:
+                        logger.warning(f"[transfer_files_async] QBittorrent: error checking subfolder: {e}, using base dir")
                 
                 try:
                     logger.info(f"[transfer_files_async] Listing files in multi-file dir {actual_remote_dir}")
@@ -611,7 +633,7 @@ def transfer_files_async(item_hash):
                 logger.warning(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
                 try:
                     remote_items = sftp_obj.listdir(remote_path)
-                    logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}")
+                    logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}: {remote_items[:10]}")
                 except Exception as e:
                     logger.warning(f"Cannot access remote directory {remote_path}: {e}")
                     return
