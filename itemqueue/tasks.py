@@ -461,18 +461,20 @@ def transfer_files_async(item_hash):
             final_base_folder = os.path.join(final_base_folder, category)
         
         # Create a subfolder for this item using a sanitized name
-        # Single files go directly in base folder, multi-file downloads get a subfolder
+        # For Blackhole manager, ALWAYS create a subfolder per item (even for single files)
+        # For other managers, single files go directly in base folder
         import re
         sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
         sanitized_name = sanitized_name.strip()
         
-        # For single files, don't create a subfolder - put directly in base folder
-        # For multi-file downloads, create a subfolder for organization
-        if not is_single_file:
-            # Multi-file: create subfolder
+        # Determine if we need a subfolder for this item
+        # Blackhole: always create subfolder to keep items organized
+        # Other managers: only for multi-file downloads
+        if is_blackhole or not is_single_file:
+            # Create subfolder for this item
             subfolder_name = sanitized_name
         else:
-            # Single file: no subfolder
+            # Single file in non-Blackhole manager: no subfolder
             subfolder_name = None
         
         # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
