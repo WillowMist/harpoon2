@@ -316,7 +316,7 @@ class QBittorrentDownloader(BaseDownloader):
             is_single_file = '.' in t.name.split('/')[-1]
             
             # For single file torrents, set files_to_copy to the torrent name
-            # For multi-file torrents, transfer all files from save_path
+            # For multi-file torrents, return None so transfer code uses the subfolder
             files_to_copy = None
             if is_single_file:
                 files_to_copy = [t.name]

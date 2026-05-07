@@ -577,15 +577,30 @@ def transfer_files_async(item_hash):
                 transfer_list.append((remote_path, filename))
             logger.info(f"[transfer_files_async] Added {len(transfer_list)} files to transfer list")
         
-        # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
-        # Only run if transfer_list is still empty
-        if len(transfer_list) == 0:
-            # Multi-file torrent: recursively traverse directories
-            try:
-                logger.info(f"[transfer_files_async] Listing files in multi-file dir {remote_dir}")
-                remote_files = sftp.listdir(remote_dir)
-                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in multi-file dir")
-            except Exception as e:
+            # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
+            # Only run if transfer_list is still empty
+            if len(transfer_list) == 0:
+                # Multi-file torrent: recursively traverse directories
+                # For qBittorrent, use the torrent name as subfolder if it exists
+                # This prevents picking up files from other torrents in the same base folder
+                actual_remote_dir = remote_dir
+                if downloader.downloadertype == 'QBittorrent' and not is_single_file and torrent_name:
+                    # Check if torrent name is a subfolder of remote_dir
+                    potential_subfolder = os.path.join(remote_dir, torrent_name)
+                    try:
+                        subfolder_stat = sftp.stat(potential_subfolder)
+                        import stat
+                        if stat.S_ISDIR(subfolder_stat.st_mode):
+                            actual_remote_dir = potential_subfolder
+                            logger.info(f"[transfer_files_async] QBittorrent: using subfolder {actual_remote_dir}")
+                    except:
+                        pass  # Use base remote_dir if subfolder doesn't exist
+                
+                try:
+                    logger.info(f"[transfer_files_async] Listing files in multi-file dir {actual_remote_dir}")
+                    remote_files = sftp.listdir(actual_remote_dir)
+                    logger.info(f"[transfer_files_async] Found {len(remote_files)} files in multi-file dir")
+                except Exception as e:
                 logger.error(f"Cannot access remote directory {remote_dir}: {e}")
                 sftp.close()
                 ssh.close()
@@ -637,7 +652,7 @@ def transfer_files_async(item_hash):
                         logger.info(f"[walk_remote_sftp] Adding file {item_name} to transfer list")
                         transfer_list.append((remote_item_path, relative_item_path))
             
-            walk_remote_sftp(sftp, remote_dir, remote_dir)
+            walk_remote_sftp(sftp, actual_remote_dir, actual_remote_dir)
         logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files
