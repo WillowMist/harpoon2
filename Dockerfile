@@ -4,7 +4,8 @@ RUN mkdir -p /opt/harpoon2 /data /var/log/harpoon2 /mnt/twilightsparkle
 
 WORKDIR /opt/harpoon2
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN . /etc/os-release && echo "deb http://deb.debian.org/debian ${VERSION_CODENAME:-bookworm} main non-free" > /etc/apt/sources.list.d/non-free.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
     libpq-dev \
