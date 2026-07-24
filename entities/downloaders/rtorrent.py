@@ -519,6 +519,9 @@ class RTorrentDownloader(BaseDownloader):
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        
         self._ensure_client()
         
         torrent_info = self.find(hash)
