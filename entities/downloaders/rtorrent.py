@@ -512,6 +512,9 @@ class RTorrentDownloader(BaseDownloader):
     def get_download_info(self, hash: str) -> dict:
         """Get information needed for file transfer post-processing.
         
+        Uses f.multicall() to check actual file count rather than guessing
+        from filename extensions.
+        
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
         """
@@ -529,15 +532,29 @@ class RTorrentDownloader(BaseDownloader):
         directory = torrent_info.get('directory', '')
         name = torrent_info.get('name', '')
         
-        # Check if single-file by looking for actual video file extensions
-        filename = name.split('/')[-1] if '/' in name else name
-        video_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm', '.mp3', '.flac')
-        is_single_file = filename.lower().endswith(video_extensions)
-        
-        # For single-file torrents, specify which file to copy
+        # Determine single vs multi-file by checking actual file count
+        is_single_file = False
         files_to_copy = None
-        if is_single_file:
-            files_to_copy = [filename]
+        try:
+            rpc = self._rtorrent.client
+            # f.multicall returns list of [path, size_bytes] for each file
+            file_list = rpc.f.multicall(hash, 'f.path=', 'f.size_bytes=')
+            if file_list and len(file_list) == 1:
+                is_single_file = True
+                filename = file_list[0][0]  # 'f.path=' is first field
+                # f.path= returns path relative to d.directory()
+                # Extract just the filename for files_to_copy
+                basename = filename.split('/')[-1] if '/' in filename else filename
+                files_to_copy = [basename]
+                logger.info(f"RTorrent single-file torrent: {basename} in {directory}")
+        except Exception as e:
+            logger.warning(f"Could not get file list via f.multicall for {hash}: {e}")
+            # Fallback: use extension-based detection
+            filename = name.split('/')[-1] if '/' in name else name
+            video_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm', '.mp3', '.flac')
+            is_single_file = filename.lower().endswith(video_extensions)
+            if is_single_file:
+                files_to_copy = [filename]
         
         return {
             'remote_dir': directory,
