@@ -512,8 +512,9 @@ class RTorrentDownloader(BaseDownloader):
     def get_download_info(self, hash: str) -> dict:
         """Get information needed for file transfer post-processing.
         
-        Uses f.multicall() to check actual file count rather than guessing
-        from filename extensions.
+        Uses d.is_multi_file() to determine single vs multi-file torrents,
+        which is more reliable than f.multicall() (which returns empty
+        for single-file torrents in some rTorrent versions).
         
         Returns:
             Dict with remote_dir, files_to_copy, is_single_file, name
@@ -532,23 +533,20 @@ class RTorrentDownloader(BaseDownloader):
         directory = torrent_info.get('directory', '')
         name = torrent_info.get('name', '')
         
-        # Determine single vs multi-file by checking actual file count
+        # Determine single vs multi-file using rTorrent's API
         is_single_file = False
         files_to_copy = None
         try:
             rpc = self._rtorrent.client
-            # f.multicall returns list of [path, size_bytes] for each file
-            file_list = rpc.f.multicall(hash, 'f.path=', 'f.size_bytes=')
-            if file_list and len(file_list) == 1:
-                is_single_file = True
-                filename = file_list[0][0]  # 'f.path=' is first field
-                # f.path= returns path relative to d.directory()
-                # Extract just the filename for files_to_copy
-                basename = filename.split('/')[-1] if '/' in filename else filename
+            is_multi = rpc.d.is_multi_file(hash)
+            is_single_file = not is_multi
+            if is_single_file:
+                base_path = rpc.d.base_path(hash)
+                basename = base_path.split('/')[-1] if '/' in base_path else base_path
                 files_to_copy = [basename]
-                logger.info(f"RTorrent single-file torrent: {basename} in {directory}")
+                logger.info(f"RTorrent single-file: {basename} in {directory}")
         except Exception as e:
-            logger.warning(f"Could not get file list via f.multicall for {hash}: {e}")
+            logger.warning(f"Could not determine file type for {hash}: {e}")
             # Fallback: use extension-based detection
             filename = name.split('/')[-1] if '/' in name else name
             video_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm', '.mp3', '.flac')
