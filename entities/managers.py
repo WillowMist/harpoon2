@@ -672,6 +672,19 @@ class Mylar3:
                         comic_name = comic_name.replace('Attempting to download ', '').strip()
                     
                     if comic_name:
+                        # Detect downloader from log prefix
+                        downloader = None
+                        msg_upper = message.upper()
+                        from entities.models import Downloader as DlModel
+                        if '[SABNZBD]' in msg_upper:
+                            downloader = DlModel.objects.filter(downloadertype='SABNzbd').first()
+                        elif '[AIRDCPP]' in msg_upper:
+                            downloader = DlModel.objects.filter(downloadertype='AirDC++').first()
+                        elif '[RTORRENT]' in msg_upper:
+                            downloader = DlModel.objects.filter(downloadertype='RTorrent').first()
+                        elif '[QBITTORRENT]' in msg_upper:
+                            downloader = DlModel.objects.filter(downloadertype='QBittorrent').first()
+                        
                         # Create hash from the comic name
                         hash_value = hashlib.md5(comic_name.encode()).hexdigest()
                         
@@ -683,6 +696,11 @@ class Mylar3:
                                 item.manager = self.manager
                                 item.save()
                                 logger.info(f"[Mylar3] Assigned manager to existing item: {comic_name}")
+                            # Assign downloader if not set and we detected one
+                            if not item.downloader and downloader:
+                                item.downloader = downloader
+                                item.save()
+                                logger.info(f"[Mylar3] Assigned downloader {downloader.name} to existing item: {comic_name}")
                             else:
                                 logger.debug(f"[Mylar3] Item already has manager: {comic_name}")
                         except Item.DoesNotExist:
@@ -693,12 +711,13 @@ class Mylar3:
                                 size=0,
                                 status='Grabbed',
                                 manager=self.manager,
+                                downloader=downloader,
                             )
                             ItemHistory.objects.create(
                                 item=item,
-                                details=f'Grabbed by {self.manager.name} via Mylar3'
+                                details=f'Grabbed by {self.manager.name} via Mylar3' + (f' with {downloader.name}' if downloader else '')
                             )
-                            logger.info(f"[Mylar3] New grabbed item: {comic_name} ({hash_value})")
+                            logger.info(f"[Mylar3] New grabbed item: {comic_name} ({hash_value})" + (f' -> {downloader.name}' if downloader else ''))
             
             # Cache the newest log time for next poll
             cache.set(cache_key, newest_log_time, timeout=3600)  # Cache for 1 hour
