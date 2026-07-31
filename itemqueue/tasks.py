@@ -682,6 +682,23 @@ def transfer_files_async(item_hash):
                 logger.warning(f"Cannot stat {remote_file_path}: {e}")
                 continue
             
+            # Deduplicate: check for existing transfers for this item+filename
+            existing_transfer = FileTransfer.objects.filter(
+                item=item,
+                filename=relative_path
+            ).first()
+            
+            if existing_transfer:
+                if existing_transfer.status == 'completed' and existing_transfer.file_size == file_size:
+                    # Already transferred successfully - reuse the record
+                    logger.info(f"Reusing existing completed transfer for {relative_path}")
+                    transfer_records[(remote_file_path, relative_path)] = existing_transfer
+                    continue
+                else:
+                    # Stale pending/transferring/failed record from a previous run - clean it up
+                    logger.info(f"Removing stale {existing_transfer.status} transfer record for {relative_path}")
+                    existing_transfer.delete()
+            
             # Check if file exists locally and verify file size
             if os.path.exists(local_path):
                 local_size = os.path.getsize(local_path)
