@@ -1077,16 +1077,20 @@ class Bindery:
         return item, False
 
     def post_process(self, item, download_path):
-        """Tell Bindery to import the staged file via manual-import.
+        """Recover Bindery items that failed auto-import.
 
-        Args:
-            item: Item with clientid set to Bindery's bookId.
-            download_path: The arr-style path (constructed from item.manager.folder
-                + item.name). For Bindery we ignore this and import the entire
-                local_folder instead - Bindery reads from its own configured
-                library root which is where Harpoon2 staged the file, and a
-                single Bindery item can map to multiple files (e.g. a multi-file
-                audiobook folder).
+        For Bindery items, the standard transfer pipeline's `download_path`
+        argument is the arr-style path and doesn't match real files on disk.
+        We use the first completed FileTransfer's local_path to find the
+        staged file/folder, then call Bindery's manual-import/match to attach
+        the existing failed download row to the book and re-import.
+
+        This is called when the transfer pipeline runs manager post_process,
+        which happens after Harpoon2 finishes SFTP-grabbing the file via the
+        unified transfer pipeline. It tolerates Bindery's queue state being
+        'importFailed' or 'importBlocked' (which is what Bindery reports when
+        its first attempt couldn't find the file - the path-remap or folder
+        mount issue we hit during testing).
 
         Returns:
             (success: bool, message: str)
@@ -1116,16 +1120,106 @@ class Bindery:
         if not staged_path or not os.path.exists(staged_path):
             return False, f"No staged file/folder found for item {item.name}"
 
-        # Determine format - default to ebook. Audiobook if path is a directory
-        # containing audio extensions OR ends in .m4b/.mp3 audiobook layout.
-        fmt = self._detect_format(staged_path)
+        # Find Bindery's internal download id for this item. The /api/v1/queue
+        # response gives us `id` (the Bindery row id), `bookId`, and either
+        # `sabnzbdNzoId` or `torrentId` matching our Item.hash.
+        bindery_id = self._find_bindery_queue_id(item.hash)
+        if not bindery_id:
+            # Fall back to plain manual-import (creates a new Bindery row).
+            return self._manual_import_new(item, book_id, staged_path)
 
+        url = self.apiurl + '/queue/manual-import/match'
+        payload = {'downloadId': bindery_id, 'bookId': book_id}
+        try:
+            resp = requests.post(url, json=payload, headers=self.headers, timeout=60)
+        except Exception as e:
+            msg = f"Bindery manual-import/match request error: {e}"
+            logger.error(f"[Bindery post_process] {msg}")
+            ItemHistory.objects.create(item=item, details=msg)
+            return False, msg
+
+        body_preview = (resp.text or '')[:500]
+        history_details = (
+            f"Bindery manual-import/match: downloadId={bindery_id}, "
+            f"bookId={book_id}, path={staged_path} | HTTP {resp.status_code}"
+        )
+        if resp.status_code in (200, 201, 202):
+            history_details += f" | Response: {body_preview}"
+            ItemHistory.objects.create(item=item, details=history_details)
+            return True, f"Bindery matched download {bindery_id} to book {book_id}"
+        elif resp.status_code == 409:
+            # State moved on (e.g. Bindery already retried successfully). No
+            # action needed; report as success.
+            ItemHistory.objects.create(
+                item=item,
+                details=f"Bindery manual-import/match returned 409 (already in non-importFailed state): {body_preview}",
+            )
+            return True, f"Bindery download {bindery_id} no longer needs manual-import"
+        else:
+            history_details += f" | Failed: {body_preview}"
+            ItemHistory.objects.create(item=item, details=history_details)
+            return False, f"Bindery manual-import/match failed (HTTP {resp.status_code}): {body_preview}"
+
+    def _find_bindery_queue_id(self, item_hash):
+        """Look up Bindery's internal download id matching the given hash.
+
+        Returns the queue row's int id, or None if not found (or if the
+        record is no longer in importFailed/importBlocked state).
+        """
+        import logging
+        import requests
+        logger = logging.getLogger(__name__)
+
+        try:
+            resp = requests.get(
+                self.apiurl + '/queue',
+                headers=self.headers,
+                params={'pageSize': 100},
+                timeout=15,
+            )
+        except Exception as e:
+            logger.warning(f"[Bindery] Queue lookup failed: {e}")
+            return None
+
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        items = data.get('items', data) if isinstance(data, dict) else data
+        if not isinstance(items, list):
+            return None
+
+        for record in items:
+            if (record.get('sabnzbdNzoId') == item_hash
+                    or record.get('torrentId') == item_hash):
+                status = record.get('status', '')
+                # Only useful to match if the row is still in a recoverable
+                # state. Otherwise manual-import/match would 409.
+                if status in ('importFailed', 'importBlocked'):
+                    return record.get('id')
+                else:
+                    # Already imported or in flight; nothing to do.
+                    return None
+
+        # Row not found in current queue (could be older / paginated).
+        return None
+
+    def _manual_import_new(self, item, book_id, staged_path):
+        """Fallback path: create a new Bindery download via manual-import.
+
+        Used when the existing Bindery row can't be matched (e.g. it's no
+        longer in importFailed/importBlocked, or is paginated out). Creates
+        a fresh row Bindery can import.
+        """
+        import logging
+        import os
+        import requests
+        from itemqueue.models import ItemHistory
+        logger = logging.getLogger(__name__)
+
+        fmt = self._detect_format(staged_path)
         url = self.apiurl + '/queue/manual-import'
-        payload = {
-            'path': staged_path,
-            'bookId': book_id,
-            'format': fmt,
-        }
+        payload = {'path': staged_path, 'bookId': book_id, 'format': fmt}
 
         try:
             resp = requests.post(url, json=payload, headers=self.headers, timeout=60)
@@ -1136,7 +1230,10 @@ class Bindery:
             return False, msg
 
         body_preview = (resp.text or '')[:500]
-        history_details = f"Bindery manual-import: path={staged_path}, bookId={book_id}, format={fmt} | HTTP {resp.status_code}"
+        history_details = (
+            f"Bindery manual-import (new): path={staged_path}, bookId={book_id}, "
+            f"format={fmt} | HTTP {resp.status_code}"
+        )
         if resp.status_code in (200, 201, 202):
             history_details += f" | Response: {body_preview}"
             ItemHistory.objects.create(item=item, details=history_details)
