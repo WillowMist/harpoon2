@@ -14,8 +14,16 @@ class QBittorrentDownloader(BaseDownloader):
         'use_ssl': 'boolean',
     }
 
+    # When qBittorrent bans our IP, hammering it with auth attempts only
+    # extends the ban. Track a per-instance backoff so we skip calls until
+    # it's safe to retry. The ban is typically 30-60 minutes per qBittorrent's
+    # default config.
+    BAN_BACKOFF_SECONDS = 300  # 5 minutes between auth attempts after a ban
+
     def __init__(self, downloader=None):
         super().__init__(downloader)
+        # Time until which we should skip auth attempts (epoch seconds).
+        self._auth_skip_until = 0
         if downloader and hasattr(downloader, 'client'):
             self._init_client()
         else:
@@ -25,14 +33,24 @@ class QBittorrentDownloader(BaseDownloader):
     def _init_client(self):
         import qbittorrentapi
         import bencoder
-        
+        import time
+
+        # Skip the auth attempt if we're still in ban-backoff.
+        if time.time() < self._auth_skip_until:
+            logger.warning(
+                f"QBittorrent auth skipped: still in backoff until "
+                f"{time.strftime('%H:%M:%S', time.localtime(self._auth_skip_until))}"
+            )
+            self.client = None
+            return
+
         opts = self.options
         self.host = opts.get('host', 'localhost')
         self.port = opts.get('port', 8080)
         self.username = opts.get('username', 'admin')
         self.password = opts.get('password', 'adminadmin')
         self.use_ssl = opts.get('use_ssl', False)
-        
+
         try:
             self.client = qbittorrentapi.Client(
                 host=self.host,
@@ -45,8 +63,17 @@ class QBittorrentDownloader(BaseDownloader):
             self.client.auth_log_in()
             logger.info(f"QBittorrent client initialized: {self.username}@{self.host}:{self.port}")
         except Exception as e:
-            logger.error(f"Failed to initialize QBittorrent client: {e}")
+            err = str(e)
+            logger.error(f"Failed to initialize QBittorrent client: {err}")
             self.client = None
+            # If the failure looks like an IP ban, set a backoff so we don't
+            # hammer qBittorrent and keep extending the ban.
+            if 'banned' in err.lower():
+                self._auth_skip_until = time.time() + self.BAN_BACKOFF_SECONDS
+                logger.warning(
+                    f"QBittorrent IP ban detected; backing off auth for "
+                    f"{self.BAN_BACKOFF_SECONDS}s"
+                )
 
     def _ensure_client(self):
         if self.reload or self.client is None:
