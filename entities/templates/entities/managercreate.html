@@ -132,7 +132,22 @@
   function attachBinderySaveHandlers() {
     var form = document.getElementById('createform');
     if (!form) return;
-    form.addEventListener('submit', function() {
+    // The crisp_modals intercepts the form 'submit' event with
+    // e.preventDefault() and uses ajaxSubmit instead. So a 'submit'
+    // listener on the form never fires. Bind to the submit button's
+    // 'mousedown' event (which fires BEFORE click) with capture phase
+    // (which fires BEFORE any bubble-phase handlers, including the
+    // jQuery ones registered by crisp_modals).
+    document.addEventListener('mousedown', function(e) {
+      var target = e.target;
+      if (!target) return;
+      if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT') return;
+      var btnType = target.type || 'submit';
+      if (btnType !== 'submit') return;
+      // Only handle submits inside this form.
+      var form = target.closest('form');
+      if (!form || form.id !== 'createform') return;
+
       var managerType = document.querySelector('select[name="managertype"]');
       if (!managerType || managerType.value !== 'Bindery') return;
       var optionsField = document.querySelector('input[name="options"]');
@@ -151,7 +166,7 @@
         }
       });
       optionsField.value = JSON.stringify(opts);
-    });
+    }, true);
   }
 
   // Run on page load
