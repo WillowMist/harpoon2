@@ -410,7 +410,7 @@ def assign_items_to_downloaders():
                 api_url = f'{manager.url}/api/v1'
             elif manager.managertype == 'Bindery':
                 # Bindery exposes an arr-compatible /api/queue (no /api/v3 prefix)
-                api_url = manager.url.rstrip('/')
+                api_url = f'{manager.url}/api'
             else:
                 api_url = f'{manager.url}/api/v3'
             
