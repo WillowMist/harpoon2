@@ -953,6 +953,13 @@ class Bindery:
         'importblocked': 'Failed',
     }
 
+    # Default transient-error substring. If Bindery's errorMessage contains
+    # this text, the item is treated as PostProcessing (still retryable) instead
+    # of Failed. The default is the phrase Bindery includes when the file
+    # system hasn't caught up yet (qBittorrent writing to its temp/incomplete
+    # directory, etc.). Override via manager.options['transient_error_substring'].
+    DEFAULT_TRANSIENT_ERROR_SUBSTRING = 'the download may still be finishing'
+
     def __init__(self, manager):
         self.manager = manager
         self.url = manager.url
@@ -961,6 +968,62 @@ class Bindery:
         self.name = manager.name
         self.apiurl = self.url.rstrip('/') + '/api/v1'
         self.headers = {'X-Api-Key': self.apikey, 'Accept': 'application/json'}
+
+        # Per-manager JSON configuration (Manager.options). Defaults are
+        # sensible so an empty config still works.
+        opts = getattr(manager, 'options', None) or {}
+        if not isinstance(opts, dict):
+            opts = {}
+        self.opts_ebook_folder = opts.get('ebook_folder') or ''
+        self.opts_audiobook_folder = opts.get('audiobook_folder') or ''
+        # Categories are how the Bindery download client (SABnzbd / qBittorrent)
+        # routes downloads to the right filesystem location. They're set on
+        # Bindery's download client config and surfaced here for reference.
+        self.opts_ebook_category = opts.get('ebook_category') or ''
+        self.opts_audiobook_category = opts.get('audiobook_category') or ''
+        # path_remap is a comma-separated list of 'from:to' prefixes. We apply
+        # the FIRST match per path. The remap is applied at the manual-import
+        # API call so the path we send to Bindery matches its own namespace.
+        self.opts_path_remap = self._parse_path_remap(opts.get('path_remap', ''))
+        self.opts_transient_error_substring = (
+            opts.get('transient_error_substring')
+            or self.DEFAULT_TRANSIENT_ERROR_SUBSTRING
+        )
+
+    @staticmethod
+    def _parse_path_remap(spec):
+        """Parse a 'from:to,from2:to2' string into a list of (from, to) tuples.
+
+        Whitespace around each segment is stripped. Empty entries are skipped.
+        Returns an empty list if spec is empty/None.
+        """
+        if not spec:
+            return []
+        pairs = []
+        for chunk in str(spec).split(','):
+            chunk = chunk.strip()
+            if not chunk or ':' not in chunk:
+                continue
+            src, dst = chunk.split(':', 1)
+            src = src.strip()
+            dst = dst.strip()
+            if src and dst:
+                pairs.append((src, dst))
+        return pairs
+
+    def apply_path_remap(self, path):
+        """Apply the first matching prefix transform from path_remap config.
+
+        Returns the path unchanged if no rule matches. Longest-prefix-first
+        ordering prevents accidental partial matches.
+        """
+        if not path or not self.opts_path_remap:
+            return path
+        # Sort by source length descending so '/foo/bar' wins over '/foo'.
+        for src, dst in sorted(self.opts_path_remap, key=lambda p: -len(p[0])):
+            if path == src or path.startswith(src + '/'):
+                return path.replace(src, dst, 1)
+        return path
 
     def test(self):
         """Test Bindery API connection."""
@@ -991,6 +1054,16 @@ class Bindery:
         import requests
         from itemqueue.models import Item, ItemHistory
         logger = logging.getLogger(__name__)
+
+        # Log effective config (helps verify the JSON options landed).
+        logger.info(
+            f"[Bindery] config: ebook_folder={self.opts_ebook_folder!r}, "
+            f"audiobook_folder={self.opts_audiobook_folder!r}, "
+            f"ebook_category={self.opts_ebook_category!r}, "
+            f"audiobook_category={self.opts_audiobook_category!r}, "
+            f"path_remap={self.opts_path_remap}, "
+            f"transient_error_substring={self.opts_transient_error_substring!r}"
+        )
 
         try:
             url = self.apiurl + '/queue'
@@ -1046,7 +1119,19 @@ class Bindery:
         size = record.get('size', 0) or 0
         status_raw = record.get('status', '')
         status_lower = status_raw.lower()
+        error_message = record.get('errorMessage', '') or ''
+
+        # Determine hp_status. If Bindery's errorMessage contains the configured
+        # transient-error substring, the failure is retryable and we treat it
+        # as PostProcessing so the transfer pipeline keeps re-attempting.
         hp_status = self.STATUS_MAP.get(status_lower, 'Grabbed')
+        if hp_status == 'Failed' and self.opts_transient_error_substring:
+            if self.opts_transient_error_substring in error_message:
+                hp_status = 'PostProcessing'
+                logger.info(
+                    f"[Bindery] Treating transient failure as PostProcessing: "
+                    f"{title} (status={status_raw}, errorMessage={error_message[:120]!r})"
+                )
 
         item, created = Item.objects.get_or_create(
             hash=str(download_id),
@@ -1119,6 +1204,17 @@ class Bindery:
 
         if not staged_path or not os.path.exists(staged_path):
             return False, f"No staged file/folder found for item {item.name}"
+
+        # Apply the path remap so the path we send to Bindery matches its
+        # namespace. Harpoon2's staging path is in Harpoon2's view of the
+        # filesystem; Bindery's manual-import rejects paths outside its
+        # configured library roots.
+        remapped_path = self.apply_path_remap(staged_path)
+        if remapped_path != staged_path:
+            logger.info(
+                f"[Bindery post_process] Remapped staged path "
+                f"{staged_path} -> {remapped_path}"
+            )
 
         # Find Bindery's internal download id for this item. The /api/v1/queue
         # response gives us `id` (the Bindery row id), `bookId`, and either
@@ -1217,9 +1313,10 @@ class Bindery:
         from itemqueue.models import ItemHistory
         logger = logging.getLogger(__name__)
 
+        remapped_path = self.apply_path_remap(staged_path)
         fmt = self._detect_format(staged_path)
         url = self.apiurl + '/queue/manual-import'
-        payload = {'path': staged_path, 'bookId': book_id, 'format': fmt}
+        payload = {'path': remapped_path, 'bookId': book_id, 'format': fmt}
 
         try:
             resp = requests.post(url, json=payload, headers=self.headers, timeout=60)
@@ -1231,13 +1328,13 @@ class Bindery:
 
         body_preview = (resp.text or '')[:500]
         history_details = (
-            f"Bindery manual-import (new): path={staged_path}, bookId={book_id}, "
+            f"Bindery manual-import (new): path={remapped_path}, bookId={book_id}, "
             f"format={fmt} | HTTP {resp.status_code}"
         )
         if resp.status_code in (200, 201, 202):
             history_details += f" | Response: {body_preview}"
             ItemHistory.objects.create(item=item, details=history_details)
-            return True, f"Bindery accepted manual-import for {staged_path} (bookId={book_id})"
+            return True, f"Bindery accepted manual-import for {remapped_path} (bookId={book_id})"
         else:
             history_details += f" | Failed: {body_preview}"
             ItemHistory.objects.create(item=item, details=history_details)

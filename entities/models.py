@@ -22,6 +22,11 @@ class Manager(models.Model):
     folder = models.ForeignKey(DownloadFolder, on_delete=models.CASCADE, null=True, blank=True)
     label = models.CharField(max_length=25, blank=True, null=True)
 
+    # Per-manager-type JSON configuration. Currently used by Bindery to store
+    # ebook/audiobook folder paths, download-client path remap, and recovery
+    # transient-error substrings. Empty dict for managers that don't need it.
+    options = models.JSONField(default=dict, blank=True)
+
     # Blackhole-specific fields
     monitor_directory = models.CharField(max_length=500, blank=True, null=True, help_text="Directory to monitor for .nzb and .torrent files")
     monitor_subdirectories = models.BooleanField(default=False, help_text="Monitor subdirectories for category detection")
