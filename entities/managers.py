@@ -1163,8 +1163,9 @@ class Bindery:
         For Bindery items, the standard transfer pipeline's `download_path`
         argument is the arr-style path and doesn't match real files on disk.
         We use the first completed FileTransfer's local_path to find the
-        staged file/folder, then call Bindery's manual-import/match to attach
-        the existing failed download row to the book and re-import.
+        staged file/folder, optionally move it to the configured ebook or
+        audiobook folder so Bindery sees it in the right library root, then
+        call Bindery's manual-import API to import it.
 
         This is called when the transfer pipeline runs manager post_process,
         which happens after Harpoon2 finishes SFTP-grabbing the file via the
@@ -1178,6 +1179,7 @@ class Bindery:
         """
         import logging
         import os
+        import shutil
         import requests
         from itemqueue.models import FileTransfer, ItemHistory
         logger = logging.getLogger(__name__)
@@ -1200,6 +1202,43 @@ class Bindery:
 
         if not staged_path or not os.path.exists(staged_path):
             return False, f"No staged file/folder found for item {item.name}"
+
+        # Determine the format so we can move the file into the right Bindery
+        # folder (ebook vs audiobook). If the configured folder is set, move
+        # the staged file/folder there so Bindery's path-root resolution picks
+        # the correct library when we feed it the remapped path.
+        fmt = self._detect_format(staged_path)
+        target_folder = self.opts_audiobook_folder if fmt == 'audiobook' else self.opts_ebook_folder
+        if target_folder:
+            # Compute the relative path inside the staging dir so the file
+            # structure is preserved when moved to the target folder.
+            staging_root = self.manager.folder.folder if self.manager.folder else None
+            if staging_root and staged_path.startswith(staging_root.rstrip('/') + '/'):
+                rel_path = os.path.relpath(staged_path, staging_root)
+            else:
+                rel_path = os.path.basename(staged_path)
+            target_path = os.path.join(target_folder, rel_path)
+            try:
+                os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                if os.path.isdir(staged_path):
+                    if os.path.exists(target_path):
+                        shutil.rmtree(target_path)
+                    shutil.move(staged_path, target_path)
+                else:
+                    shutil.move(staged_path, target_path)
+                ItemHistory.objects.create(
+                    item=item,
+                    details=f"Move staged {fmt} to bindery folder: {staged_path} -> {target_path}",
+                )
+                logger.info(
+                    f"[Bindery post_process] Moved {fmt} {staged_path} -> {target_path}"
+                )
+                staged_path = target_path
+            except Exception as e:
+                logger.warning(
+                    f"[Bindery post_process] Could not move to {target_folder}: {e}. "
+                    f"Falling back to original staged path."
+                )
 
         # Apply the path remap so the path we send to Bindery matches its
         # namespace. Harpoon2's staging path is in Harpoon2's view of the
