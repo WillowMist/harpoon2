@@ -969,24 +969,20 @@ class Bindery:
         self.apiurl = self.url.rstrip('/') + '/api/v1'
         self.headers = {'X-Api-Key': self.apikey, 'Accept': 'application/json'}
 
-        # Per-manager JSON configuration (Manager.options). Defaults are
-        # sensible so an empty config still works.
-        opts = getattr(manager, 'options', None) or {}
-        if not isinstance(opts, dict):
-            opts = {}
-        self.opts_ebook_folder = opts.get('ebook_folder') or ''
-        self.opts_audiobook_folder = opts.get('audiobook_folder') or ''
-        # Categories are how the Bindery download client (SABnzbd / qBittorrent)
-        # routes downloads to the right filesystem location. They're set on
-        # Bindery's download client config and surfaced here for reference.
-        self.opts_ebook_category = opts.get('ebook_category') or ''
-        self.opts_audiobook_category = opts.get('audiobook_category') or ''
+        # Per-manager configuration lives on the Manager model directly
+        # (bindery_ebook_folder, bindery_audiobook_folder, etc.). Reading
+        # from real fields means the form auto-populates on reopen and the
+        # values are guaranteed to be persisted server-side.
+        self.opts_ebook_folder = manager.bindery_ebook_folder or ''
+        self.opts_audiobook_folder = manager.bindery_audiobook_folder or ''
+        self.opts_ebook_category = manager.bindery_ebook_category or ''
+        self.opts_audiobook_category = manager.bindery_audiobook_category or ''
         # path_remap is a comma-separated list of 'from:to' prefixes. We apply
         # the FIRST match per path. The remap is applied at the manual-import
         # API call so the path we send to Bindery matches its own namespace.
-        self.opts_path_remap = self._parse_path_remap(opts.get('path_remap', ''))
+        self.opts_path_remap = self._parse_path_remap(manager.bindery_path_remap or '')
         self.opts_transient_error_substring = (
-            opts.get('transient_error_substring')
+            manager.bindery_transient_error_substring
             or self.DEFAULT_TRANSIENT_ERROR_SUBSTRING
         )
 

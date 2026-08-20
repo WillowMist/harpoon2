@@ -27,6 +27,35 @@ class Manager(models.Model):
     # transient-error substrings. Empty dict for managers that don't need it.
     options = models.JSONField(default=dict, blank=True)
 
+    # Bindery-specific fields. These are used by the Bindery manager class
+    # when populating its JSON options at runtime. The form renders them
+    # as individual fields so values can be edited and persisted directly
+    # (no JS serialization layer required).
+    bindery_ebook_folder = models.CharField(
+        max_length=500, blank=True, null=True,
+        help_text='Local staging root for ebooks. Falls back to manager.folder if unset.'
+    )
+    bindery_ebook_category = models.CharField(
+        max_length=100, blank=True, null=True,
+        help_text='SABnzbd / qBittorrent category for ebooks. Set on Bindery\'s download client; surfaced here for reference.'
+    )
+    bindery_audiobook_folder = models.CharField(
+        max_length=500, blank=True, null=True,
+        help_text='Local staging root for audiobooks. Falls back to bindery_ebook_folder if unset.'
+    )
+    bindery_audiobook_category = models.CharField(
+        max_length=100, blank=True, null=True,
+        help_text='SABnzbd / qBittorrent category for audiobooks. Set on Bindery\'s download client; surfaced here for reference.'
+    )
+    bindery_path_remap = models.CharField(
+        max_length=500, blank=True, null=True,
+        help_text='Path remap applied at the manual-import API call. Format: from:to,from2:to2. Example: /mnt/twilightsparkle/processing/downloads/bindery:/downloads'
+    )
+    bindery_transient_error_substring = models.CharField(
+        max_length=255, blank=True, null=True,
+        help_text='If Bindery\'s errorMessage contains this substring, the item is treated as PostProcessing (retryable) instead of Failed. Default: "the download may still be finishing".'
+    )
+
     # Blackhole-specific fields
     monitor_directory = models.CharField(max_length=500, blank=True, null=True, help_text="Directory to monitor for .nzb and .torrent files")
     monitor_subdirectories = models.BooleanField(default=False, help_text="Monitor subdirectories for category detection")

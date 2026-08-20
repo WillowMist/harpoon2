@@ -21,43 +21,7 @@
        {% endfor %}
      </div>
    {% endfor %}
-
-   {# Bindery-specific options panel. Hidden when managertype isn’t Bindery. #}
-   <div class="bindery-only" data-field-type="bindery-options" style="display:none">
-     <h6 class="text-light border-bottom border-secondary pb-1 mt-3">Bindery Options</h6>
-     <p class="text-muted small mb-2">JSON config consumed by the Bindery manager. Empty dict is fine for defaults.</p>
-     <div class="mb-2">
-       <label class="form-label text-light">ebook_folder</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_ebook_folder" placeholder="/mnt/processing/downloads/bindery/ebook">
-       <small class="text-muted">Local staging root for ebooks. If unset, falls back to manager.folder.</small>
-     </div>
-     <div class="mb-2">
-       <label class="form-label text-light">ebook_category</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_ebook_category" placeholder="books">
-       <small class="text-muted">SABnzbd / qBittorrent category for ebooks. Set on Bindery's download client; surfaced here for reference.</small>
-     </div>
-     <div class="mb-2">
-       <label class="form-label text-light">audiobook_folder</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_audiobook_folder" placeholder="/mnt/processing/downloads/bindery/audiobook">
-       <small class="text-muted">Local staging root for audiobooks. If unset, falls back to ebook_folder.</small>
-     </div>
-     <div class="mb-2">
-       <label class="form-label text-light">audiobook_category</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_audiobook_category" placeholder="audiobooks">
-       <small class="text-muted">SABnzbd / qBittorrent category for audiobooks. Set on Bindery's download client; surfaced here for reference.</small>
-     </div>
-     <div class="mb-2">
-       <label class="form-label text-light">path_remap</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_path_remap" placeholder="/mnt/twilightsparkle/processing/downloads/bindery:/downloads">
-       <small class="text-muted">Path remap applied at the manual-import API call. The staged path Harpoon2 holds is in Harpoon2's namespace; Bindery rejects paths outside its library roots, so we swap the prefix to match Bindery's view. Format: from:to,from2:to2. Example: /mnt/twilightsparkle/processing/downloads/bindery:/downloads</small>
-     </div>
-     <div class="mb-2">
-       <label class="form-label text-light">transient_error_substring</label>
-       <input type="text" class="form-control bg-secondary text-light" name="bindery_transient_error_substring" placeholder="the download may still be finishing">
-       <small class="text-muted">If Bindery's errorMessage contains this substring, the item is treated as PostProcessing (retryable) instead of Failed. Default: "the download may still be finishing".</small>
-     </div>
-   </div>
- </div>
+  </div>
 
   <div class="modal-footer bg-dark border-secondary">
     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -68,14 +32,17 @@
 
 <script>
 (function() {
+  // Define which fields are for which manager type. The class is set on
+  // the form's field widgets by ManagerModalForm.__init__ so we can
+  // toggle visibility per managertype.
   function toggleFields() {
     var managerType = document.querySelector('select[name="managertype"]');
     if (!managerType) return;
 
     var isBlackhole = managerType.value === 'Blackhole';
     var isBindery = managerType.value === 'Bindery';
+    var isArr = !isBlackhole && !isBindery;
 
-    // Fields to show/hide (*arr only - folder shows for both)
     var arrFields = ['url', 'apikey', 'label'];
     var blackholeFields = [
       'monitor_directory', 'monitor_subdirectories', 'category',
@@ -83,90 +50,24 @@
       'poll_interval', 'move_on_complete', 'delete_source',
       'duplicate_handling', 'enabled', 'scan_on_startup'
     ];
-    var binderyPanel = document.querySelector('[data-field-type="bindery-options"]');
+    var binderyFields = [
+      'bindery_ebook_folder', 'bindery_ebook_category',
+      'bindery_audiobook_folder', 'bindery_audiobook_category',
+      'bindery_path_remap', 'bindery_transient_error_substring'
+    ];
 
-    // Toggle *arr fields
-    arrFields.forEach(function(fieldName) {
-      var fieldDiv = document.querySelector('[data-field-type="' + fieldName + '"]');
-      if (fieldDiv) {
-        fieldDiv.style.display = isBlackhole ? 'none' : 'block';
-      }
-    });
-
-    // Toggle Blackhole fields
-    blackholeFields.forEach(function(fieldName) {
-      var fieldDiv = document.querySelector('[data-field-type="' + fieldName + '"]');
-      if (fieldDiv) {
-        fieldDiv.style.display = isBlackhole ? 'block' : 'none';
-      }
-    });
-
-    // Toggle Bindery options panel
-    if (binderyPanel) {
-      binderyPanel.style.display = isBindery ? 'block' : 'none';
-    }
-
-    // Sync the visible Bindery fields into the hidden options JSON
-    syncBinderyOptions(isBindery);
-  }
-
-  function syncBinderyOptions(show) {
-    if (!show) return;
-    var optionsField = document.querySelector('input[name="options"]');
-    if (!optionsField) return;
-    var opts = {};
-    try {
-      opts = JSON.parse(optionsField.value || '{}');
-    } catch (e) {
-      opts = {};
-    }
-    var fields = ['bindery_ebook_folder', 'bindery_ebook_category', 'bindery_audiobook_folder', 'bindery_audiobook_category', 'bindery_path_remap', 'bindery_transient_error_substring'];
-    fields.forEach(function(name) {
-      var el = document.querySelector('[name="' + name + '"]');
-      if (el && !el.value && opts[name.replace('bindery_', '')]) {
-        el.value = opts[name.replace('bindery_', '')];
-      }
-    });
-  }
-
-  function attachBinderySaveHandlers() {
-    var form = document.getElementById('createform');
-    if (!form) return;
-    // The crisp_modals intercepts the form 'submit' event with
-    // e.preventDefault() and uses ajaxSubmit instead. So a 'submit'
-    // listener on the form never fires. Bind to the submit button's
-    // 'mousedown' event (which fires BEFORE click) with capture phase
-    // (which fires BEFORE any bubble-phase handlers, including the
-    // jQuery ones registered by crisp_modals).
-    document.addEventListener('mousedown', function(e) {
-      var target = e.target;
-      if (!target) return;
-      if (target.tagName !== 'BUTTON' && target.tagName !== 'INPUT') return;
-      var btnType = target.type || 'submit';
-      if (btnType !== 'submit') return;
-      // Only handle submits inside this form.
-      var form = target.closest('form');
-      if (!form || form.id !== 'createform') return;
-
-      var managerType = document.querySelector('select[name="managertype"]');
-      if (!managerType || managerType.value !== 'Bindery') return;
-      var optionsField = document.querySelector('input[name="options"]');
-      if (!optionsField) return;
-      var opts = {};
-      try { opts = JSON.parse(optionsField.value || '{}'); } catch (e) { opts = {}; }
-      ['ebook_folder', 'ebook_category', 'audiobook_folder', 'audiobook_category', 'path_remap', 'transient_error_substring'].forEach(function(key) {
-        var el = document.querySelector('[name="bindery_' + key + '"]');
-        if (el) {
-          var val = (el.value || '').trim();
-          if (val) {
-            opts[key] = val;
-          } else {
-            delete opts[key];
-          }
+    function setDisplay(fieldNames, show) {
+      fieldNames.forEach(function(fieldName) {
+        var fieldDiv = document.querySelector('[data-field-type="' + fieldName + '"]');
+        if (fieldDiv) {
+          fieldDiv.style.display = show ? 'block' : 'none';
         }
       });
-      optionsField.value = JSON.stringify(opts);
-    }, true);
+    }
+
+    setDisplay(arrFields, isArr);
+    setDisplay(blackholeFields, isBlackhole);
+    setDisplay(binderyFields, isBindery);
   }
 
   // Run on page load
@@ -180,8 +81,5 @@
 
   // Also run when modal is shown (for Bootstrap modals)
   document.addEventListener('shown.bs.modal', toggleFields);
-
-  // Wire up save handler
-  attachBinderySaveHandlers();
 })();
 </script>

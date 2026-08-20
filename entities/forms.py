@@ -68,8 +68,6 @@ class DLFolderModalForm(ModalModelForm):
 
 
 class ManagerModalForm(ModalModelForm):
-    options = forms.CharField(widget=forms.HiddenInput(), required=False)
-
     class Meta:
         model = Manager
         exclude = ['pk']
@@ -77,7 +75,9 @@ class ManagerModalForm(ModalModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Define which fields are for *arr managers only (not Blackhole)
+        # Define which fields are for which manager type. The class is set on
+        # each field's widget so the managercreate.html template can toggle
+        # visibility per managertype.
         arr_only_fields = {'url', 'apikey', 'label'}
         blackhole_only_fields = {
             'monitor_directory', 'monitor_subdirectories', 'category',
@@ -85,26 +85,12 @@ class ManagerModalForm(ModalModelForm):
             'poll_interval', 'move_on_complete', 'delete_source',
             'duplicate_handling', 'enabled', 'scan_on_startup'
         }
-        bindery_only_fields = {'options'}
+        bindery_only_fields = {
+            'bindery_ebook_folder', 'bindery_ebook_category',
+            'bindery_audiobook_folder', 'bindery_audiobook_category',
+            'bindery_path_remap', 'bindery_transient_error_substring',
+        }
 
-        # Hidden field that holds the bindery options JSON. The actual UI is
-        # rendered in the template, which only shows it when managertype==Bindery.
-        self.fields['options'].widget = forms.HiddenInput()
-        self.fields['options'].required = False
-
-        # Initialize options field with JSON string (MUST be valid JSON)
-        if self.instance and self.instance.pk and self.instance.options:
-            if isinstance(self.instance.options, dict):
-                self.fields['options'].initial = json.dumps(self.instance.options)
-            else:
-                try:
-                    self.fields['options'].initial = json.dumps(json.loads(self.instance.options))
-                except (json.JSONDecodeError, TypeError):
-                    self.fields['options'].initial = '{}'
-        else:
-            self.fields['options'].initial = '{}'
-
-        # Add CSS classes to fields based on their type
         for field_name in self.fields:
             if field_name in arr_only_fields:
                 self.fields[field_name].widget.attrs['class'] = self.fields[field_name].widget.attrs.get('class', '') + ' arr-only'
@@ -112,22 +98,6 @@ class ManagerModalForm(ModalModelForm):
                 self.fields[field_name].widget.attrs['class'] = self.fields[field_name].widget.attrs.get('class', '') + ' blackhole-only'
             elif field_name in bindery_only_fields:
                 self.fields[field_name].widget.attrs['class'] = self.fields[field_name].widget.attrs.get('class', '') + ' bindery-only'
-
-    def clean_options(self):
-        options_str = self.cleaned_data.get('options', '{}')
-        if isinstance(options_str, dict):
-            return options_str
-        try:
-            return json.loads(options_str)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-
-    def save(self, commit=True):
-        instance = super().save(commit=False)
-        instance.options = self.cleaned_data.get('options', {})
-        if commit:
-            instance.save()
-        return instance
 
 class DownloaderModalForm(ModalModelForm):
     options = forms.CharField(widget=forms.HiddenInput(), required=False)
