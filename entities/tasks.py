@@ -391,11 +391,13 @@ def assign_items_to_downloaders():
     from entities.models import Downloader
     
     # Get items that have a manager but no downloader assigned
-    # Include both Grabbed items and Failed items (to retry assignment for items that failed due to no downloader)
+    # Include Grabbed, Failed, and PostProcessing items (PostProcessing is
+    # catchable for Bindery items that we promoted from Failed via the
+    # transient-error retry logic - they still need a downloader back-filled).
     items = Item.objects.filter(
         manager__isnull=False,
         downloader__isnull=True,
-        status__in=['Grabbed', 'Failed']
+        status__in=['Grabbed', 'Failed', 'PostProcessing']
     )
     
     for item in items:
