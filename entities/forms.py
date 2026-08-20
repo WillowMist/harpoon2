@@ -70,7 +70,11 @@ class DLFolderModalForm(ModalModelForm):
 class ManagerModalForm(ModalModelForm):
     class Meta:
         model = Manager
-        exclude = ['pk']
+        # Exclude 'options' along with 'pk' — Bindery used to store its
+        # config in a JSONField here, but now uses dedicated bindery_* fields
+        # (auto-populated from the model). The legacy JSONField stays on the
+        # model for archival and is no longer surfaced in the form.
+        exclude = ['pk', 'options']
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
