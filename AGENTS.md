@@ -107,7 +107,7 @@ Bindery (`https://github.com/vavallee/bindery`) is a Readarr replacement for ebo
   - `GET /api/queue` — arr-compatible queue, `records[].downloadId` matches Harpoon2's `Item.hash`
   - `GET /api/v1/queue` — Bindery-native queue with `bookId`, `book{}` nested object, error messages
   - `GET /api/v1/downloadclient` — list, `name` matches Harpoon2's `Downloader.name`
-- **Post-processing flow**: Harpoon2 SFTP-transfers the file to a Bindery library root (e.g., `/mnt/processing/downloads/bindery/<item>/`), then calls `POST /api/v1/queue/manual-import` with `{path, bookId, format}`. Bindery moves the file to the formatted path inside the same root and marks the book `imported`. The staged file disappears as part of Bindery's import.
+- **Post-processing flow**: Harpoon2 SFTP-transfers the file to a Bindery library root (e.g., `/mnt/processing/downloads/bindery/<item>/`), then calls `POST /api/v1/queue/manual-import` with `{path, bookId, format}`. Bindery's `ImportFromPath` reads from `downloadPath`, computes a formatted destination inside its library root (`<libraryRoot>/<Author>/<Title (Year)>/<file>` or `Part 001.ext` for audiobooks), and moves/copies/hardlinks the file there. In **move** mode (the default for usenet downloads — Bindery remaps usenet auto/hardlink → move per #1542 since finished usenet jobs don't seed) Bindery also `os.RemoveAll`s the source after a successful place. In **copy** / **hardlink** mode the staged file persists — set Bindery's import mode to `move` for Harpoon2-managed items so staging files don't leak. After import Bindery records the file location against the book via `book_files`, marks the download `imported`, and emits a `bookImported` webhook.
 
 ### Bindery status mapping
 - `downloading` → `Grabbed`
