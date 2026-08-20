@@ -89,11 +89,14 @@ The `download_path` passed to `post_process` is the local path of the file/folde
 
 **AirDC++ is the documented exception** — it does its own thing because it pulls files off the seedbox itself rather than waiting for a download-client completion event.
 
-### Per-manager `downloadClientID` / equivalent IDs
+### Per-manager import-target ID (`Item.clientid`)
 
-When Harpoon2 creates an `Item` from a manager's queue, store the manager's identifier in `Item.clientid` so `post_process` can reuse it without re-querying. Example: Sonarr stores its `downloadClientID` integer there and reuses it in the `DownloadedEpisodesScan` payload.
+The field is misnamed. Despite the name, it's not the *download client ID* — it's the **manager's reference ID for the record being imported**, retrieved at queue-poll time and reused in `post_process`.
 
-For Bindery (when wired up): the equivalent is Bindery's `bookId` for the book being downloaded. `clientid` is currently `IntegerField(default=0)` — repurposing it for `bookId` is messy because both concepts collide. Plan to add a dedicated field rather than overload.
+- **Sonarr/Radarr/Lidarr/Whisparr/Readarr/LazyLibrarian**: store the queue row's `id` from the `/api/v3/queue` record. The arr `DownloadedEpisodesScan` / `DownloadedMoviesScan` payload uses this as `downloadClientID` to associate the import with the right queue row.
+- **Bindery** (planned): store the Bindery `bookId`. The Bindery `manual-import` payload uses it as `bookId` to attach the staged file to the right catalogue book.
+
+Two different identifiers from two different APIs, but the same role: "the handle this manager needs to find the record this file belongs to." Don't add a new field per manager — this field was made for this.
 
 ## Bindery Manager (planned)
 

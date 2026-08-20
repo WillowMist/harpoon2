@@ -29,14 +29,21 @@ def poll_manager(manager_id):
     # Blackhole managers don't have an API - they poll a folder instead
     if manager.managertype == 'Blackhole':
         return
-    
+
     # Mylar3 uses its own API structure
     if manager.managertype == 'Mylar3':
         from entities.managers import Mylar3
         mylar = Mylar3(manager)
         mylar.poll()
         return
-    
+
+    # Bindery uses /api/v1/queue instead of the arr /history endpoint
+    if manager.managertype == 'Bindery':
+        from entities.managers import Bindery
+        bindery = Bindery(manager)
+        bindery.check_queue()
+        return
+
     if not manager.url:
         logger.warning(f"Manager {manager.name} has no URL configured, skipping poll")
         return
@@ -401,6 +408,9 @@ def assign_items_to_downloaders():
                 api_url = f'{manager.url}/api/v1'
             elif manager.managertype == 'Readarr':
                 api_url = f'{manager.url}/api/v1'
+            elif manager.managertype == 'Bindery':
+                # Bindery exposes an arr-compatible /api/queue (no /api/v3 prefix)
+                api_url = manager.url.rstrip('/')
             else:
                 api_url = f'{manager.url}/api/v3'
             

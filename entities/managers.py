@@ -937,7 +937,22 @@ class Mylar3:
 
 class Bindery:
     """Manager for Bindery - Book download manager."""
-    
+
+    # Bindery status -> Harpoon2 Item.status
+    # Bindery status values seen on /api/v1/queue.status:
+    #   downloading, downloading (in-flight), downloaded, importPending,
+    #   importing, imported, failed, importFailed, importBlocked
+    STATUS_MAP = {
+        'downloading': 'Grabbed',
+        'downloaded': 'PostProcessing',
+        'importpending': 'PostProcessing',
+        'importing': 'PostProcessing',
+        'imported': 'Completed',
+        'failed': 'Failed',
+        'importfailed': 'Failed',
+        'importblocked': 'Failed',
+    }
+
     def __init__(self, manager):
         self.manager = manager
         self.url = manager.url
@@ -946,16 +961,16 @@ class Bindery:
         self.name = manager.name
         self.apiurl = self.url.rstrip('/') + '/api/v1'
         self.headers = {'X-Api-Key': self.apikey, 'Accept': 'application/json'}
-    
+
     def test(self):
         """Test Bindery API connection."""
         import logging
         import requests
         logger = logging.getLogger(__name__)
-        
+
         url = self.apiurl + '/health'
         logger.info(f"[Bindery test] Testing connection to {url}")
-        
+
         try:
             r = requests.get(url, headers=self.headers, timeout=10)
             if r.status_code == 200:
@@ -966,150 +981,189 @@ class Bindery:
                 return False, f"HTTP {r.status_code}"
         except Exception as e:
             return False, str(e)
-    
+
     def check_queue(self):
-        """Get active downloads from Bindery queue."""
+        """Get Bindery queue and update Harpoon2 Items.
+
+        Uses Bindery-native /api/v1/queue (richer than /api/queue).
+        """
         import logging
         import requests
+        from itemqueue.models import Item, ItemHistory
         logger = logging.getLogger(__name__)
-        
+
         try:
             url = self.apiurl + '/queue'
             logger.info(f"[Bindery check_queue] Fetching from {url}")
-            
-            r = requests.get(url, headers=self.headers, timeout=10)
+
+            r = requests.get(url, headers=self.headers, params={'pageSize': 100}, timeout=15)
             if r.status_code == 401:
                 logger.error(f"[Bindery check_queue] API key invalid")
                 return False, "API key invalid"
             if r.status_code != 200:
                 logger.warning(f"[Bindery check_queue] HTTP {r.status_code}")
                 return False, f"HTTP {r.status_code}"
-            
-            response_data = r.json()
-            dt = self.parse_queue(response_data)
-            return True, dt
+
+            data = r.json()
+            items = data.get('items', data) if isinstance(data, dict) else data
+            if not isinstance(items, list):
+                logger.warning(f"[Bindery check_queue] Unexpected payload shape: {type(data)}")
+                return False, "Unexpected payload"
+
+            updated = 0
+            created = 0
+            for record in items:
+                item, was_created = self._update_item_from_queue(record)
+                if was_created:
+                    created += 1
+                elif item:
+                    updated += 1
+
+            logger.info(f"[Bindery check_queue] Processed {len(items)} records (created={created}, updated={updated})")
+            return True, {'items': len(items), 'created': created, 'updated': updated}
         except Exception as e:
             logger.error(f"[Bindery check_queue] Error: {e}")
             return False, str(e)
-    
-    def parse_queue(self, queue):
-        """Parse Bindery queue response to Harpoon format.
-        
-        Bindery queue response format (estimated):
-        {
-            "data": [
-                {
-                    "id": "...",
-                    "title": "...",
-                    "size": 123456789,
-                    "status": "downloading|completed|failed",
-                    "downloadClient": "SABnzbd|qBittorrent|..."
-                }
-            ]
-        }
+
+    def _update_item_from_queue(self, record):
+        """Create or update an Item from a Bindery queue record.
+
+        Returns (item, created).
         """
-        import logging
-        logger = logging.getLogger(__name__)
-        records = []
-        
-        if isinstance(queue, list):
-            queue_data = queue
-        else:
-            queue_data = queue.get('data', queue)
-            if isinstance(queue_data, dict) and 'data' in queue_data:
-                queue_data = queue_data['data']
-        
-        logger.info(f"[Bindery parse_queue] Processing {len(queue_data)} queue items")
-        
-        for record in queue_data:
-            recordinfo = {}
-            recordinfo['size'] = record.get('size', 0)
-            recordinfo['name'] = record.get('title', record.get('name', 'Unknown'))
-            recordinfo['status'] = record.get('status', 'unknown')
-            recordinfo['tdstate'] = record.get('status', '')
-            recordinfo['tdstatus'] = record.get('status', '')
-            recordinfo['statusmessages'] = record.get('error', '')
-            recordinfo['downloadid'] = record.get('id', str(record.get('downloadId', '')))
-            recordinfo['clientid'] = record.get('id', 0)
-            recordinfo['downloadclient'] = record.get('downloadClient', record.get('downloadClient', ''))
-            recordinfo['manager'] = self.manager
-            records.append(recordinfo)
-        
-        return records
-    
-    def check_itemqueue(self, record):
-        """Update Item record from Bindery queue data."""
         import logging
         from itemqueue.models import Item, ItemHistory
         logger = logging.getLogger(__name__)
-        
-        queueitem, created = Item.objects.get_or_create(hash=record['downloadid'])
+
+        # Bindery queue record (from /api/v1/queue):
+        #   id, guid, bookId, title, size, sabnzbdNzoId | torrentId,
+        #   status, protocol, errorMessage, book{...}
+        download_id = record.get('sabnzbdNzoId') or record.get('torrentId') or record.get('id')
+        if not download_id:
+            return None, False
+
+        book_id = record.get('bookId', 0) or 0
+        title = record.get('title', 'Unknown')
+        size = record.get('size', 0) or 0
+        status_raw = record.get('status', '')
+        status_lower = status_raw.lower()
+        hp_status = self.STATUS_MAP.get(status_lower, 'Grabbed')
+
+        item, created = Item.objects.get_or_create(
+            hash=str(download_id),
+            defaults={
+                'name': title,
+                'size': size,
+                'status': hp_status,
+                'manager': self.manager,
+                'clientid': book_id,  # store bookId here; reused by post_process
+            },
+        )
+
         if created:
-            changed = {'hash': queueitem.hash}
-        else:
-            changed = {}
-        
-        # Preserve archived status
-        original_archived = queueitem.archived
-        original_archived_at = queueitem.archived_at
-        
-        for attr in ['size', 'name', 'status', 'clientid', 'manager']:
-            if getattr(queueitem, attr) != record[attr]:
-                changed[attr] = record[attr]
-                setattr(queueitem, attr, record[attr])
-        
-        # Try to assign downloader if not already assigned
-        if not queueitem.downloader and record.get('downloadclient'):
-            from entities.models import Downloader
-            client_name = record['downloadclient']
-            downloader = Downloader.objects.filter(name__iexact=client_name).first()
-            if not downloader:
-                downloader = Downloader.objects.filter(downloadertype__iexact=client_name).first()
-            
-            if downloader:
-                queueitem.downloader = downloader
-                changed['downloader'] = downloader.name
-        
-        # Restore archived status
-        queueitem.archived = original_archived
-        queueitem.archived_at = original_archived_at
-        
-        # Mark status based on Bindery status
-        status_map = {
-            'downloading': 'Grabbed',
-            'completed': 'Completed',
-            'failed': 'Failed',
-            'pending': 'Grabbed',
-        }
-        new_status = status_map.get(record.get('status', '').lower(), 'Grabbed')
-        if queueitem.status != new_status:
-            changed['status'] = new_status
-            queueitem.status = new_status
-        
+            ItemHistory.objects.create(
+                item=item,
+                details=f'Created from {self.manager.name} queue (Bindery bookId={book_id})'
+            )
+            return item, True
+
+        # Update existing Item
+        changed = False
+        for attr, value in (('name', title), ('size', size), ('status', hp_status), ('clientid', book_id)):
+            if getattr(item, attr) != value:
+                setattr(item, attr, value)
+                changed = True
         if changed:
-            queueitem.save()
-            if created:
-                ItemHistory.objects.create(
-                    item=queueitem,
-                    details=f"Created from {self.manager.name} queue"
-                )
-        
-        return queueitem, changed
-    
+            item.save()
+        return item, False
+
     def post_process(self, item, download_path):
-        """Trigger post-processing in Bindery.
-        
-        Bindery doesn't have a direct command endpoint like Arr.
-        This will need to be implemented when Bindery adds support,
-        or we can poll for completed status and auto-import.
+        """Tell Bindery to import the staged file via manual-import.
+
+        Args:
+            item: Item with clientid set to Bindery's bookId.
+            download_path: The arr-style path (constructed from item.manager.folder
+                + item.name). For Bindery we ignore this and import the entire
+                local_folder instead - Bindery reads from its own configured
+                library root which is where Harpoon2 staged the file, and a
+                single Bindery item can map to multiple files (e.g. a multi-file
+                audiobook folder).
+
+        Returns:
+            (success: bool, message: str)
         """
         import logging
+        import os
+        import requests
+        from itemqueue.models import FileTransfer, ItemHistory
         logger = logging.getLogger(__name__)
-        
-        # TODO: Request Bindery team to add import command endpoint
-        logger.warning(f"[Bindery post_process] Not implemented - Bindery auto-imports when files complete")
-        
-        return True, "Bindery handles import automatically when download completes"
+
+        book_id = item.clientid
+        if not book_id:
+            return False, f"No Bindery bookId on item {item.name}; cannot manual-import"
+
+        # Resolve the actual local path. The transfer pipeline's `download_path`
+        # is arr-style (base_remote_path + item.name) and may not match real
+        # files on disk. Use the first completed FileTransfer's local_path,
+        # which always points at the staged file(s).
+        staged_path = None
+        transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+        if transfer and transfer.local_path:
+            staged_path = os.path.dirname(transfer.local_path) or transfer.local_path
+            # If the file itself is a single-file transfer, prefer that file
+            if os.path.isfile(transfer.local_path):
+                staged_path = transfer.local_path
+
+        if not staged_path or not os.path.exists(staged_path):
+            return False, f"No staged file/folder found for item {item.name}"
+
+        # Determine format - default to ebook. Audiobook if path is a directory
+        # containing audio extensions OR ends in .m4b/.mp3 audiobook layout.
+        fmt = self._detect_format(staged_path)
+
+        url = self.apiurl + '/queue/manual-import'
+        payload = {
+            'path': staged_path,
+            'bookId': book_id,
+            'format': fmt,
+        }
+
+        try:
+            resp = requests.post(url, json=payload, headers=self.headers, timeout=60)
+        except Exception as e:
+            msg = f"Bindery manual-import request error: {e}"
+            logger.error(f"[Bindery post_process] {msg}")
+            ItemHistory.objects.create(item=item, details=msg)
+            return False, msg
+
+        body_preview = (resp.text or '')[:500]
+        history_details = f"Bindery manual-import: path={staged_path}, bookId={book_id}, format={fmt} | HTTP {resp.status_code}"
+        if resp.status_code in (200, 201, 202):
+            history_details += f" | Response: {body_preview}"
+            ItemHistory.objects.create(item=item, details=history_details)
+            return True, f"Bindery accepted manual-import for {staged_path} (bookId={book_id})"
+        else:
+            history_details += f" | Failed: {body_preview}"
+            ItemHistory.objects.create(item=item, details=history_details)
+            return False, f"Bindery manual-import failed (HTTP {resp.status_code}): {body_preview}"
+
+    @staticmethod
+    def _detect_format(path):
+        """Return 'ebook' or 'audiobook' for the staged path."""
+        import os
+        audiobook_exts = ('.m4b', '.mp3', '.m4a', '.flac', '.ogg', '.aac')
+        if os.path.isdir(path):
+            # Directory: peek at contents
+            try:
+                for entry in os.listdir(path):
+                    if entry.lower().endswith(audiobook_exts):
+                        return 'audiobook'
+            except Exception:
+                pass
+            return 'ebook'
+        # Single file
+        if path.lower().endswith(audiobook_exts):
+            return 'audiobook'
+        return 'ebook'
 
 
 class Blackhole:
