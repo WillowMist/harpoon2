@@ -17,8 +17,10 @@ class QBittorrentDownloader(BaseDownloader):
     # When qBittorrent bans our IP, hammering it with auth attempts only
     # extends the ban. Track a per-instance backoff so we skip calls until
     # it's safe to retry. The ban is typically 30-60 minutes per qBittorrent's
-    # default config.
-    BAN_BACKOFF_SECONDS = 300  # 5 minutes between auth attempts after a ban
+    # default config, but our backoff should be longer than the ban duration
+    # to give qBittorrent enough time to fully clear the entry from its
+    # in-memory ban list.
+    BAN_BACKOFF_SECONDS = 1800  # 30 minutes between auth attempts after a ban
 
     def __init__(self, downloader=None):
         super().__init__(downloader)
