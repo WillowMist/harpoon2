@@ -109,6 +109,30 @@ Bindery (`https://github.com/vavallee/bindery`) is a Readarr replacement for ebo
   - `GET /api/v1/downloadclient` — list, `name` matches Harpoon2's `Downloader.name`
 - **Post-processing flow**: Harpoon2 SFTP-transfers the file to a Bindery library root (e.g., `/mnt/processing/downloads/bindery/<item>/`), then calls `POST /api/v1/queue/manual-import` with `{path, bookId, format}`. Bindery's `ImportFromPath` reads from `downloadPath`, computes a formatted destination inside its library root (`<libraryRoot>/<Author>/<Title (Year)>/<file>` or `Part 001.ext` for audiobooks), and moves/copies/hardlinks the file there. In **move** mode (the default for usenet downloads — Bindery remaps usenet auto/hardlink → move per #1542 since finished usenet jobs don't seed) Bindery also `os.RemoveAll`s the source after a successful place. In **copy** / **hardlink** mode the staged file persists — set Bindery's import mode to `move` for Harpoon2-managed items so staging files don't leak. After import Bindery records the file location against the book via `book_files`, marks the download `imported`, and emits a `bookImported` webhook.
 
+### Bindery root resolution (where the formatted file lands)
+
+Bindery picks the destination root using a strict priority that does NOT depend on where the staged file lives:
+
+- **Ebook** destination root (`effectiveLibraryDir`):
+  1. Author's `RootFolderID` (per-author override)
+  2. `library.defaultRootFolderId` setting (global default)
+  3. `BINDERY_LIBRARY_DIR` env-var (final fallback)
+- **Audiobook** destination root (`effectiveAudiobookDir`):
+  1. Author's `AudiobookRootFolderID` (per-author override)
+  2. `BINDERY_AUDIOBOOK_DIR` env-var (no global default setting fallback)
+
+The three roots each have a role:
+
+| Root | Bindery's role | Used by |
+|---|---|---|
+| `/mnt/media/Books` | ebook destination | `BINDERY_LIBRARY_DIR` (or default setting, or author's `RootFolderID`) |
+| `/mnt/media/Audiobooks` | audiobook destination | `BINDERY_AUDIOBOOK_DIR` (or author's `AudiobookRootFolderID`) |
+| `/mnt/processing/downloads/bindery` | staging only | Harpoon2's `manager.folder.folder`; Bindery never places here, only reads from it |
+
+The third root must be registered as a Bindery library root so `manual-import` accepts Harpoon2's staged path (Bindery rejects paths outside any configured root with 403). Bindery will happily move files across root boundaries in move mode (cross-device moves handled via copy-then-delete).
+
+Paths shown above are placeholders. Operator-specific paths belong in operator configuration, not in this file.
+
 ### Bindery status mapping
 - `downloading` → `Grabbed`
 - `downloading` (still in progress) → `Grabbed`
