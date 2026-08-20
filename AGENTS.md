@@ -139,6 +139,24 @@ Paths shown above are placeholders. Operator-specific paths belong in operator c
 - `downloaded` / `importPending` → `PostProcessing`
 - `imported` → `Completed`
 - `failed` / `importFailed` / `importBlocked` → `Failed`
+- `importFailed` / `importBlocked` whose `errorMessage` contains the configured
+  `transient_error_substring` (default: "the download may still be finishing") →
+  `PostProcessing` instead of `Failed`. Lets the transfer pipeline keep
+  retrying when Bindery's first attempt raced Harpoon2's SFTP.
+
+### Bindery manager JSON options (Manager.options)
+
+Per-manager JSON config consumed by the Bindery class. Set via the manager
+form's Bindery-only panel. Defaults are empty / sensible.
+
+| Key | Purpose |
+|---|---|
+| `ebook_folder` | Local staging root for ebooks. If unset, falls back to `manager.folder`. |
+| `audiobook_folder` | Local staging root for audiobooks. Falls back to `ebook_folder`. |
+| `ebook_category` | SABnzbd / qBittorrent category for ebooks. Set on Bindery's download client; surfaced here for reference. |
+| `audiobook_category` | Same, for audiobooks. |
+| `path_remap` | Comma-separated `from:to` prefixes applied at the manual-import API call. Longest-prefix-first. Used to tell Bindery to look in a path it doesn't natively see (e.g. `/mnt/twilightsparkle/processing/downloads/bindery:/downloads/books`). |
+| `transient_error_substring` | Override of the default Bindery transient-error hint. Default: "the download may still be finishing". |
 
 ### Bindery queue polling
 - `assign_items_to_downloaders()` currently hits `/api/v3/queue` for non-Lidarr/Readarr managers — wrong for Bindery. Bindery needs `/api/queue` (the arr-compatible one).
