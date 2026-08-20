@@ -73,3 +73,56 @@ Harpoon2 is a Django-based download manager that integrates with Sonarr/Radarr/W
 1. Add `@login_required` decorator to view function
 2. Ensure `LOGIN_URL` setting points to custom login
 3. Test: logout and verify redirect to `/login/`
+
+## Transfer Pipeline Architecture (Managers)
+
+The transfer pipeline in `itemqueue/tasks.py:transfer_files_async` is the **single shared path** for all manager/downloader combinations (except AirDC++). Understand it before changing anything around managers:
+
+1. SFTP from seedbox → local `temp_folder` (per manager)
+2. Extract ZIP/RAR archives in place
+3. *(Blackhole only)* Move `temp_folder` → `final_folder`
+4. Call `item.manager.post_process(item, download_path)` — **this is where each manager decides what "post-processing" means**
+5. On success → `item.downloader.client.cleanup()` removes the seedbox copy
+6. Mark item `Completed`
+
+The `download_path` passed to `post_process` is the local path of the file/folder, not the seedbox path. Each manager's `post_process` translates that into whatever its API expects (Sonarr → `DownloadedEpisodesScan`, Radarr → `DownloadedMoviesScan`, Bindery → `manual-import`, etc.).
+
+**AirDC++ is the documented exception** — it does its own thing because it pulls files off the seedbox itself rather than waiting for a download-client completion event.
+
+### Per-manager `downloadClientID` / equivalent IDs
+
+When Harpoon2 creates an `Item` from a manager's queue, store the manager's identifier in `Item.clientid` so `post_process` can reuse it without re-querying. Example: Sonarr stores its `downloadClientID` integer there and reuses it in the `DownloadedEpisodesScan` payload.
+
+For Bindery (when wired up): the equivalent is Bindery's `bookId` for the book being downloaded. `clientid` is currently `IntegerField(default=0)` — repurposing it for `bookId` is messy because both concepts collide. Plan to add a dedicated field rather than overload.
+
+## Bindery Manager (planned)
+
+Bindery (`https://github.com/vavallee/bindery`) is a Readarr replacement for ebooks/audiobooks. Single Go binary, SQLite, `/api/v1/*` + `/api/queue` (arr-compatible).
+
+- Local instance: `http://192.168.1.77:8787`
+- Key endpoints used by Harpoon2:
+  - `GET /api/queue` — arr-compatible queue, `records[].downloadId` matches Harpoon2's `Item.hash`
+  - `GET /api/v1/queue` — Bindery-native queue with `bookId`, `book{}` nested object, error messages
+  - `GET /api/v1/downloadclient` — list, `name` matches Harpoon2's `Downloader.name`
+- **Post-processing flow**: Harpoon2 SFTP-transfers the file to a Bindery library root (e.g., `/mnt/processing/downloads/bindery/<item>/`), then calls `POST /api/v1/queue/manual-import` with `{path, bookId, format}`. Bindery moves the file to the formatted path inside the same root and marks the book `imported`. The staged file disappears as part of Bindery's import.
+
+### Bindery status mapping
+- `downloading` → `Grabbed`
+- `downloading` (still in progress) → `Grabbed`
+- `downloaded` / `importPending` → `PostProcessing`
+- `imported` → `Completed`
+- `failed` / `importFailed` / `importBlocked` → `Failed`
+
+### Bindery queue polling
+- `assign_items_to_downloaders()` currently hits `/api/v3/queue` for non-Lidarr/Readarr managers — wrong for Bindery. Bindery needs `/api/queue` (the arr-compatible one).
+- Match Bindery queue rows to Harpoon2 `Item`s by `downloadId == item.hash`.
+- Match Bindery's `downloadClient` (e.g., "SABnzbd") to a Harpoon2 `Downloader` by name before falling back to protocol-based assignment.
+
+## Known Issues / Lessons Learned
+
+- **Multiple re-runs of `transfer_files_async` create duplicate `FileTransfer` records** for the same file. The dashboard then shows double file size and 50% progress. Fixed by reusing existing `completed` records and deleting stale pending/transferring/failed ones before re-creating. See commit history.
+- **Race condition on container reboot**: docker-compose's `depends_on + healthcheck` lets the app container start before Postgres/Redis are actually accepting connections. `entrypoint.sh` now has `wait_for_postgres()` / `wait_for_redis()` retry loops before running migrations.
+- **RTorrent `f.multicall()` returns empty for single-file torrents** in some rTorrent versions. Use `d.is_multi_file()` + `d.base_path()` instead to detect single-file torrents and get the file path.
+- **Single-file handling was scoped to AirDC++ only** for a long time — generalized to all downloaders. Per-downloader `get_download_info()` should still return `files_to_copy` for single-file items, but the destination code no longer needs to know it's AirDC++.
+- **Mylar3 downloader assignment**: was failing because Mylar3's API has no `/api/v3/queue`. Fixed by extracting the downloader from the log message prefix (`[AIRDCPP]`, `[SABNZBD]`, etc.) at Item creation time.
+- **`unrar` is in Debian's `non-free` repo** — python:3.12-slim only has `main`. Dockerfile adds `non-free` dynamically based on `VERSION_CODENAME`.
