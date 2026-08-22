@@ -1218,12 +1218,16 @@ class Bindery:
         # files on disk. Use the first completed FileTransfer's local_path,
         # which always points at the staged file(s).
         staged_path = None
-        transfer = FileTransfer.objects.filter(item=item, status='completed').first()
-        if transfer and transfer.local_path:
-            staged_path = os.path.dirname(transfer.local_path) or transfer.local_path
-            # If the file itself is a single-file transfer, prefer that file
-            if os.path.isfile(transfer.local_path):
-                staged_path = transfer.local_path
+        # Multi-file items (epub/mobi + cover art, etc.) must be staged as a
+        # whole folder so Bindery sees all book files; a lone single-file
+        # transfer points at that file directly. Picking just the first file
+        # (e.g. cover.PNG) broke imports with "path is not a recognised book file".
+        transfers = list(FileTransfer.objects.filter(item=item, status='completed').order_by('id'))
+        if transfers and transfers[0].local_path:
+            if len(transfers) == 1 and os.path.isfile(transfers[0].local_path):
+                staged_path = transfers[0].local_path
+            else:
+                staged_path = os.path.dirname(transfers[0].local_path) or transfers[0].local_path
 
         if not staged_path or not os.path.exists(staged_path):
             return False, f"No staged file/folder found for item {item.name}"
@@ -1282,8 +1286,10 @@ class Bindery:
         bindery_record = self._queue_record_for_item(item.hash)
 
         if bindery_record is None:
-            # No Bindery row at all (pruned/expired): create one via
-            # manual-import so the book still gets imported.
+            # No Bindery row at all (pruned/expired). Only create a manual-import
+            # when the book isn't already being imported/in flight.
+            if self._book_import_in_flight(book_id):
+                return True, f"Bindery has an import in flight for {item.name}; nothing to do"
             return self._manual_import_new(item, book_id, staged_path)
 
         row_status = (bindery_record.get('status') or '').lower()
@@ -1297,6 +1303,12 @@ class Bindery:
             # own flow owns this row. Don't create a competing manual-import
             # row; there is nothing for us to recover.
             return True, f"Bindery queue status '{row_status}' needs no manual-import; nothing to do"
+
+        # Recoverable failure. If Bindery already has another row for this book
+        # in flight (an earlier manual-import still processing, or already
+        # imported), don't pile on another one every time this recovery runs.
+        if self._book_import_in_flight(book_id):
+            return True, f"Bindery already has an import in flight for {item.name}; nothing to do"
 
         # Recoverable failure. Try manual-import/match first if the row is in
         # a recoverable state. This records that the user has manually told
@@ -1333,12 +1345,13 @@ class Bindery:
         # creates a new download record and imports it.
         return self._manual_import_new(item, book_id, staged_path)
 
-    def _queue_record_for_item(self, item_hash):
-        """Return the /api/v1/queue record matching the given hash, or None.
+    def _queue_records(self):
+        """Fetch and parse the Bindery /api/v1/queue response.
 
-        Unlike _find_bindery_queue_id, this returns the record regardless of
-        its status so callers can decide how to handle it (imported, in-flight,
-        or recoverable failure).
+        Returns the list of queue records, or None on failure. Unlike
+        _find_bindery_queue_id, records are returned regardless of status so
+        callers can decide how to handle them (imported, in-flight, or
+        recoverable failure).
         """
         import logging
         import requests
@@ -1362,12 +1375,36 @@ class Bindery:
         items = data.get('items', data) if isinstance(data, dict) else data
         if not isinstance(items, list):
             return None
+        return items
 
+    def _queue_record_for_item(self, item_hash):
+        """Return the /api/v1/queue record matching the given hash, or None."""
+        items = self._queue_records()
+        if not items:
+            return None
         for record in items:
             if (record.get('sabnzbdNzoId') == item_hash
                     or record.get('torrentId') == item_hash):
                 return record
         return None
+
+    def _book_import_in_flight(self, book_id):
+        """Return True if any queue row for the book is progressing or done.
+
+        Bindery creates a fresh row for each manual-import call. Once any row
+        for this book is downloading/downloaded/importpending/importing/imported,
+        another manual-import would only create a duplicate. Callers use this to
+        avoid firing duplicate imports when the original row is still stuck in
+        importFailed/importBlocked.
+        """
+        items = self._queue_records() or []
+        active = {'downloading', 'downloaded', 'importpending', 'importing', 'imported'}
+        return any(
+            isinstance(r, dict)
+            and int(r.get('bookId') or 0) == int(book_id or 0)
+            and (r.get('status') or '').lower() in active
+            for r in items
+        )
 
     def _manual_import_new(self, item, book_id, staged_path):
         """Fallback path: create a new Bindery download via manual-import.

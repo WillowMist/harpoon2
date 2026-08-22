@@ -912,7 +912,11 @@ def transfer_files_async(item_hash):
         
         # Call manager post-processing BEFORE marking as Completed
         # This sends to Sonarr/Radarr/etc while item is still in PostProcessing
-        # Call even if copied_count is 0 (files may have already existed locally)
+        # Call even if copied_count is 0 (files may have already existed locally).
+        # post_process_succeeded tracks the outcome so items are NOT marked
+        # Completed when post-processing failed (for Bindery-managed items: they
+        # stay PostProcessing and are owned by the manager poll + retry task).
+        post_process_succeeded = None
         if item.manager and hasattr(item.manager, 'client'):
             try:
                 # Get local_folder from first completed transfer if not set
@@ -970,6 +974,7 @@ def transfer_files_async(item_hash):
                             success, pp_message = item.manager.post_process(item, download_path)
                             
                             if success:
+                                post_process_succeeded = True
                                 logger.info(f"Manager post-processing succeeded: {pp_message}")
                                 ItemHistory.objects.create(item=item, details=f'Post-processing succeeded: {pp_message}')
                                 
@@ -988,6 +993,7 @@ def transfer_files_async(item_hash):
                                         logger.warning(f"Error calling cleanup: {e}")
                                         ItemHistory.objects.create(item=item, details=f'Cleanup error: {str(e)}')
                             else:
+                                post_process_succeeded = False
                                 logger.error(f"Manager post-processing failed: {pp_message}")
                                 ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
                                 Notification.create_for_admin(
@@ -998,28 +1004,45 @@ def transfer_files_async(item_hash):
                                 logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
                                 retry_postprocessing.apply_async(args=[item_hash], countdown=300)
                         except Exception as e:
+                            post_process_succeeded = False
                             logger.error(f"Error calling post-processing: {e}")
                             ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
                             retry_postprocessing.apply_async(args=[item_hash], countdown=300)
             except Exception as e:
+                post_process_succeeded = False
                 logger.error(f"Error calling manager post-processing: {e}")
                 ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
         
-        # Mark item as Completed after transfer AND extraction AND move AND post-processing are done
-        # Only if not already marked as Failed by extraction
-        if item.status != 'Failed':
+        # Mark item as Completed after transfer AND extraction AND move AND post-processing are done.
+        # Only if not already marked as Failed by extraction. Bindery-managed
+        # items are intentionally NOT marked Completed when post-processing
+        # failed: the Bindery poll owns their state (recoverable failure or
+        # Completed once imported) and retry_postprocessing re-attempts. Other
+        # manager types keep the existing behavior (mark Completed and let the
+        # retry task re-run post-processing).
+        bindery_pp_failed = (
+            post_process_succeeded is False
+            and item.manager
+            and item.manager.managertype == 'Bindery'
+        )
+        if item.status != 'Failed' and not bindery_pp_failed:
             item.status = 'Completed'
             item.save()
             ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
+            
+            # Send completion notification
+            Notification.create_for_admin(
+                f"Item completed: {item.name}",
+                notification_type='item_completed',
+                item_hash=item.hash
+            )
+        elif item.status != 'Failed':
+            logger.warning(
+                f"Item {item.name} post-processing failed; leaving in {item.status} "
+                f"(retry scheduled)"
+            )
         else:
             logger.warning(f"Item {item.name} marked as Failed during extraction, not marking as Completed")
-        
-        # Send completion notification
-        Notification.create_for_admin(
-            f"Item completed: {item.name}",
-            notification_type='item_completed',
-            item_hash=item.hash
-        )
 
         logger.info(f"[transfer_files_async] ========== COMPLETED successfully for {item.name} ==========")
         
@@ -1255,12 +1278,15 @@ def check_stalled_transfers():
                     except Exception as e:
                         logger.error(f"Failed to requeue transfer for {item.name}: {e}")
                 elif all_completed:
-                    # Check if post-processing already ran recently (within last 2 minutes)
-                    # to avoid re-running every 20 seconds
+                    # Check if post-processing already ran recently (within the last
+                    # 10 minutes) to avoid re-running every 20 seconds.
+                    # transfer_files_async leaves failed Bindery items in
+                    # PostProcessing with all-completed transfers; a fresh
+                    # attempt marker means the retry task owns recovery.
                     recent_pp = ItemHistory.objects.filter(
                         item=item,
-                        details__icontains='Post-processing initiated',
-                        created__gte=timezone.now() - timedelta(minutes=2)
+                        details__icontains='Post-processing',
+                        created__gte=timezone.now() - timedelta(minutes=10)
                     ).exists()
                     
                     if recent_pp:
@@ -1344,9 +1370,12 @@ def retry_postprocessing(item_hash):
         logger.error(f"Item {item_hash} not found for retry_postprocessing")
         return
     
-    # Only retry if item is Completed (meaning transfer succeeded but post-processing failed)
-    if item.status != 'Completed':
-        logger.debug(f"Skipping retry for {item.name} - status is {item.status}, not Completed")
+    # Retry whenever post-processing has something to re-attempt. Arr managers
+    # land in Completed even after a failed post-process; Bindery items stay
+    # PostProcessing (or may be flipped to Failed by the manager poll). Only
+    # skip when there's nothing to retry or the item is in a terminal state.
+    if item.status in ('Grabbed', 'Archived', 'Deleted'):
+        logger.debug(f"Skipping retry for {item.name} - status is {item.status}")
         return
     
     if not item.manager or not hasattr(item.manager, 'client'):
