@@ -703,9 +703,25 @@ def transfer_files_async(item_hash):
             if os.path.exists(local_path):
                 local_size = os.path.getsize(local_path)
                 if local_size == file_size:
-                    # File exists and has correct size - skip it
+                    # File exists and has correct size - skip it, but make sure
+                    # a completed FileTransfer record exists so manager
+                    # post-processing (e.g. Bindery) can locate the staged file
+                    # even when this run didn't transfer anything.
                     logger.info(f"Skipped (complete): {local_path} ({local_size / (1024*1024):.1f}MB)")
                     skipped_count += 1
+                    if (remote_file_path, relative_path) not in transfer_records:
+                        try:
+                            transfer = FileTransfer.objects.create(
+                                item=item,
+                                filename=relative_path,
+                                remote_path=remote_file_path,
+                                local_path=local_path,
+                                file_size=file_size,
+                                status='completed'
+                            )
+                            transfer_records[(remote_file_path, relative_path)] = transfer
+                        except Exception as e:
+                            logger.error(f"Failed to create completed FileTransfer record for {relative_path}: {e}")
                     continue
                 else:
                     # File exists but size mismatch - delete and retransfer

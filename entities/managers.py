@@ -1079,10 +1079,20 @@ class Bindery:
                 logger.warning(f"[Bindery check_queue] Unexpected payload shape: {type(data)}")
                 return False, "Unexpected payload"
 
+            # Book-level outcome: if any queue row for a book is 'imported',
+            # that book is safely in the library. A stale importFailed/importBlocked
+            # row for the same book (e.g. one left over from a manual-import
+            # recovery flow) must not drag the item back to Failed.
+            imported_book_ids = {
+                int(rec['bookId'])
+                for rec in items
+                if isinstance(rec, dict) and rec.get('status', '').lower() == 'imported' and rec.get('bookId')
+            }
+
             updated = 0
             created = 0
             for record in items:
-                item, was_created = self._update_item_from_queue(record)
+                item, was_created = self._update_item_from_queue(record, imported_book_ids)
                 if was_created:
                     created += 1
                 elif item:
@@ -1094,7 +1104,7 @@ class Bindery:
             logger.error(f"[Bindery check_queue] Error: {e}")
             return False, str(e)
 
-    def _update_item_from_queue(self, record):
+    def _update_item_from_queue(self, record, imported_book_ids=None):
         """Create or update an Item from a Bindery queue record.
 
         Returns (item, created).
@@ -1106,8 +1116,12 @@ class Bindery:
         # Bindery queue record (from /api/v1/queue):
         #   id, guid, bookId, title, size, sabnzbdNzoId | torrentId,
         #   status, protocol, errorMessage, book{...}
-        download_id = record.get('sabnzbdNzoId') or record.get('torrentId') or record.get('id')
+        download_id = record.get('sabnzbdNzoId') or record.get('torrentId')
         if not download_id:
+            # Rows created by manual-import have no client download id
+            # (sabnzbdNzoId/torrentId are null). They are tracked by the
+            # hash-matched item from the original queue row; using record['id']
+            # here would fabricate bogus item hashes.
             return None, False
 
         book_id = record.get('bookId', 0) or 0
@@ -1128,6 +1142,17 @@ class Bindery:
                     f"[Bindery] Treating transient failure as PostProcessing: "
                     f"{title} (status={status_raw}, errorMessage={error_message[:120]!r})"
                 )
+
+        # If the book has been successfully imported via another queue row,
+        # a lingering importFailed/importBlocked row for the same book is stale
+        # (e.g. the original failed row after a manual-import recovery). Do not
+        # flip a healthy item back to Failed because of it.
+        if hp_status == 'Failed' and imported_book_ids and book_id in imported_book_ids:
+            logger.info(
+                f"[Bindery] Book {book_id} already imported; treating stale "
+                f"{status_raw} row as Completed ({title})"
+            )
+            hp_status = 'Completed'
 
         item, created = Item.objects.get_or_create(
             hash=str(download_id),
@@ -1228,7 +1253,7 @@ class Bindery:
                     shutil.move(staged_path, target_path)
                 ItemHistory.objects.create(
                     item=item,
-                    details=f"Move staged {fmt} to bindery folder: {staged_path} -> {target_path}",
+                    details=f"Move staged {fmt} to bindery folder: {staged_path} -> {target_path}"[:450],
                 )
                 logger.info(
                     f"[Bindery post_process] Moved {fmt} {staged_path} -> {target_path}"
@@ -1251,14 +1276,33 @@ class Bindery:
                 f"{staged_path} -> {remapped_path}"
             )
 
-        # Find Bindery's internal download id for this item. The /api/v1/queue
-        # response gives us `id` (the Bindery row id), `bookId`, and either
+        # Find Bindery's queue row for this item. The /api/v1/queue response
+        # gives us `id` (the Bindery row id), `bookId`, and either
         # `sabnzbdNzoId` or `torrentId` matching our Item.hash.
-        bindery_id = self._find_bindery_queue_id(item.hash)
+        bindery_record = self._queue_record_for_item(item.hash)
 
-        # Try manual-import/match first if the row exists in a recoverable state.
-        # This records that the user has manually told Bindery which book the
-        # files belong to, but doesn't move the files itself.
+        if bindery_record is None:
+            # No Bindery row at all (pruned/expired): create one via
+            # manual-import so the book still gets imported.
+            return self._manual_import_new(item, book_id, staged_path)
+
+        row_status = (bindery_record.get('status') or '').lower()
+        if row_status == 'imported':
+            # Bindery already imported this item - don't manufacture a
+            # competing manual-import row (duplicate imports on retries).
+            return True, f"Bindery already imported {item.name}; nothing to do"
+
+        if row_status not in ('importfailed', 'importblocked'):
+            # downloading/downloaded/importpending/importing/failed: Bindery's
+            # own flow owns this row. Don't create a competing manual-import
+            # row; there is nothing for us to recover.
+            return True, f"Bindery queue status '{row_status}' needs no manual-import; nothing to do"
+
+        # Recoverable failure. Try manual-import/match first if the row is in
+        # a recoverable state. This records that the user has manually told
+        # Bindery which book the files belong to, but doesn't move the files
+        # itself.
+        bindery_id = bindery_record.get('id')
         if bindery_id:
             url = self.apiurl + '/queue/manual-import/match'
             payload = {'downloadId': bindery_id, 'bookId': book_id}
@@ -1282,18 +1326,19 @@ class Bindery:
             except Exception as e:
                 logger.warning(f"[Bindery post_process] manual-import/match error (non-fatal): {e}")
 
-        # Always run manual-import with the remapped path. This is the call
-        # that actually moves the file from the staging path into the Bindery
+        # Then run manual-import with the remapped path. This is the call that
+        # actually moves the file from the staging path into the Bindery
         # library root. If the existing Bindery row was recoverable, Bindery
         # will re-import the new path against the book. If it wasn't, Bindery
         # creates a new download record and imports it.
         return self._manual_import_new(item, book_id, staged_path)
 
-    def _find_bindery_queue_id(self, item_hash):
-        """Look up Bindery's internal download id matching the given hash.
+    def _queue_record_for_item(self, item_hash):
+        """Return the /api/v1/queue record matching the given hash, or None.
 
-        Returns the queue row's int id, or None if not found (or if the
-        record is no longer in importFailed/importBlocked state).
+        Unlike _find_bindery_queue_id, this returns the record regardless of
+        its status so callers can decide how to handle it (imported, in-flight,
+        or recoverable failure).
         """
         import logging
         import requests
@@ -1321,16 +1366,7 @@ class Bindery:
         for record in items:
             if (record.get('sabnzbdNzoId') == item_hash
                     or record.get('torrentId') == item_hash):
-                status = record.get('status', '')
-                # Only useful to match if the row is still in a recoverable
-                # state. Otherwise manual-import/match would 409.
-                if status in ('importFailed', 'importBlocked'):
-                    return record.get('id')
-                else:
-                    # Already imported or in flight; nothing to do.
-                    return None
-
-        # Row not found in current queue (could be older / paginated).
+                return record
         return None
 
     def _manual_import_new(self, item, book_id, staged_path):
@@ -1359,18 +1395,19 @@ class Bindery:
             ItemHistory.objects.create(item=item, details=msg)
             return False, msg
 
-        body_preview = (resp.text or '')[:500]
+        body_preview = (resp.text or '')[:200]
         history_details = (
             f"Bindery manual-import (new): path={remapped_path}, bookId={book_id}, "
             f"format={fmt} | HTTP {resp.status_code}"
         )
         if resp.status_code in (200, 201, 202):
             history_details += f" | Response: {body_preview}"
-            ItemHistory.objects.create(item=item, details=history_details)
+            # Keep it bounded for ItemHistory.details (CharField max_length=500).
+            ItemHistory.objects.create(item=item, details=history_details[:450])
             return True, f"Bindery accepted manual-import for {remapped_path} (bookId={book_id})"
         else:
             history_details += f" | Failed: {body_preview}"
-            ItemHistory.objects.create(item=item, details=history_details)
+            ItemHistory.objects.create(item=item, details=history_details[:450])
             return False, f"Bindery manual-import failed (HTTP {resp.status_code}): {body_preview}"
 
     @staticmethod
