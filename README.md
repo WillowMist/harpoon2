@@ -1,85 +1,69 @@
 # Harpoon 2
 
-A modern Django-based download manager that monitors directories for torrents and NZBs, sends them to remote download clients (RTorrent, SABnzbd), and handles post-processing with media management clients (Sonarr, Radarr, Lidarr, Readarr, Whisparr).
+A Django-based download manager that monitors directories for torrents and NZBs,
+sends them to remote download clients (RTorrent, SABnzbd, qBittorrent, AirDC++),
+transfers completed downloads to local storage over SFTP, and notifies media
+managers (Sonarr, Radarr, Lidarr, Readarr, Whisparr, Mylar3, Bindery, Blackhole)
+so they can import and process the files.
 
 ## Quick Start (Docker Compose)
 
 ```bash
-# Clone the repository
 git clone https://github.com/WillowMist/harpoon2
 cd harpoon2
 
-# Copy and configure docker compose
 cp docker-compose.example.yml docker-compose.yml
+cp .env.example .env
+# Edit .env (SECRET_KEY, ALLOWED_HOSTS, POSTGRES_PASSWORD, etc.)
 
-# Create .env file with your settings
-cat > .env << EOF
-SECRET_KEY=your-secret-key-here
-DEBUG=False
-ALLOWED_HOSTS=localhost,127.0.0.1,harpoon2
-CSRF_TRUSTED_ORIGINS=https://your-domain.com
-EOF
-
-# Start the application
 docker compose up -d
-
-# Access at http://localhost:4277
+# Web UI: http://localhost:4277
 ```
+
+For full install steps (bare-metal, Postgres, Nginx, systemd, GitHub OAuth),
+see **[USER_GUIDE.md](USER_GUIDE.md)**.
+
+## Supported integrations
+
+**Managers** (media / book managers that Harpoon2 notifies when files are ready):
+Sonarr, Radarr, Lidarr, Readarr, Whisparr, Mylar3, Bindery, Blackhole.
+
+**Downloaders** (clients that Harpoon2 polls for completed downloads and pulls
+files from via SFTP): RTorrent, SABnzbd, qBittorrent, AirDC++.
+
+See **[USER_GUIDE.md → Manager types](USER_GUIDE.md#manager-types)** and
+**[→ Downloader types](USER_GUIDE.md#downloader-types)** for per-type notes.
 
 ## Features
 
-- **Blackhole Manager**: Monitor a folder for `.torrent` and `.nzb` files
-- **Multiple Downloaders**: RTorrent and SABnzbd support
-- **SFTP Transfer**: Automatically retrieve completed downloads
-- **Archive Extraction**: Built-in ZIP and RAR extraction
-- **Media Server Integration**: Post-process with Sonarr, Radarr, Lidarr, Readarr, Whisparr
-- **Real-time Dashboard**: AJAX polling for live status updates
+- Polls remote download clients for completed downloads
+- SFTP-transfers completed files from a seedbox to local storage
+- Archive extraction (ZIP, RAR) in place after transfer
+- Per-manager post-processing (calls the right API on Sonarr/Radarr/etc.
+  with the staged path; for Bindery handles folder staging, manual-import,
+  and cleanup of stale Bindery queue rows)
+- Stalled-transfer detection and automatic retry of failed post-processing
+- Real-time dashboard, queue, and history with live AJAX updates
+- Optional Blackhole manager that watches a directory for `.torrent`/`.nzb` files
 
-## Configuration
+## Documentation
 
-After starting, configure through the web UI:
-
-1. **Seedboxes**: Add your remote seedbox (SFTP credentials)
-2. **Downloaders**: Add RTorrent or SABnzbd instances
-3. **Managers**: Add Blackhole or *Arr instances (Sonarr, Radarr, etc.)
-4. **Download Folders**: Configure where files end up
-
-## Docker Compose Services
-
-- **Harpoon2**: Main application (port 4277)
-- **Redis**: Celery broker
-
-## Development Setup
-
-```bash
-# Clone and setup
-git clone https://github.com/WillowMist/harpoon2
-cd harpoon2
-
-# Create virtual environment
-python3 -m venv venv
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-
-# Copy settings template
-cp harpoon2/settings_template.py harpoon2/settings.py
-
-# Run migrations
-python manage.py migrate
-
-# Create superuser
-python manage.py createsuperuser
-
-# Run server
-python manage.py runserver
-```
+- **[USER_GUIDE.md](USER_GUIDE.md)** — full installation, configuration, and
+  field reference (managers, downloaders, seedboxes, folders, transfer pipeline,
+  Bindery specifics)
+- [DEPLOYMENT.md](DEPLOYMENT.md) — production deployment, systemd, Nginx, SSL
+- [DOCKER.md](DOCKER.md) — Docker image build details, entrypoint behaviour
+- [QUICKSTART.md](QUICKSTART.md) — local development quick start (Django +
+  Celery + Redis on the host)
+- [POSTGRESQL_MIGRATION.md](POSTGRESQL_MIGRATION.md) — migrating from SQLite
+  to PostgreSQL
+- [MYLAR3_API.md](MYLAR3_API.md) — Mylar3-specific API notes
+- [AGENTS.md](AGENTS.md) — internal conventions for contributors
 
 ## Requirements
 
-- Docker & Docker Compose (recommended)
-- OR Python 3.12+ with Django 5.2
+- Docker & Docker Compose (recommended), or
+- Python 3.12+ with the dependencies in `requirements.txt` / `Pipfile`
 
 ## License
 
