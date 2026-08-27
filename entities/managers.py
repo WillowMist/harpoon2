@@ -1308,6 +1308,9 @@ class Bindery:
         # in flight (an earlier manual-import still processing, or already
         # imported), don't pile on another one every time this recovery runs.
         if self._book_import_in_flight(book_id):
+            # The original importFailed/importBlocked row is now stale - clear it
+            # so it can't keep dragging the item back to Failed.
+            self._delete_stale_original_row(bindery_record)
             return True, f"Bindery already has an import in flight for {item.name}; nothing to do"
 
         # Recoverable failure. Try manual-import/match first if the row is in
@@ -1343,7 +1346,14 @@ class Bindery:
         # library root. If the existing Bindery row was recoverable, Bindery
         # will re-import the new path against the book. If it wasn't, Bindery
         # creates a new download record and imports it.
-        return self._manual_import_new(item, book_id, staged_path)
+        result = self._manual_import_new(item, book_id, staged_path)
+        # Best-effort: clear the original importFailed/importBlocked row so it
+        # can't keep flipping the item back to Failed. The manual-import row
+        # we just created is a different record (new guid, no torrentId) and
+        # Bindery will process it normally.
+        if result and result[0]:
+            self._delete_stale_original_row(bindery_record)
+        return result
 
     def _queue_records(self):
         """Fetch and parse the Bindery /api/v1/queue response.
@@ -1405,6 +1415,57 @@ class Bindery:
             and (r.get('status') or '').lower() in active
             for r in items
         )
+
+    def _delete_stale_original_row(self, bindery_record):
+        """Best-effort: drop a stale importFailed/importBlocked Bindery row.
+
+        When Bindery's auto-import fails, its row stays stuck in
+        importFailed/importBlocked and would otherwise keep dragging the
+        Harpoon2 item back to Failed forever. Once our manual-import recovery
+        succeeds (or the book is already imported via another row) the
+        original row is stale; we delete it via
+        DELETE /api/v1/queue/{id}?removeFromClient=false so the torrent keeps
+        seeding in the download client but Bindery's bookkeeping is cleared.
+
+        Safety: only deletes rows whose status is still in the recoverable-
+        failure set. Anything in-flight or imported is left alone - if Bindery
+        already advanced the row we don't touch it. Failure to delete is
+        non-fatal: manual-import already succeeded.
+        """
+        if not isinstance(bindery_record, dict):
+            return
+        status = (bindery_record.get('status') or '').lower()
+        if status not in ('importfailed', 'importblocked'):
+            return
+        bindery_id = bindery_record.get('id')
+        if not bindery_id:
+            return
+
+        import logging
+        import requests
+        logger = logging.getLogger(__name__)
+        url = f"{self.apiurl}/queue/{bindery_id}"
+        try:
+            resp = requests.delete(
+                url,
+                headers=self.headers,
+                params={'removeFromClient': 'false'},
+                timeout=60,
+            )
+            if resp.status_code in (200, 201, 202, 204):
+                logger.info(
+                    f"[Bindery post_process] Removed stale {status} row id={bindery_id} "
+                    f"(removeFromClient=false)"
+                )
+            else:
+                logger.warning(
+                    f"[Bindery post_process] Could not remove stale {status} row id={bindery_id}: "
+                    f"HTTP {resp.status_code} {resp.text[:200]}"
+                )
+        except Exception as e:
+            logger.warning(
+                f"[Bindery post_process] Failed to remove stale {status} row id={bindery_id}: {e}"
+            )
 
     def _manual_import_new(self, item, book_id, staged_path):
         """Fallback path: create a new Bindery download via manual-import.
