@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-RUN mkdir -p /opt/harpoon2 /data /var/log/harpoon2 /mnt/twilightsparkle
+RUN mkdir -p /opt/harpoon2 /data /var/log/harpoon2 /mnt/processing
 
 WORKDIR /opt/harpoon2
 

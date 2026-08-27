@@ -502,7 +502,7 @@ root boundaries in move mode (cross-device moves handled via copy-then-delete).
    manual-import but never write here.
 3. **Pick a path remap** — if Harpoon2 and Bindery see the staging folder via
    different paths, set `bindery_path_remap` accordingly (e.g.
-   `/mnt/twilightsparkle/processing/downloads/bindery:/downloads`).
+   `/mnt/processing/downloads/bindery:/downloads`).
 4. **Set Bindery's import mode to `move`** for Harpoon2-managed items — Bindery
    will then `os.RemoveAll` the staging file after a successful place so files
    don't leak into the staging directory.

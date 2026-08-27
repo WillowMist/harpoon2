@@ -49,7 +49,7 @@ class Manager(models.Model):
     )
     bindery_path_remap = models.CharField(
         max_length=500, blank=True, null=True,
-        help_text='Path remap applied at the manual-import API call. Format: from:to,from2:to2. Example: /mnt/twilightsparkle/processing/downloads/bindery:/downloads'
+        help_text='Path remap applied at the manual-import API call. Format: from:to,from2:to2. Example: /mnt/processing/downloads/bindery:/downloads'
     )
     bindery_transient_error_substring = models.CharField(
         max_length=255, blank=True, null=True,

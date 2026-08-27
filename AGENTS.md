@@ -155,7 +155,7 @@ form's Bindery-only panel. Defaults are empty / sensible.
 | `audiobook_folder` | Local staging root for audiobooks. Falls back to `ebook_folder`. |
 | `ebook_category` | SABnzbd / qBittorrent category for ebooks. Set on Bindery's download client; surfaced here for reference. |
 | `audiobook_category` | Same, for audiobooks. |
-| `path_remap` | Comma-separated `from:to` prefixes applied at the manual-import API call. Longest-prefix-first. Used to tell Bindery to look in a path it doesn't natively see (e.g. `/mnt/twilightsparkle/processing/downloads/bindery:/downloads/books`). |
+| `path_remap` | Comma-separated `from:to` prefixes applied at the manual-import API call. Longest-prefix-first. Used to tell Bindery to look in a path it doesn't natively see (e.g. `/mnt/processing/downloads/bindery:/downloads/books`). |
 | `transient_error_substring` | Override of the default Bindery transient-error hint. Default: "the download may still be finishing". |
 
 ### Bindery queue polling
