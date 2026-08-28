@@ -63,7 +63,7 @@ See **[USER_GUIDE.md → Manager types](USER_GUIDE.md#manager-types)** and
 ## Requirements
 
 - Docker & Docker Compose (recommended), or
-- Python 3.12+ with the dependencies in `requirements.txt` / `Pipfile`
+- Python 3.12+ with the dependencies in `requirements.txt` (install dev/test deps with `pip install -r requirements-dev.txt`)
 
 ## License
 
