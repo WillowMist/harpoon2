@@ -301,5 +301,5 @@ DOWNLOADER_TYPES = [
 
 # WhiteNoise configuration for efficient static file serving
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
-WHITENOISE_AUTOREFRESH = True  # Useful during development
+WHITENOISE_AUTOREFRESH = DEBUG  # Auto-disable in production; only useful during development
 WHITENOISE_USE_FINDERS = True
