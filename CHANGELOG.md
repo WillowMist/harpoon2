@@ -2,6 +2,17 @@
 
 All notable changes to Harpoon2 are documented in this file. Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.3] - 2026-03-23
+
+### Fixed
+
+- **Radarr/Sonarr post-processing.** Post-processing requests now use the correct `downloadClientID` format (`clientid` as a string instead of hash). Fixed a `NullReferenceException` in Radarr post-processing. Files are now reliably sent to Radarr/Sonarr for import.
+- **SABnzbd cleanup.** Fixed a critical bug in the SABnzbd cleanup method (`'bool' object is not callable`). Cleanup now properly deletes downloaded files from the seedbox after post-processing. Renamed an internal attribute to avoid method shadowing.
+- **Downloader assignment.** Fixed automatic downloader assignment from manager history responses. Added a management command to retroactively assign downloaders to items missing one. Downloaders are now matched by name or type (case-insensitive).
+- **Database performance.** Removed 720,919+ duplicate "Import event received" spam records from `ItemHistory`. Fixed polling to prevent repeated import-event logging for completed items. Significantly improved history page load times.
+- All managers (Radarr, Sonarr, Lidarr, Readarr, Whisparr) now have consistent post-processing handling.
+- Better error handling and logging for post-processing failures.
+
 ## [2.1.4] - 2026-08-28
 
 ### Added
