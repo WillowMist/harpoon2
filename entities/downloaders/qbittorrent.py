@@ -339,39 +339,48 @@ class QBittorrentDownloader(BaseDownloader):
                 }
             
             t = torrent[0]
-            
-            # Check if single file - compare completed bytes to total size
-            # For single file torrents, the torrent name ends with a file extension
-            is_single_file = '.' in t.name.split('/')[-1]
-            
-            # For single file torrents, set files_to_copy to the torrent name
-            # For multi-file torrents, return None so transfer code uses the subfolder
+
+            # Determine single-file vs multi-file from the actual torrent file list,
+            # not from the torrent name. A name-based heuristic like `'.' in t.name`
+            # is wrong: directory names routinely contain dots ("Mr. Monster",
+            # "Vol.1", "10.4", "A.X.E....pdf"), which would mark the torrent as a
+            # single file when it is actually a directory of files. That misroutes
+            # the transfer pipeline into a code path that calls sftp.get() on a
+            # directory, which the seedbox rejects with SSH_FX_FAILURE ("Failure")
+            # after 3 retries — the items never reach post-processing.
+            #
+            # A torrent is a true single-file torrent only when qBittorrent reports
+            # exactly one file AND that file lives at the top of the save_path
+            # (no nested subdirectory).
+            files = []
+            try:
+                files = self.client.torrents_files(hash) or []
+            except Exception:
+                files = []
+
+            is_single_file = False
             files_to_copy = None
-            if is_single_file:
-                files_to_copy = [t.name]
-            
+
+            if len(files) == 1:
+                # Normalize separators and check the file is at the top level
+                only_path = files[0].name.replace('\\', '/')
+                if '/' not in only_path:
+                    is_single_file = True
+                    files_to_copy = [only_path]
+
             # Determine the actual remote directory
-            # For multi-file torrents with subfolders, get the first file's path to find the subfolder
+            # For multi-file torrents, point at the top-level subfolder that
+            # contains the files (so the walker has a real directory to descend
+            # into). For true single-file torrents, save_path is the directory
+            # the single file lives in.
             remote_dir = t.save_path
-            if not is_single_file:
-                try:
-                    files = self.client.torrents_files(hash)
-                    if files and len(files) > 0:
-                        # Get the first file's full path (relative to save_path)
-                        first_file_path = files[0].name
-                        # The file path is relative to save_path
-                        # e.g. "Vampire Crawlers [FitGirl Repack]/MD5/QuickSFV.EXE"
-                        # We want the top-level subfolder
-                        import os
-                        # Get the first component of the relative path
-                        rel_path = first_file_path.replace('\\', '/')  # Normalize path separators
-                        top_folder = rel_path.split('/')[0]
-                        # Join with save_path to get the actual subfolder
-                        potential_subfolder = os.path.join(t.save_path, top_folder)
-                        remote_dir = potential_subfolder
-                except:
-                    pass  # Use save_path if we can't determine subfolder
-            
+            if not is_single_file and files:
+                first_file_path = files[0].name.replace('\\', '/')
+                top_folder = first_file_path.split('/')[0]
+                import os
+                potential_subfolder = os.path.join(t.save_path, top_folder)
+                remote_dir = potential_subfolder
+
             return {
                 'remote_dir': remote_dir,
                 'files_to_copy': files_to_copy,
