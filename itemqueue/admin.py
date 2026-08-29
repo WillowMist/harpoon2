@@ -30,7 +30,7 @@ class ItemAdmin(admin.ModelAdmin):
     readonly_fields = ['hash', 'created', 'modified']
     fields = [
         'name', 'hash', 'status', 'downloader', 'manager',
-        'size', 'received', 'clientid', 'category',
+        'size', 'received', 'manager_ref_id', 'category',
         'extraction_status', 'extraction_progress', 'extraction_started', 'extraction_completed',
         'archived', 'archived_at', 'created', 'modified',
     ]

@@ -46,7 +46,7 @@ class Arr(object):
             recordinfo['tdstatus'] = record['trackedDownloadStatus']
             recordinfo['statusmessages'] = record['statusMessages']
             recordinfo['downloadid'] = record['downloadId']
-            recordinfo['clientid'] = record['id']
+            recordinfo['manager_ref_id'] = record['id']
             recordinfo['downloadclient'] = record.get('downloadClient', '')  # Extract downloader client name
             recordinfo['manager'] = self.manager
             records.append(recordinfo)
@@ -65,7 +65,7 @@ class Arr(object):
         original_archived = queueitem.archived
         original_archived_at = queueitem.archived_at
         
-        for attr in ['size', 'name', 'status', 'clientid', 'manager']:
+        for attr in ['size', 'name', 'status', 'manager_ref_id', 'manager']:
             if getattr(queueitem, attr) != record[attr]:
                 changed[attr] = record[attr]
                 setattr(queueitem, attr, record[attr])
@@ -112,7 +112,7 @@ class Arr(object):
         allowing it to search for an alternate release.
         
         Args:
-            item: Item object with hash and clientid
+            item: Item object with hash and manager_ref_id
             reason: String explanation of why it failed (e.g., "RAR extraction failed: corrupted archive")
             
         Returns:
@@ -120,11 +120,11 @@ class Arr(object):
         """
         try:
             # Build rejection message to send to manager
-            # The manager queue item has: id (clientid), title, downloadId (hash)
+            # The manager queue item has: id (manager_ref_id), title, downloadId (hash)
             url = self.apiurl + '/queue/bulk'
             
             payload = {
-                'ids': [item.clientid],
+                'ids': [item.manager_ref_id],
                 'blacklist': True  # Mark as blacklisted so *arr won't grab it again
             }
             
@@ -150,7 +150,7 @@ class Arr(object):
         This triggers the manager to import the downloaded files from the specified path.
         
         Args:
-            item: Item object with hash, name, and clientid
+            item: Item object with hash, name, and manager_ref_id
             download_path: Local path where files have been downloaded/extracted to
             
         Returns:
@@ -162,7 +162,7 @@ class Arr(object):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             
@@ -216,7 +216,7 @@ class Sonarr(Arr):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             logger.info(f"[Sonarr post_process] Sending command to {url}")
@@ -270,7 +270,7 @@ class Radarr(Arr):
             payload = {
                 "name": "DownloadedMoviesScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -329,7 +329,7 @@ class Lidarr(Arr):
             payload = {
                 "name": "DownloadedAlbumsScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -388,7 +388,7 @@ class Readarr(Arr):
             payload = {
                 "name": "DownloadedBooksScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -438,7 +438,7 @@ class Whisparr(Arr):
             payload = {
                 "name": "DownloadedEpisodesScan",
                 "path": download_path,
-                 "downloadClientID": str(item.clientid),
+                 "downloadClientID": str(item.manager_ref_id),
                 "importMode": "Move"
             }
             response = requests.post(url, json=payload, headers=self.headers, timeout=30)
@@ -1161,7 +1161,7 @@ class Bindery:
                 'size': size,
                 'status': hp_status,
                 'manager': self.manager,
-                'clientid': book_id,  # store bookId here; reused by post_process
+                'manager_ref_id': book_id,  # store bookId here; reused by post_process
             },
         )
 
@@ -1174,7 +1174,7 @@ class Bindery:
 
         # Update existing Item
         changed = False
-        for attr, value in (('name', title), ('size', size), ('status', hp_status), ('clientid', book_id)):
+        for attr, value in (('name', title), ('size', size), ('status', hp_status), ('manager_ref_id', book_id)):
             if getattr(item, attr) != value:
                 setattr(item, attr, value)
                 changed = True
@@ -1209,7 +1209,7 @@ class Bindery:
         from itemqueue.models import FileTransfer, ItemHistory
         logger = logging.getLogger(__name__)
 
-        book_id = item.clientid
+        book_id = item.manager_ref_id
         if not book_id:
             return False, f"No Bindery bookId on item {item.name}; cannot manual-import"
 
