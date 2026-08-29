@@ -1261,8 +1261,6 @@ def check_stalled_transfers():
                     logger.info(f"Successfully queued transfer for {item.name}")
                 except Exception as e:
                     logger.error(f"Failed to queue transfer for {item.name}: {e}")
-                except Exception as e:
-                    logger.error(f"Failed to queue transfer for {item.name}: {e}")
             else:
                 # Transfers exist - check their status
                 has_failed = any(t.status == 'failed' for t in transfers)
