@@ -10,6 +10,7 @@ import django.utils.timezone
 import subprocess
 import glob
 import re
+from dplibs.filesystem import safe_rename
 
 logger = logging.getLogger(__name__)
 
@@ -900,8 +901,8 @@ def transfer_files_async(item_hash):
                         import shutil
                         shutil.rmtree(final_folder)
                         logger.info(f"Removed existing final folder: {final_folder}")
-                    # Rename temp to final (atomic on same filesystem)
-                    os.rename(temp_folder, final_folder)
+                    # Rename temp to final (atomic on same filesystem; cross-device safe via shutil.move)
+                    safe_rename(temp_folder, final_folder)
                     logger.info(f"Moved temp folder to final: {final_folder}")
                     ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
                 else:
@@ -1336,7 +1337,7 @@ def check_stalled_transfers():
                                 # Move from temp to final if needed
                                 if os.path.exists(temp_folder) and not os.path.exists(final_folder):
                                     os.makedirs(final_base, exist_ok=True)
-                                    os.rename(temp_folder, final_folder)
+                                    safe_rename(temp_folder, final_folder)
                                     logger.info(f"Moved from temp to final: {final_folder}")
                             
                             # Mark as completed after post-processing
