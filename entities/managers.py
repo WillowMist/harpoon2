@@ -1406,12 +1406,20 @@ class Bindery:
         another manual-import would only create a duplicate. Callers use this to
         avoid firing duplicate imports when the original row is still stuck in
         importFailed/importBlocked.
+
+        Skip rows with null/0 bookId (Bindery may return bookId=null for rows
+        not yet matched to a book); skip the call entirely when book_id itself
+        is falsy. The original int(... or 0) coercion silently matched null
+        rows to a book_id of 0.
         """
+        if not book_id:
+            return False
         items = self._queue_records() or []
         active = {'downloading', 'downloaded', 'importpending', 'importing', 'imported'}
         return any(
             isinstance(r, dict)
-            and int(r.get('bookId') or 0) == int(book_id or 0)
+            and (r.get('bookId') or 0)
+            and int(r.get('bookId')) == int(book_id)
             and (r.get('status') or '').lower() in active
             for r in items
         )
