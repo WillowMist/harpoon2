@@ -1435,6 +1435,21 @@ class Bindery:
         DELETE /api/v1/queue/{id}?removeFromClient=false so the torrent keeps
         seeding in the download client but Bindery's bookkeeping is cleared.
 
+        TOCTOU close (COR-05): the status check runs against a fresh
+        _queue_records() fetch, not the caller's snapshot. The snapshot can
+        be minutes stale by the time we get here; Bindery may have advanced
+        the row from importFailed to imported in the meantime. Bindery has
+        no GET-by-id endpoint (verified against upstream cmd/bindery/main.go
+        router registration), so the re-fetch is the full /api/v1/queue
+        list filtered by id — the same pattern Bindery's own DELETE handler
+        uses internally.
+
+        Pitfall 4 fallback: if _queue_records() returns None (Bindery API
+        unreachable) the helper falls back to the caller's snapshot rather
+        than dropping the delete intent. This preserves the original safety
+        check's operator-visible behavior — if we cannot reach Bindery, honor
+        the snapshot over silently skipping the cleanup.
+
         Safety: only deletes rows whose status is still in the recoverable-
         failure set. Anything in-flight or imported is left alone - if Bindery
         already advanced the row we don't touch it. Failure to delete is
@@ -1442,16 +1457,42 @@ class Bindery:
         """
         if not isinstance(bindery_record, dict):
             return
-        status = (bindery_record.get('status') or '').lower()
-        if status not in ('importfailed', 'importblocked'):
-            return
         bindery_id = bindery_record.get('id')
         if not bindery_id:
             return
 
+        # Lift logging/requests to the top so logger is in scope for the
+        # new early-return branches below (Pitfall 4 and the fresh-status
+        # precondition check).
         import logging
         import requests
         logger = logging.getLogger(__name__)
+
+        # Re-fetch by id from the canonical list endpoint (Bindery has no
+        # GET /api/v1/queue/{id} — the upstream Delete handler does the
+        # same List+filter internally).
+        fresh_records = self._queue_records() or []
+        fresh = next(
+            (r for r in fresh_records
+             if isinstance(r, dict) and r.get('id') == bindery_id),
+            None,
+        )
+        if fresh is None:
+            # Pitfall 4 fallback: Bindery unreachable OR row advanced away.
+            # If we can't fetch the current state, prefer the caller's
+            # snapshot over dropping the cleanup — matches the original
+            # safety-check intent (the pre-COR-05 code checked the snapshot).
+            fresh = bindery_record
+        status = (fresh.get('status') or '').lower()
+        if status not in ('importfailed', 'importblocked'):
+            # Bindery already advanced the row (imported, downloading, etc.);
+            # leave it alone per the safety note in the docstring.
+            logger.info(
+                f"[Bindery post_process] Row id={bindery_id} is now '{status}' "
+                f"(not importfailed/importblocked); skipping delete"
+            )
+            return
+
         url = f"{self.apiurl}/queue/{bindery_id}"
         try:
             resp = requests.delete(
