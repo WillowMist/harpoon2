@@ -26,23 +26,29 @@ def test_block_b_delete_preserves_completed():
 
 
 def test_block_b_does_not_delete_transferring():
-    """Lock-in: Block B must NOT delete 'transferring' rows. Killing
-    in-flight workers loses bytes already copied and oscillates the
-    byte count between cycles."""
+    """Lock-in: Block B's requeue delete must use the explicit
+    pending/failed filter (which excludes both completed and transferring).
+    A regression to .exclude(status='completed') would also delete
+    in-flight transfers, causing the byte-count oscillation."""
     src = inspect.getsource(check_stalled_transfers)
     # Find the Block B requeue block
     requeue_idx = src.find("Requeued by check_stalled_transfers")
     assert requeue_idx != -1, "Block B requeue marker not found"
-    # Window around the requeue (covers the delete line)
-    window = src[max(0, requeue_idx - 1200): requeue_idx + 200]
-    # The window must NOT contain `transfers.exclude(status='completed')`
-    # (which would also exclude transferring)
-    assert "transfers.exclude(status='completed').delete()" not in window, (
-        "Block B is using transfers.exclude(status='completed').delete() "
-        "— this ALSO deletes 'transferring' rows, losing in-flight "
-        "worker progress. Use transfers.filter(status__in=['pending', 'failed']).delete() "
-        "to preserve both completed and transferring."
+    # Look at the actual delete call — it must filter to pending/failed,
+    # not exclude from completed (which would also drop transferring).
+    delete_idx = src.find(".delete()", requeue_idx - 200)
+    assert delete_idx != -1, "delete() call not found near Block B requeue"
+    # Look at the delete line (find the preceding "transfers" call)
+    delete_line_start = src.rfind("transfers", requeue_idx - 200, delete_idx)
+    delete_line_end = src.find("\n", delete_idx)
+    delete_line = src[delete_line_start:delete_line_end].strip()
+    assert "filter(status__in=['pending', 'failed'])" in delete_line, (
+        f"Block B's delete line is wrong: {delete_line!r}. "
+        f"Should filter to only pending and failed, preserving "
+        f"both completed and transferring."
     )
-    assert "transfers.delete()" not in window, (
-        "Block B is using bare transfers.delete() — wipes everything."
+    assert "exclude" not in delete_line, (
+        f"Block B's delete uses .exclude() — would also delete "
+        f"transferring rows, oscillating byte count. Use "
+        f"filter(status__in=['pending', 'failed']) instead. Line: {delete_line!r}"
     )
