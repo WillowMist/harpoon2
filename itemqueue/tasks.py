@@ -2,9 +2,11 @@ from celery import shared_task
 from itemqueue.models import Item, ItemHistory, FileTransfer
 from entities.models import Downloader
 from users.models import Notification
+from django.db import OperationalError, InterfaceError, DatabaseError
 import logging
 import os
 import shutil
+import threading
 import paramiko
 import django.utils.timezone
 import subprocess
@@ -13,6 +15,88 @@ import re
 from dplibs.filesystem import safe_rename
 
 logger = logging.getLogger(__name__)
+
+
+# Wall-clock timeout for a single sftp.get() call. Mirrors the stall-detection
+# threshold in check_stalled_transfers (5 minutes) so the watchdog fires at the
+# same point the operator would otherwise see the transfer marked stalled.
+# Without this, sftp.get() can hang indefinitely when the seedbox stops sending
+# data but keeps the SSH channel alive via keepalives — the Celery worker
+# holds the slot until task_time_limit (1h).
+SFTP_GET_TIMEOUT_SECONDS = 300
+
+
+class SFTPStallTimeout(Exception):
+    """Raised when sftp.get() does not return within SFTP_GET_TIMEOUT_SECONDS.
+
+    The caller is expected to handle this in its retry loop, clean up the
+    partial local file, and reconnect to the seedbox.
+    """
+    pass
+
+
+def _stoppable_progress_callback(inner_callback, stop_event):
+    """Wrap a progress callback so it short-circuits once stop_event is set.
+
+    Used by _sftp_get_with_timeout to prevent the (leaked) worker thread
+    from continuing to write to the DB after we've decided the transfer
+    has stalled and moved on.
+    """
+    def wrapped(bytes_so_far, bytes_total):
+        if stop_event.is_set():
+            return
+        try:
+            inner_callback(bytes_so_far, bytes_total)
+        except Exception as e:
+            logger.debug(f"Could not update transfer progress: {e}")
+    return wrapped
+
+
+def _sftp_get_with_timeout(sftp, remote, local, callback, timeout):
+    """Run sftp.get() with a hard wall-clock timeout.
+
+    If the call hangs longer than `timeout` seconds (typical: seedbox stalls
+    mid-file but keeps the SSH channel alive via keepalives), set the stop
+    event so the progress callback stops bumping DB rows, close the SFTP
+    channel so the leaked worker thread can exit, and raise SFTPStallTimeout.
+
+    The leaked thread is `daemon=True` and will be reaped by Celery's
+    task_time_limit (1h) if sftp.close() races. The progress_callback's
+    stop_event prevents the leaked thread from corrupting the FileTransfer
+    row after we've decided the transfer failed.
+    """
+    stop_event = threading.Event()
+    holder = {'exc': None}
+
+    def _runner():
+        try:
+            sftp.get(remote, local, callback=_stoppable_progress_callback(callback, stop_event))
+        except Exception as e:
+            # Expected if we close the channel mid-call. Don't propagate —
+            # the join/timeout check below decides whether we report success
+            # or raise SFTPStallTimeout.
+            holder['exc'] = e
+
+    t = threading.Thread(target=_runner, daemon=True, name=f"sftp-get-{os.path.basename(remote)[:40]}")
+    t.start()
+    t.join(timeout=timeout)
+
+    if t.is_alive():
+        logger.error(
+            f"SFTP get stalled after {timeout}s for {remote}; "
+            f"closing channel and raising SFTPStallTimeout (worker thread will be reaped by task_time_limit)"
+        )
+        stop_event.set()  # tell progress callback to stop touching the DB
+        try:
+            sftp.close()
+        except Exception as close_exc:
+            logger.debug(f"sftp.close() after stall raised: {close_exc}")
+        # Do NOT wait for the leaked thread — it's daemon=True and will be reaped
+        # when the worker process exits. Waiting here just blocks the worker.
+        raise SFTPStallTimeout(f"sftp.get() did not return within {timeout}s for {remote}")
+
+    if holder['exc'] is not None:
+        raise holder['exc']
 
 
 def find_rar_archives(directory):
@@ -788,8 +872,16 @@ def transfer_files_async(item_hash):
                         except Exception as e:
                             logger.debug(f"Could not update transfer progress: {e}")
                     
-                    # Download file with progress tracking
-                    sftp.get(remote_file_path, local_path, callback=progress_callback)
+                    # Download file with progress tracking + stall watchdog.
+                    # _sftp_get_with_timeout raises SFTPStallTimeout if sftp.get()
+                    # hangs longer than SFTP_GET_TIMEOUT_SECONDS — without this,
+                    # a dead seedbox can hold the Celery worker hostage for up to
+                    # task_time_limit (1h).
+                    _sftp_get_with_timeout(
+                        sftp, remote_file_path, local_path,
+                        callback=progress_callback,
+                        timeout=SFTP_GET_TIMEOUT_SECONDS,
+                    )
                     
                     # Update transfer record - mark as completed
                     transfer.bytes_transferred = file_size
@@ -1352,8 +1444,24 @@ def check_stalled_transfers():
         
         if stalled_count > 0:
             logger.info(f"Detected and failed {stalled_count} stalled transfers")
-    except Exception as e:
-        logger.error(f"Error in check_stalled_transfers: {e}")
+    except (OperationalError, InterfaceError, DatabaseError):
+        # DB unavailable / pool exhausted / connection dropped. Beat will retry
+        # this task in 20s — logging WARNING (not ERROR) makes the
+        # "infrastructure blip, will retry" case visually distinct from the
+        # "real bug, needs human eyes" case below. exc_info=True gives us the
+        # stack trace so an operator can still tell whether it's the
+        # connection-refused dance or a SQL syntax error masked as
+        # OperationalError.
+        logger.warning(
+            "check_stalled_transfers: database unavailable; "
+            "skipping this tick (beat will retry in 20s)",
+            exc_info=True,
+        )
+    except Exception:
+        # Real bug we did not anticipate — keep the function failing loudly
+        # so the operator sees a stack trace in the worker log instead of a
+        # lone one-line error.
+        logger.exception("check_stalled_transfers: unexpected error")
 
 
 @shared_task
