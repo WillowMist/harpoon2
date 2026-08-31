@@ -732,17 +732,18 @@ def transfer_files_async(item_hash):
         
         # STEP 1: Create FileTransfer records UPFRONT for ALL files
         # This ensures the dashboard shows correct total size from the start
-        # transfer_list now contains (remote_path, relative_path) tuples
-        
-        # Check for existing transfer records to prevent duplicates
-        existing_transfers = FileTransfer.objects.filter(item=item, status__in=['pending', 'transferring'])
-        if existing_transfers.exists():
-            logger.info(f"Item {item.name} already has {existing_transfers.count()} pending/transferring records. Skipping duplicate transfer creation.")
-            ItemHistory.objects.create(item=item, details=f'Skipped duplicate transfer creation - {existing_transfers.count()} transfers already active')
-            sftp.close()
-            ssh.close()
-            return
-        
+        # transfer_list now contains (remote_path, relative_path) tuples.
+        #
+        # The per-file loop below (around line 770) handles dedup correctly:
+        # reuses completed transfers, leaves in-flight ones alone, deletes
+        # stale ones. There used to be an early-return here that bailed if
+        # ANY pending/transferring transfer existed — that prevented the
+        # function from creating the missing transfers (e.g., the ~545
+        # files the Phase 1 band-aid had not created on a previous run),
+        # which is why a 120 GB torrent could end up with only 138 (25 GB)
+        # FileTransfer rows and stall out at 20%. The per-file logic makes
+        # the early-return redundant (and harmful), so it's removed.
+
         transfer_records = {}
         skipped_count = 0
         
@@ -779,8 +780,21 @@ def transfer_files_async(item_hash):
                     logger.info(f"Reusing existing completed transfer for {relative_path}")
                     transfer_records[(remote_file_path, relative_path)] = existing_transfer
                     continue
+                elif existing_transfer.status in ('pending', 'transferring'):
+                    # Mid-flight from a prior run - leave alone. Deleting an
+                    # in-progress transfer would lose bytes already copied and
+                    # confuse the dashboard. The next call (or
+                    # check_stalled_transfers recovery) will pick it up once it
+                    # finishes or stalls out.
+                    logger.debug(
+                        f"Leaving in-flight transfer for {relative_path} "
+                        f"(status={existing_transfer.status}); not touching"
+                    )
+                    continue
                 else:
-                    # Stale pending/transferring/failed record from a previous run - clean it up
+                    # Stale terminal-but-not-completed record (failed, or
+                    # completed-with-wrong-size from a local edit). Clean it
+                    # up so the per-file logic below creates a fresh record.
                     logger.info(f"Removing stale {existing_transfer.status} transfer record for {relative_path}")
                     existing_transfer.delete()
             
