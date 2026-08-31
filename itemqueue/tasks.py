@@ -1298,7 +1298,38 @@ def check_stalled_transfers():
         
         stall_threshold = timezone.now() - timedelta(minutes=5)
         stalled_count = 0
-        
+
+        # Catch "Completed but not really" items: status=Completed but the item
+        # still has unfinished transfers (pending/failed/transferring). The
+        # Block A / Block B recovery paths below only iterate over PostProcessing
+        # items, so a prematurely-Completed item with 500+ pending transfers
+        # would otherwise sit forever — observed in production by a multi-file
+        # torrent where the post-processing branch briefly saw `all_completed`
+        # before the remaining transfers were created. Reset to PostProcessing
+        # so Block A picks it up next tick.
+        completed_with_pending = Item.objects.filter(
+            status='Completed'
+        ).filter(
+            transfers__status__in=['pending', 'failed', 'transferring']
+        ).distinct()
+        for item in completed_with_pending:
+            unfinished = item.transfers.filter(
+                status__in=['pending', 'failed', 'transferring']
+            ).count()
+            logger.warning(
+                f"Item marked Completed but has {unfinished} unfinished transfers; "
+                f"resetting to PostProcessing for recovery"
+            )
+            item.status = 'PostProcessing'
+            item.save()
+            ItemHistory.objects.create(
+                item=item,
+                details=(
+                    f'Reset from Completed to PostProcessing: '
+                    f'{unfinished} unfinished transfers detected by check_stalled_transfers'
+                ),
+            )
+
         # Check for transferring transfers that are stalled
         # A transfer is stalled if:
         # 1. It's been transferring for 5+ minutes, AND

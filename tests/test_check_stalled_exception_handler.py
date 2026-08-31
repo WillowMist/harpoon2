@@ -19,8 +19,20 @@ from itemqueue.tasks import check_stalled_transfers
 
 
 def _raise_from_check_stalled(exc):
-    """Patch FileTransfer.objects.filter to raise `exc` on the first call."""
-    with patch("itemqueue.tasks.FileTransfer.objects") as mock_ft:
+    """Patch BOTH Item and FileTransfer querysets to raise `exc`.
+
+    check_stalled_transfers hits multiple manager/queryset chains:
+    - Item.objects.filter (the "Completed but not really" guard at the top)
+    - FileTransfer.objects.filter (the original stalled-transfer detection)
+    - Item.objects.filter (Block A — post-processing recovery)
+    - ItemHistory.objects.filter (recent post-processing check)
+
+    Patch both so whichever query fires first raises, regardless of which
+    block of check_stalled_transfers is reached.
+    """
+    with patch("itemqueue.tasks.Item.objects") as mock_item, \
+         patch("itemqueue.tasks.FileTransfer.objects") as mock_ft:
+        mock_item.filter.side_effect = exc
         mock_ft.filter.side_effect = exc
         check_stalled_transfers()
 

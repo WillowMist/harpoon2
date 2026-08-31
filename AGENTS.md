@@ -47,6 +47,12 @@ Harpoon2 is a Django-based download manager that integrates with Sonarr/Radarr/W
 - Push after each logical change
 - Don't commit debug code (print statements, debug files)
 
+### No Real Item/Transfer Data in Code or Commits
+- **Never include actual `Item.name` or `FileTransfer.filename` values in code comments, commit messages, PR descriptions, docstrings, log strings, exception messages, test fixtures, or committed `.planning/` artifacts.** These are user library data (torrent titles, episode names, file names) and effectively PII for the operator.
+- Use generic references ("the stalled transfer", "an item with 682 file transfers") or the item's `hash` (opaque identifier) when referencing a specific record.
+- Past incident: a stalled-download fix accidentally included a torrent title and an internal IP in commit messages, requiring a `--force-with-lease` rewrite. Don't repeat it.
+- If a name slips into a commit, amend and force-push **before the next push** — don't layer a new commit on top of the leak.
+
 ## Documentation
 
 ### Using Context7 for Library Documentation
