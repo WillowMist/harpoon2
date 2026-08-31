@@ -125,9 +125,9 @@ def test_migration_0009_uses_unique_constraint():
     migrations_dir = os.path.dirname(itemqueue_app.module.__file__) + '/migrations'
     migration_path = os.path.join(migrations_dir, '0009_file_transfer_unique_item_filename.py')
 
-    # Parse the AST and check the actual operations, not substring matches.
-    # (A substring check would flag the comment text mentioning the excluded
-    # operations.)
+    # Parse the AST and check the actual operations by walking the tree.
+    # Substring checks would flag the comment text mentioning excluded
+    # operations (RenameIndex, AddField), so we use AST instead.
     with open(migration_path) as f:
         src = f.read()
     tree = ast.parse(src)
@@ -139,13 +139,11 @@ def test_migration_0009_uses_unique_constraint():
             break
     assert migration_cls is not None, "Migration class not found in 0009"
 
-    # Collect actual operation types used
+    # Collect actual operation types used anywhere in operations[]
     op_types = set()
     for node in ast.walk(migration_cls):
-        if isinstance(node, ast.Call):
-            func = node.func
-            if isinstance(func, ast.Attribute):
-                op_types.add(func.attr)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
+            op_types.add(node.func.attr)
     assert "AddConstraint" in op_types, (
         f"Migration 0009 must include AddConstraint. Operations found: {op_types}"
     )
@@ -157,20 +155,27 @@ def test_migration_0009_uses_unique_constraint():
         f"schema drift, separate concern."
     )
 
-    # The UniqueConstraint must have fields=('item', 'filename') — check the AST
+    # Walk all nodes (not just inside the migration class) and find the
+    # UniqueConstraint call. Its `fields=('item', 'filename')` could be
+    # nested inside the AddConstraint call, so a flat walk finds it.
     found_constraint = False
-    for node in ast.walk(migration_cls):
+    for node in ast.walk(tree):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "AddConstraint"):
+                and node.func.attr == "UniqueConstraint"):
             continue
         for kw in node.keywords:
             if kw.arg == "fields" and isinstance(kw.value, ast.Tuple):
-                elts = [e.id if isinstance(e, ast.Name) else
-                         e.value if isinstance(e, ast.Constant) else None
-                         for e in kw.value.elts]
+                elts = []
+                for e in kw.value.elts:
+                    if isinstance(e, ast.Name):
+                        elts.append(e.id)
+                    elif isinstance(e, ast.Constant):
+                        elts.append(e.value)
                 if tuple(elts) == ("item", "filename"):
                     found_constraint = True
                     break
+        if found_constraint:
+            break
     assert found_constraint, (
         f"Migration 0009 must add a UniqueConstraint on fields=('item', 'filename')"
     )
