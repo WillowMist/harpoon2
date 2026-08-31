@@ -810,13 +810,21 @@ def transfer_files_async(item_hash):
                     skipped_count += 1
                     if (remote_file_path, relative_path) not in transfer_records:
                         try:
-                            transfer = FileTransfer.objects.create(
+                            # get_or_create is atomic at the row level — prevents
+                            # the check-then-create race that left 2,037 duplicate
+                            # rows in the user's 120 GB torrent (sum(file_size)
+                            # showed 480 GB). If a concurrent transfer_files_async
+                            # task already created this row, we get the existing
+                            # one back instead of creating a duplicate.
+                            transfer, created = FileTransfer.objects.get_or_create(
                                 item=item,
                                 filename=relative_path,
-                                remote_path=remote_file_path,
-                                local_path=local_path,
-                                file_size=file_size,
-                                status='completed'
+                                defaults={
+                                    'remote_path': remote_file_path,
+                                    'local_path': local_path,
+                                    'file_size': file_size,
+                                    'status': 'completed',
+                                }
                             )
                             transfer_records[(remote_file_path, relative_path)] = transfer
                         except Exception as e:
@@ -831,15 +839,22 @@ def transfer_files_async(item_hash):
                         logger.error(f"Failed to delete incomplete file {local_path}: {e}")
                         continue
             
-            # Create FileTransfer record with 'pending' status
+            # Create FileTransfer record with 'pending' status.
+            # Use get_or_create for atomic check-then-create — prevents the
+            # duplicate-row race when multiple transfer_files_async tasks
+            # run concurrently (e.g., check_downloaders + Block B requeue).
+            # See commit history; user observed 2,037 duplicates inflating
+            # a 120 GB torrent to 480 GB before this fix.
             try:
-                transfer = FileTransfer.objects.create(
+                transfer, created = FileTransfer.objects.get_or_create(
                     item=item,
-                    filename=relative_path,  # Store relative path for display
-                    remote_path=remote_file_path,
-                    local_path=local_path,
-                    file_size=file_size,
-                    status='pending'
+                    filename=relative_path,
+                    defaults={
+                        'remote_path': remote_file_path,
+                        'local_path': local_path,
+                        'file_size': file_size,
+                        'status': 'pending',
+                    }
                 )
                 transfer_records[(remote_file_path, relative_path)] = transfer
             except Exception as e:
