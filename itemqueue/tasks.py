@@ -746,12 +746,34 @@ def transfer_files_async(item_hash):
 
         transfer_records = {}
         skipped_count = 0
-        
+
         if len(transfer_list) == 0:
              logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
             # Don't return early - still proceed to post_process since files may already exist locally
             # Continue to the post-process section below
-        
+
+        # Dedup transfer_list by relative_path (filename). Some downloaders
+        # (rTorrent in particular) can return the same logical file twice
+        # with slightly different remote paths — e.g., once via the proper
+        # directory tree and once via a fallback listing. Without dedup,
+        # each duplicate entry writes its own "Copied" history event and
+        # re-runs the inner loop's status='completed' save for the same
+        # FileTransfer row. Defensive — the DB-level unique constraint is
+        # the authoritative fix for row duplicates.
+        if transfer_list:
+            seen = set()
+            deduped = []
+            for _rp, _fp in transfer_list:
+                if _fp not in seen:
+                    seen.add(_fp)
+                    deduped.append((_rp, _fp))
+            if len(deduped) < len(transfer_list):
+                logger.debug(
+                    f"[transfer_files_async] Deduped transfer_list "
+                    f"{len(transfer_list)} -> {len(deduped)} (by filename)"
+                )
+                transfer_list = deduped
+
         for remote_file_path, relative_path in transfer_list:
             # Build local path preserving folder structure
             local_path = os.path.join(item_folder, relative_path)

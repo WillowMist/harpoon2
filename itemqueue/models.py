@@ -66,3 +66,17 @@ class FileTransfer(models.Model):
         if self.file_size > 0:
             return int((self.bytes_transferred / self.file_size) * 100)
         return 0
+
+    class Meta:
+        constraints = [
+            # DB-level uniqueness on (item, filename). Required to make
+            # get_or_create() actually atomic — without this, two concurrent
+            # transfer_files_async tasks (e.g., check_downloaders + Block B
+            # requeue) can both INSERT the same (item, filename) and both
+            # succeed, leaving duplicate rows that inflate the dashboard's
+            # sum(file_size) and cause the same file to be copied N times.
+            models.UniqueConstraint(
+                fields=['item', 'filename'],
+                name='uniq_itemqueue_filetransfer_item_filename',
+            ),
+        ]
