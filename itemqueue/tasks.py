@@ -1481,11 +1481,25 @@ def check_stalled_transfers():
                     # check_stalled_transfers if truly stuck).
                     transfers.filter(status__in=['pending', 'failed']).delete()
                     try:
-                        transfer_files_async.delay(item.hash)
+                        # Write the cooldown marker BEFORE .delay(), not after.
+                        # Original code: .delay() then .create(). The create is
+                        # the marker the next Block B tick checks for cooldown.
+                        # When .delay() comes first, there's a race window where
+                        # another Block B tick can fire between .delay() and
+                        # .create() and see no marker, re-requeueing. That
+                        # race produced 14+ parallel transfer_files_async
+                        # tasks for the same item, each running concurrently
+                        # and starving the celery workers of slots for
+                        # everything else. Writing the marker first closes
+                        # the race: the next Block B tick (5 min later) sees
+                        # the marker and skips. If .delay() fails, the next
+                        # tick also fires and retries since the marker is now
+                        # older than 5 min.
                         ItemHistory.objects.create(
                             item=item,
                             details='Requeued by check_stalled_transfers: transfers deleted, transfer_files_async dispatched',
                         )
+                        transfer_files_async.delay(item.hash)
                     except Exception as e:
                         logger.error(f"Failed to requeue transfer for {item.name}: {e}")
                 elif all_completed:
