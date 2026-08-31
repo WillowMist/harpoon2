@@ -1446,14 +1446,18 @@ def check_stalled_transfers():
                         )
                         continue
                     logger.info(f"Item {item.name} has failed/pending transfers, requeueing transfer")
-                    # Preserve completed transfers — only delete the stale
-                    # failed/pending/transferring rows. transfer_files_async
-                    # will skip the completed ones via its per-file dedup and
-                    # create only what's missing. Without this, Block B's
-                    # 5-min cooldown cycle wiped all progress every cycle and
-                    # the byte count oscillated at the size of one batch
-                    # (e.g., 23 GB of a 120 GB torrent) forever.
-                    transfers.exclude(status='completed').delete()
+                    # Preserve both completed AND transferring transfers:
+                    # - completed: real progress we don't want to redo
+                    # - transferring: workers are mid-flight; killing them
+                    #   loses bytes already copied and resets their
+                    #   bytes_transferred=0, causing Block B's 5-min cycle
+                    #   to oscillate the byte count (44 -> 45 -> 44)
+                    # Only delete pending (waiting to be transferred) and
+                    # failed (already tried max retries). transfer_files_async
+                    # skips completed via per-file dedup; in-flight transfers
+                    # finish on their own (or get marked failed by
+                    # check_stalled_transfers if truly stuck).
+                    transfers.filter(status__in=['pending', 'failed']).delete()
                     try:
                         transfer_files_async.delay(item.hash)
                         ItemHistory.objects.create(
