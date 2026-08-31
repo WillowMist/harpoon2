@@ -1392,11 +1392,38 @@ def check_stalled_transfers():
                 all_completed = all(t.status == 'completed' for t in transfers)
                 
                 if has_failed or has_pending:
-                    # Has failed/pending transfers - requeue the transfer
+                    # Has failed/pending transfers - requeue the transfer.
+                    # Cooldown guard: Block B fires every 20s on PostProcessing items
+                    # with unfinished transfers. Without this, the chain
+                    # `transfers.delete() -> transfer_files_async.delay()` races with
+                    # itself — by the time transfer_files_async has recreated the
+                    # transfers and started copying, the next Block B tick sees
+                    # the fresh pending/transferring rows and wipes them again.
+                    # Observed in production as a torrent stuck oscillating at the
+                    # cumulative byte count of one batch of transfers (25 GB of
+                    # ~120 GB total), forever. A 5-min cooldown matches
+                    # stall_threshold and gives transfer_files_async time to
+                    # actually create and process the full set before we consider
+                    # re-recovering.
+                    recent_requeue = ItemHistory.objects.filter(
+                        item=item,
+                        details__startswith='Requeued by check_stalled_transfers',
+                        created__gte=timezone.now() - timedelta(minutes=5),
+                    ).exists()
+                    if recent_requeue:
+                        logger.debug(
+                            f"Skipping requeue for {item.name[:50]}: "
+                            f"already requeued within the last 5 minutes"
+                        )
+                        continue
                     logger.info(f"Item {item.name} has failed/pending transfers, requeueing transfer")
                     transfers.delete()  # Clear old transfers
                     try:
                         transfer_files_async.delay(item.hash)
+                        ItemHistory.objects.create(
+                            item=item,
+                            details='Requeued by check_stalled_transfers: transfers deleted, transfer_files_async dispatched',
+                        )
                     except Exception as e:
                         logger.error(f"Failed to requeue transfer for {item.name}: {e}")
                 elif all_completed:
