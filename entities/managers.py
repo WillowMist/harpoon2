@@ -14,7 +14,9 @@ class Arr(object):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            # timeout=(connect, read): prevents a dead manager API from pinning
+            # the caller's Celery worker slot + Postgres connection.
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -23,7 +25,8 @@ class Arr(object):
     def check_queue(self):
         url = self.apiurl + '/queue'
         try:
-            r = requests.get(url, params=None, headers=self.headers)
+            # Same timeout discipline as test() — see comments there.
+            r = requests.get(url, params=None, headers=self.headers, timeout=(3.05, 10))
             response_data = r.json()
             # Handle both list and dict responses (dict has 'records' key)
             if isinstance(response_data, dict) and 'records' in response_data:
@@ -200,7 +203,7 @@ class Sonarr(Arr):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -257,7 +260,7 @@ class Radarr(Arr):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -307,7 +310,7 @@ class Lidarr(Arr):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -316,7 +319,7 @@ class Lidarr(Arr):
     def check_queue(self):
         url = self.apiurl + '/queue'
         try:
-            r = requests.get(url, params=None, headers=self.headers)
+            r = requests.get(url, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = self.parse_queue(r.json()['records'])
             return True, dt
         except Exception as e:
@@ -365,7 +368,7 @@ class Readarr(Arr):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -374,7 +377,7 @@ class Readarr(Arr):
     def check_queue(self):
         url = self.apiurl + '/queue'
         try:
-            r = requests.get(url, params=None, headers=self.headers)
+            r = requests.get(url, params=None, headers=self.headers, timeout=(3.05, 10))
             print(r.json())
             dt = self.parse_queue(r.json()['records'])
             return True, dt
@@ -425,7 +428,7 @@ class Whisparr(Arr):
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            r = requests.get(testurl, params=None, headers=self.headers)
+            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
             dt = r.json()
             return True, dt
         except Exception as e:
@@ -490,7 +493,7 @@ class Mylar3:
             logger.info(f"[Mylar3 test] Testing connection to {url}")
             
             import requests
-            r = requests.get(url)
+            r = requests.get(url, timeout=(3.05, 10))
             if r.status_code == 200:
                 return True, r.json()
             else:
@@ -512,7 +515,7 @@ class Mylar3:
             url = self._api_url('getHistory')
             logger.info(f"[Mylar3 get_history] Fetching from {url}")
             
-            r = requests.get(url)
+            r = requests.get(url, timeout=(3.05, 10))
             if r.status_code != 200:
                 logger.warning(f"[Mylar3 get_history] HTTP {r.status_code}")
                 return []
@@ -539,7 +542,7 @@ class Mylar3:
             url = self._api_url('getWanted')
             logger.info(f"[Mylar3 get_wanted] Fetching from {url}")
             
-            r = requests.get(url)
+            r = requests.get(url, timeout=(3.05, 10))
             if r.status_code != 200:
                 logger.warning(f"[Mylar3 get_wanted] HTTP {r.status_code}")
                 return []
@@ -569,7 +572,7 @@ class Mylar3:
             url = self._api_url(f'findComic&name={requests.utils.quote(name)}')
             logger.info(f"[Mylar3 find_comic] Searching for: {name}")
             
-            r = requests.get(url)
+            r = requests.get(url, timeout=(3.05, 10))
             if r.status_code != 200:
                 logger.warning(f"[Mylar3 find_comic] HTTP {r.status_code}")
                 return []
@@ -596,7 +599,7 @@ class Mylar3:
             url = self._api_url('getIndex')
             logger.info(f"[Mylar3 get_index] Fetching watchlist from {url}")
             
-            r = requests.get(url)
+            r = requests.get(url, timeout=(3.05, 10))
             if r.status_code != 200:
                 logger.warning(f"[Mylar3 get_index] HTTP {r.status_code}")
                 return []
@@ -916,7 +919,10 @@ class Mylar3:
             
             logger.info(f"[Mylar3 post_process] Sending forceProcess: folder={folder}, name={name_without_ext}, comicid={comicid}, issueid={issueid}")
             logger.info(f"[Mylar3 post_process] Full URL: {self.url}/api?{('&').join([f'{k}={v}' for k, v in params.items()])}")
-            r = requests.post(f'{self.url}/api', params=params)
+            # timeout=(connect, read): prevents a dead Mylar3 instance from pinning
+            # the Celery worker slot + Postgres connection. See comments in
+            # entities/tasks.py and the base Arr.test() method.
+            r = requests.post(f'{self.url}/api', params=params, timeout=(3.05, 10))
             
             logger.info(f"[Mylar3 post_process] Response status: {r.status_code}")
             logger.info(f"[Mylar3 post_process] Response body: {r.text}")

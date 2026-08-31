@@ -61,7 +61,11 @@ def poll_manager(manager_id):
     # Get recent history for grabbed events
     url = f'{api_url}/history'
     try:
-        resp = requests.get(url, headers=headers, params={'pageSize': 50})
+        # timeout=(connect, read) prevents a dead/slow manager API from holding
+        # a Postgres connection (and a Celery worker slot) indefinitely. A
+        # past Postgres pool exhaustion was caused by poll_managers blocking
+        # on no-timeout HTTP calls; this is the surgical fix.
+        resp = requests.get(url, headers=headers, params={'pageSize': 50}, timeout=(3.05, 10))
         if resp.status_code != 200:
             logger.warning(f"Failed to fetch history for {manager.name}: {resp.status_code}")
             return
@@ -419,7 +423,8 @@ def assign_items_to_downloaders():
             # Get queue to find the download client for this item
             import requests
             url = f'{api_url}/queue'
-            resp = requests.get(url, headers=headers, params={'pageSize': 100})
+            # Same timeout discipline as poll_manager above — see comments there.
+            resp = requests.get(url, headers=headers, params={'pageSize': 100}, timeout=(3.05, 10))
             
             if resp.status_code == 200:
                 data = resp.json()

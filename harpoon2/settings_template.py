@@ -138,6 +138,14 @@ if USE_POSTGRES or os.environ.get('DB_PASSWORD'):
             'PASSWORD': os.environ.get('DB_PASSWORD', ''),
             'HOST': os.environ.get('DB_HOST', 'postgres'),
             'PORT': os.environ.get('DB_PORT', '5432'),
+            # CONN_MAX_AGE: Django default is 0 (close per request, open new
+            # per request). At ~25 requests/min against a 100-connection pool,
+            # that creates churn and peak concurrency without bound. 60s lets
+            # the connection be reused across requests/celery tasks while
+            # still cycling it within a typical operator attention span.
+            # Setting this is the second half of fix D — without it, every
+            # api_dashboard poll opens a fresh Postgres connection.
+            'CONN_MAX_AGE': 60,
         }
     }
 else:
@@ -146,6 +154,7 @@ else:
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': '/data/harpoon2.db',
+            'CONN_MAX_AGE': 60,
         }
     }
 
