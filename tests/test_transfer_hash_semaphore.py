@@ -60,7 +60,7 @@ def test_second_arrival_exits_cleanly(db, monkeypatch):
     """When INCR returns 2, the second arrival DECRs and exits before doing
     any work — no downloader client access, no expire, no DB writes beyond
     the initial lookup."""
-    item = Item.objects.create(hash='A' * 40, name='A', status='Grabbed')
+    item = Item.objects.create(hash='a' * 40, name='a', status='Grabbed')
 
     fake_redis = Mock()
     fake_redis.incr.return_value = 2
@@ -82,7 +82,7 @@ def test_redis_down_proceeds_with_warning(db, monkeypatch):
     The item has no downloader, so after the semaphore is bypassed the task
     reaches the no-downloader guard and exits cleanly — proving it got past
     the semaphore instead of crashing on it."""
-    item = Item.objects.create(hash='B' * 40, name='B', status='Grabbed')
+    item = Item.objects.create(hash='b' * 40, name='b', status='Grabbed')
 
     fake_redis = Mock()
     fake_redis.incr.side_effect = redis.ConnectionError("redis is down")
