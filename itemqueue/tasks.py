@@ -1,4 +1,5 @@
 from celery import shared_task
+from django.conf import settings
 from itemqueue.models import Item, ItemHistory, FileTransfer
 from entities.models import Downloader
 from users.models import Notification
@@ -397,19 +398,32 @@ def transfer_files_async(item_hash):
     """
     logger.warning(f"[transfer_files_async] ================= STARTING ================= for item {item_hash}")
     try:
-        item = Item.objects.get(hash=item_hash)
+        with transaction.atomic():
+            if getattr(settings, 'PIPELINE_HARDENING_ENABLED', True):
+                # PIPE-02 + COR-06: row-level lock prevents concurrent double-execution.
+                # skip_locked=True: a second worker observing the row is locked gets None and exits.
+                item = (
+                    Item.objects
+                    .select_for_update(skip_locked=True)
+                    .filter(hash=item_hash)
+                    .first()
+                )
+            else:
+                # Legacy: simple get without lock. Faster but unsafe under concurrency.
+                item = Item.objects.filter(hash=item_hash).first()
     except Item.DoesNotExist:
+        # filter().first() returns None, not raises — this branch is unreachable
+        # but kept for defensive coverage during the cutover.
         logger.error(f"[transfer_files_async] Item {item_hash} not found in database")
+        return
+    if item is None:
+        # Either the row is locked by another worker OR it doesn't exist.
+        # Skip_locked=True means we got None because another worker holds the lock.
+        logger.info(f"[transfer_files_async] Item {item_hash} locked or missing, exiting")
         return
     
     logger.info(f"[transfer_files_async] ========== Processing item: {item.name} ({item.status}) ==========")
     logger.info(f"[transfer_files_async] Downloader: {item.downloader}, Seedbox: {item.downloader.seedbox if item.downloader else 'None'}")
-    
-    try:
-        item = Item.objects.get(hash=item_hash)
-    except Item.DoesNotExist:
-        logger.error(f"[transfer_files_async] Item {item_hash} not found in database")
-        return
     
     logger.info(f"[transfer_files_async] Transferring files for {item.name} (status={item.status})")
     
