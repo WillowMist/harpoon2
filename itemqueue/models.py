@@ -32,6 +32,11 @@ class Item(models.Model):
     # indexed.
     last_recovery_at = models.DateTimeField(null=True, blank=True, db_index=True, help_text='Last time the recovery loop requeued this item; NULL means cooldown elapsed.')
 
+    # PIPE-01: retry_postprocessing attempt counter. Default 0; the count is
+    # bumped inside the task before apply_async so a worker restart doesn't
+    # reset it. Hard cap = 3 (RETRY_CAP_ATTEMPTS in itemqueue/tasks.py).
+    attempt_count = models.IntegerField(default=0, help_text='retry_postprocessing attempts; PIPE-01 hard cap = 3.')
+
     class Meta:
         indexes = [
             models.Index(fields=['status', 'archived', '-modified']),

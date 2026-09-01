@@ -40,6 +40,11 @@ STALL_THRESHOLD_SECONDS = 300
 # single source of truth for the gate.
 RECOVERY_COOLDOWN_SECONDS = 60
 
+# PIPE-01: hard cap on retry_postprocessing attempts. The 4th invocation is
+# a no-op (marks the item Failed). Pin this constant; operators can raise it
+# post-Phase-5 if the failure mode changes.
+RETRY_CAP_ATTEMPTS = 3
+
 
 class SFTPStallTimeout(Exception):
     """Raised when sftp.get() does not return within SFTP_GET_TIMEOUT_SECONDS.
@@ -1735,18 +1740,48 @@ def check_stalled_transfers():
 
 
 @shared_task
-def retry_postprocessing(item_hash):
+def retry_postprocessing(item_hash, attempt=1):
     """Retry post-processing for an item that failed.
-    
-    This task is scheduled when post-processing fails, allowing automatic retries
-    without manual user intervention.
+
+    PIPE-01: cap at RETRY_CAP_ATTEMPTS (3). The 4th invocation is a no-op.
+    PIPE-08: deterministic task_id=f"retry-{item_hash}-{attempt}" enables
+    broker-side dedup on re-delivery.
+    PIPE-03: cooldown gate via Item.last_recovery_at (60s) — same source as
+    check_stalled_transfers.
     """
+    from django.conf import settings
+
+    if not getattr(settings, 'PIPELINE_HARDENING_ENABLED', True):
+        # Legacy path (pre-Phase-5): no attempt cap, no deterministic
+        # task_id, no last_recovery_at cooldown. Preserved for one release
+        # per the canary-deployment convention; setting the env-var to false
+        # reverts to this body without code changes.
+        _legacy_retry_postprocessing(item_hash)
+        return
+
     try:
         item = Item.objects.get(hash=item_hash)
     except Item.DoesNotExist:
         logger.error(f"Item {item_hash} not found for retry_postprocessing")
         return
-    
+
+    # PIPE-01: hard cap at RETRY_CAP_ATTEMPTS. Enforced two ways: (a) the
+    # `attempt` argument carried by the deterministic task_id, and (b) the
+    # persisted Item.attempt_count column (survives worker restarts). The
+    # 4th invocation is a no-op.
+    if attempt > RETRY_CAP_ATTEMPTS or item.attempt_count >= RETRY_CAP_ATTEMPTS:
+        logger.warning(f"[retry_postprocessing] Item {item_hash[:16]} hit PIPE-01 cap at attempt {attempt}; marking Failed")
+        Item.objects.filter(hash=item_hash).update(status='Failed')
+        return
+
+    # PIPE-03: cooldown gate via Item.last_recovery_at (same source as
+    # check_stalled_transfers). Items recovered within the last 60s are
+    # skipped — the deterministic task_id is the broker-side dedup, this
+    # check is the application-side safety net for redelivered task_ids.
+    if item.last_recovery_at and item.last_recovery_at > timezone.now() - timedelta(seconds=RECOVERY_COOLDOWN_SECONDS):
+        logger.debug(f"[retry_postprocessing] Item {item_hash[:16]} recovered within 60s; skipping")
+        return
+
     # Retry whenever post-processing has something to re-attempt. Arr managers
     # land in Completed even after a failed post-process; Bindery items stay
     # PostProcessing (or may be flipped to Failed by the manager poll). Only
@@ -1754,24 +1789,24 @@ def retry_postprocessing(item_hash):
     if item.status in ('Grabbed', 'Archived', 'Deleted'):
         logger.debug(f"Skipping retry for {item.name} - status is {item.status}")
         return
-    
+
     if not item.manager or not hasattr(item.manager, 'client'):
         logger.error(f"Item {item.name} has no manager configured")
         return
-    
+
     try:
         # Get local folder from latest completed transfer
         first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
         if not first_transfer or not first_transfer.local_path:
             logger.warning(f"No completed transfers found for {item.name}, cannot retry post-processing")
             return
-        
+
         local_folder = os.path.dirname(first_transfer.local_path)
-        
+
         # Construct the download path with item folder name included
         sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
         sanitized_item_name = sanitized_item_name.strip()
-        
+
         # Get base folder
         if item.manager.folder:
             if item.manager.folder.remote_folder_name:
@@ -1781,14 +1816,14 @@ def retry_postprocessing(item_hash):
             download_path = os.path.join(base_remote_path, sanitized_item_name)
         else:
             download_path = local_folder
-        
+
         # Check if there's only one video file in the directory
         video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
         try:
             local_item_path = os.path.join(local_folder, sanitized_item_name)
             if os.path.isdir(local_item_path):
-                video_files = [f for f in os.listdir(local_item_path) 
-                             if os.path.isfile(os.path.join(local_item_path, f)) 
+                video_files = [f for f in os.listdir(local_item_path)
+                             if os.path.isfile(os.path.join(local_item_path, f))
                              and os.path.splitext(f)[1].lower() in video_extensions]
                 if len(video_files) == 1:
                     video_file = video_files[0]
@@ -1796,14 +1831,119 @@ def retry_postprocessing(item_hash):
                     logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
         except Exception as e:
             logger.warning(f"Could not check for single video file: {e}")
-        
+
         # Only call post_process if the manager supports it
         client = item.manager.client
         if hasattr(client, 'post_process'):
             logger.info(f"Retrying post-processing for {item.name} at path: {download_path}")
             try:
                 success, pp_message = client.post_process(item, download_path)
-                
+
+                if success:
+                    logger.info(f"Retry post-processing succeeded for {item.name}: {pp_message}")
+                    ItemHistory.objects.create(item=item, details=f'Post-processing retry succeeded: {pp_message}')
+                else:
+                    logger.error(f"Retry post-processing failed for {item.name}: {pp_message}")
+                    ItemHistory.objects.create(item=item, details=f'Post-processing retry failed: {pp_message}')
+                    # PIPE-01: cap the retry chain at RETRY_CAP_ATTEMPTS.
+                    next_attempt = attempt + 1
+                    if next_attempt > RETRY_CAP_ATTEMPTS:
+                        logger.warning(f"[retry_postprocessing] Item {item_hash[:16]} hit PIPE-01 cap; marking Failed")
+                        Item.objects.filter(hash=item_hash).update(status='Failed')
+                        return
+                    # Write attempt_count + last_recovery_at BEFORE apply_async
+                    # (Pitfall 2 race fix — the next worker that reads sees the
+                    # new value; the deterministic task_id is the broker-side dedup).
+                    Item.objects.filter(hash=item_hash).update(
+                        attempt_count=next_attempt,
+                        last_recovery_at=timezone.now(),
+                    )
+                    # PIPE-08: deterministic task_id enables broker-side dedup.
+                    logger.info(f"Scheduling another retry for {item.name} in 5 minutes (attempt {next_attempt})")
+                    retry_postprocessing.apply_async(
+                        args=[item_hash, next_attempt],
+                        task_id=f"retry-{item_hash}-{next_attempt}",
+                        countdown=300,
+                    )
+            except Exception as e:
+                logger.error(f"Error in retry post-processing: {e}")
+                ItemHistory.objects.create(item=item, details=f'Retry error: {str(e)}')
+
+    except Exception as e:
+        logger.error(f"Error in retry_postprocessing for {item_hash}: {e}")
+        ItemHistory.objects.create(item=item, details=f'Retry failed with error: {str(e)}')
+
+
+def _legacy_retry_postprocessing(item_hash):
+    """Legacy retry_postprocessing body (pre-Phase-5).
+
+    Preserved under the PIPELINE_HARDENING_ENABLED=False branch for one
+    release per the canary-deployment convention. No attempt cap, no
+    deterministic task_id, no last_recovery_at cooldown.
+    """
+    try:
+        item = Item.objects.get(hash=item_hash)
+    except Item.DoesNotExist:
+        logger.error(f"Item {item_hash} not found for retry_postprocessing")
+        return
+
+    # Retry whenever post-processing has something to re-attempt. Arr managers
+    # land in Completed even after a failed post-process; Bindery items stay
+    # PostProcessing (or may be flipped to Failed by the manager poll). Only
+    # skip when there's nothing to retry or the item is in a terminal state.
+    if item.status in ('Grabbed', 'Archived', 'Deleted'):
+        logger.debug(f"Skipping retry for {item.name} - status is {item.status}")
+        return
+
+    if not item.manager or not hasattr(item.manager, 'client'):
+        logger.error(f"Item {item.name} has no manager configured")
+        return
+
+    try:
+        # Get local folder from latest completed transfer
+        first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+        if not first_transfer or not first_transfer.local_path:
+            logger.warning(f"No completed transfers found for {item.name}, cannot retry post-processing")
+            return
+
+        local_folder = os.path.dirname(first_transfer.local_path)
+
+        # Construct the download path with item folder name included
+        sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+        sanitized_item_name = sanitized_item_name.strip()
+
+        # Get base folder
+        if item.manager.folder:
+            if item.manager.folder.remote_folder_name:
+                base_remote_path = item.manager.folder.remote_folder_name
+            else:
+                base_remote_path = item.manager.folder.folder
+            download_path = os.path.join(base_remote_path, sanitized_item_name)
+        else:
+            download_path = local_folder
+
+        # Check if there's only one video file in the directory
+        video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
+        try:
+            local_item_path = os.path.join(local_folder, sanitized_item_name)
+            if os.path.isdir(local_item_path):
+                video_files = [f for f in os.listdir(local_item_path)
+                             if os.path.isfile(os.path.join(local_item_path, f))
+                             and os.path.splitext(f)[1].lower() in video_extensions]
+                if len(video_files) == 1:
+                    video_file = video_files[0]
+                    download_path = os.path.join(download_path, video_file)
+                    logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
+        except Exception as e:
+            logger.warning(f"Could not check for single video file: {e}")
+
+        # Only call post_process if the manager supports it
+        client = item.manager.client
+        if hasattr(client, 'post_process'):
+            logger.info(f"Retrying post-processing for {item.name} at path: {download_path}")
+            try:
+                success, pp_message = client.post_process(item, download_path)
+
                 if success:
                     logger.info(f"Retry post-processing succeeded for {item.name}: {pp_message}")
                     ItemHistory.objects.create(item=item, details=f'Post-processing retry succeeded: {pp_message}')
@@ -1816,7 +1956,7 @@ def retry_postprocessing(item_hash):
             except Exception as e:
                 logger.error(f"Error in retry post-processing: {e}")
                 ItemHistory.objects.create(item=item, details=f'Retry error: {str(e)}')
-    
+
     except Exception as e:
         logger.error(f"Error in retry_postprocessing for {item_hash}: {e}")
         ItemHistory.objects.create(item=item, details=f'Retry failed with error: {str(e)}')
