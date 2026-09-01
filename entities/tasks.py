@@ -3,6 +3,7 @@ from celery import shared_task
 from entities.models import Manager
 from itemqueue.models import Item, ItemHistory
 import logging
+import os
 import requests
 from dplibs.retry import api_retry
 
@@ -166,6 +167,18 @@ def poll_manager(manager_id):
                         item=item,
                         details=f'Grabbed by {manager.name}'
                     )
+                    # AirDC++ completion-check timer: AirDC++ doesn't emit a
+                    # completion event harpoon can see, so set a check time +
+                    # expected filename for the check_airdcpp_completions beat
+                    # task to SFTP-walk for.
+                    if downloader and downloader.downloadertype == 'AirDC++':
+                        expected_path = record.get('sourcePath') or title
+                        item.next_check_at = timezone.now() + timedelta(
+                            seconds=int(os.environ.get('AIRDCPP_CHECK_INTERVAL_SECONDS', '1800'))
+                        )
+                        item.airdcpp_expected_path = expected_path
+                        item.save()
+                        logger.info(f"Set AirDC++ completion check for {title} ({download_id})")
                     logger.info(f"New grabbed item: {title} ({download_id})")
             
             elif event_type in ('downloadFolderImported', 'downloadImported'):

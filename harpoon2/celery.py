@@ -74,6 +74,13 @@ app.conf.beat_schedule = {
         'task': 'itemqueue.tasks.celery_watchdog',
         'schedule': 60.0,
     },
+    # AirDC++ completion check — every 5 minutes, SFTP-walks AirDC++ share for
+    # Items whose timer is due (set by Mylar3.poll() and poll_managers() when an
+    # AirDC++ download is first attempted).
+    'check-airdcpp-completions': {
+        'task': 'itemqueue.tasks.check_airdcpp_completions',
+        'schedule': 300.0,
+    },
 }
 
 # Also set as CELERY_BEAT_SCHEDULE for backwards compatibility

@@ -2322,3 +2322,98 @@ def celery_watchdog():
                     f'running for {age:.0f}s (> {ACTIVE_TASK_MAX_AGE_SECONDS}s); '
                     f'it should have hit time_limit — investigate'
                 )
+
+
+@shared_task(time_limit=120, soft_time_limit=90)
+def check_airdcpp_completions():
+    """Beat task: for Items with AirDC++ downloader that have a check time due,
+    SFTP-walk the AirDC++ share looking for the expected file/folder. If found,
+    dispatch postprocess_item. If not, push next_check_at out and try again.
+    After AIRDCPP_MAX_CHECKS attempts without finding the file, mark Failed.
+
+    AirDC++ doesn't emit a download-complete event harpoon can see (its events
+    API is capped at 100), so Items assigned to an AirDC++ downloader sit in
+    'Grabbed' forever. Mylar3.poll() / poll_managers() set next_check_at +
+    airdcpp_expected_path when the download is first attempted; this task is
+    the completion detector.
+    """
+    import os
+    from datetime import timedelta
+    from django.utils import timezone
+
+    interval = int(os.environ.get('AIRDCPP_CHECK_INTERVAL_SECONDS', '1800'))
+    max_checks = int(os.environ.get('AIRDCPP_MAX_CHECKS', '20'))
+
+    now = timezone.now()
+    due = Item.objects.filter(
+        downloader__downloadertype='AirDC++',
+        status='Grabbed',
+        next_check_at__lte=now,
+    ).exclude(airdcpp_expected_path__isnull=True).exclude(airdcpp_expected_path='')[:20]
+
+    for item in due:
+        try:
+            downloader = item.downloader
+            if not downloader:
+                continue
+            seedbox = downloader.seedbox
+            if not seedbox:
+                logger.warning(f"[airdcpp_check] no seedbox for {item.hash[:16]}, skipping")
+                continue
+            # Walk the share looking for the expected path (file OR folder).
+            # Connect to the seedbox via SFTP — same path transfer_files_async
+            # uses (the AirDC++ downloader's HTTP client has no SFTP surface).
+            target = item.airdcpp_expected_path
+            base = seedbox.base_download_folder or '/Downloads'
+            ssh = _sftp_connect_with_retry(seedbox)
+            found_path = None
+            try:
+                sftp = ssh.open_sftp()
+                # Recursive search for the target name (bounded depth).
+                def _walk(remote_dir, depth=0):
+                    if depth > 5:
+                        return None
+                    try:
+                        for entry in sftp.listdir_attr(remote_dir):
+                            if entry.filename == target:
+                                return remote_dir.rstrip('/') + '/' + entry.filename
+                            if entry.longname and entry.longname.startswith('d'):
+                                sub = _walk(remote_dir.rstrip('/') + '/' + entry.filename, depth + 1)
+                                if sub:
+                                    return sub
+                    except Exception:
+                        return None
+                    return None
+                found_path = _walk(base)
+                sftp.close()
+            finally:
+                ssh.close()
+
+            if found_path:
+                logger.info(f"[airdcpp_check] found {target} at {found_path} for {item.hash[:16]}")
+                # Dispatch postprocess_item (existing pattern, with drain gate)
+                max_active = getattr(settings, 'MAX_CONCURRENT_TRANSFERS', 2)
+                active = _active_transfer_count()
+                if active >= max_active:
+                    logger.info(f"[airdcpp_check] active={active} >= {max_active}, deferring")
+                    item.next_check_at = now + timedelta(seconds=interval)
+                    item.save(update_fields=['next_check_at'])
+                    continue
+                postprocess_item.delay(item.hash)
+                item.next_check_at = None
+                item.airdcpp_check_count = 0
+                item.save(update_fields=['next_check_at', 'airdcpp_check_count'])
+            else:
+                # Not found — push out the timer, increment count
+                item.airdcpp_check_count += 1
+                if item.airdcpp_check_count >= max_checks:
+                    item.status = 'Failed'
+                    item.save(update_fields=['airdcpp_check_count', 'status'])
+                    ItemHistory.objects.create(item=item, details=f'AirDC++ check gave up after {max_checks} attempts — file never landed')
+                    logger.warning(f"[airdcpp_check] gave up on {item.hash[:16]} ({target})")
+                else:
+                    item.next_check_at = now + timedelta(seconds=interval)
+                    item.save(update_fields=['next_check_at', 'airdcpp_check_count'])
+                    logger.debug(f"[airdcpp_check] {target} not yet on AirDC++ share for {item.hash[:16]} (attempt {item.airdcpp_check_count}/{max_checks})")
+        except Exception as e:
+            logger.error(f"[airdcpp_check] error on {item.hash[:16]}: {e}")

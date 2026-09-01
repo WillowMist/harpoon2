@@ -1,4 +1,7 @@
+import os
 import requests
+from datetime import timedelta
+from django.utils import timezone
 from itemqueue.models import Item, ItemHistory
 from tenacity import RetryError
 from dplibs.retry import api_retry, _API_RETRY_EXC
@@ -734,6 +737,18 @@ class Mylar3:
                                 details=f'Grabbed by {self.manager.name} via Mylar3' + (f' with {downloader.name}' if downloader else '')
                             )
                             logger.info(f"[Mylar3] New grabbed item: {comic_name} ({hash_value})" + (f' -> {downloader.name}' if downloader else ''))
+
+                    # AirDC++ completion-check timer: AirDC++ doesn't emit a
+                    # completion event harpoon can see (its events API is capped
+                    # at 100), so set a check time + expected filename for the
+                    # check_airdcpp_completions beat task to SFTP-walk for.
+                    if downloader and downloader.downloadertype == 'AirDC++':
+                        item.next_check_at = timezone.now() + timedelta(
+                            seconds=int(os.environ.get('AIRDCPP_CHECK_INTERVAL_SECONDS', '1800'))
+                        )
+                        item.airdcpp_expected_path = comic_name
+                        item.save()
+                        logger.info(f"[Mylar3] Set AirDC++ completion check for {comic_name} ({hash_value})")
             
             # Cache the newest log time for next poll
             cache.set(cache_key, newest_log_time, timeout=3600)  # Cache for 1 hour

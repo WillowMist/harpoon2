@@ -37,6 +37,17 @@ class Item(models.Model):
     # reset it. Hard cap = 3 (RETRY_CAP_ATTEMPTS in itemqueue/tasks.py).
     attempt_count = models.IntegerField(default=0, help_text='retry_postprocessing attempts; PIPE-01 hard cap = 3.')
 
+    # AirDC++ completion-check timer. Set by Mylar3.poll() / poll_managers() when
+    # an Item is created with AirDC++ as the downloader. The check_airdcpp_completions
+    # beat task picks up Items where next_check_at <= now() and SFTP-walks AirDC++ for
+    # the expected path.
+    next_check_at = models.DateTimeField(null=True, blank=True, db_index=True,
+                                          help_text='AirDC++ SFTP check time (nullable).')
+    airdcpp_expected_path = models.CharField(max_length=500, null=True, blank=True,
+                                              help_text='Expected file or folder name on AirDC++ share (nullable).')
+    airdcpp_check_count = models.IntegerField(default=0,
+                                                help_text='Number of AirDC++ completion checks performed (resets on success).')
+
     class Meta:
         indexes = [
             models.Index(fields=['status', 'archived', '-modified']),
