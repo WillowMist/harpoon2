@@ -474,7 +474,7 @@ def transfer_files_async(item_hash):
                 item = (
                     Item.objects
                     .select_for_update(skip_locked=True)
-                    .filter(hash=item_hash)
+                    .filter(hash=item_hash.lower())
                     .first()
                 )
             else:
