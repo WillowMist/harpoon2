@@ -1,5 +1,7 @@
 import requests
 from itemqueue.models import Item, ItemHistory
+from tenacity import RetryError
+from dplibs.retry import api_retry, _API_RETRY_EXC
 
 class Arr(object):
     def __init__(self, manager):
@@ -11,14 +13,25 @@ class Arr(object):
         # Default API path - can be overridden in subclasses
         self.apiurl = self.url + '/api/v3'
 
+    @api_retry()
+    def _api_get(self, url, params=None):
+        # timeout=(connect, read): prevents a dead manager API from pinning
+        # the caller's Celery worker slot + Postgres connection.
+        return requests.get(url, params=params, headers=self.headers, timeout=(3.05, 10))
+
     def test(self):
         testurl = self.apiurl + '/system/status'
         try:
-            # timeout=(connect, read): prevents a dead manager API from pinning
-            # the caller's Celery worker slot + Postgres connection.
-            r = requests.get(testurl, params=None, headers=self.headers, timeout=(3.05, 10))
+            r = self._api_get(testurl)
             dt = r.json()
             return True, dt
+        except RetryError:
+            # Belt-and-braces: reraise=True means the original exception
+            # propagates instead of RetryError. Guard against a future
+            # tenacity upgrade changing the default.
+            return False, "exhausted 5 retries"
+        except _API_RETRY_EXC as e:
+            return False, e
         except Exception as e:
             return False, e
 
