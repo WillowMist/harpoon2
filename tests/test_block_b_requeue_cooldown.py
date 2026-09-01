@@ -1,10 +1,14 @@
-"""Lock-in test for the Block B requeue cooldown prefix in check_stalled_transfers.
+"""Lock-in test for the legacy Block B requeue cooldown prefix.
 
-The cooldown prevents the 20s-tick requeue race that was producing a
-120 GB torrent stuck oscillating at 25 GB (one batch's cumulative
-file_size), forever. Block B's marker write and the cooldown filter
-MUST use the same literal prefix — otherwise the cooldown silently
-breaks and the race returns.
+Phase 5 (05-03) moved the legacy Block A + Block B recovery loop into
+`_legacy_check_stalled_transfers` (active only when
+PIPELINE_HARDENING_ENABLED=false). The unified state machine in
+`check_stalled_transfers` uses `Item.last_recovery_at` for the cooldown
+instead. This test now locks in the legacy path's internal consistency:
+the cooldown prevents the 20s-tick requeue race that was producing a
+torrent stuck oscillating at one batch's cumulative file_size, forever.
+Block B's marker write and the cooldown filter MUST use the same literal
+prefix — otherwise the cooldown silently breaks and the race returns.
 
 Behavioral coverage was attempted but proved too fragile to mock
 reliably (check_stalled_transfers has too many overlapping queryset
@@ -20,7 +24,7 @@ def test_cooldown_filter_prefix_matches_marker_write():
     """The cooldown's details__startswith and the marker must use the
     same literal prefix. If a future refactor changes one without the
     other, the cooldown silently breaks and Block B's requeue race returns."""
-    src = inspect.getsource(tasks_module.check_stalled_transfers)
+    src = inspect.getsource(tasks_module._legacy_check_stalled_transfers)
 
     # The cooldown filter call: details__startswith='Requeued by check_stalled_transfers'
     cooldown_idx = src.find("details__startswith=")
@@ -43,7 +47,7 @@ def test_cooldown_filter_prefix_matches_marker_write():
 def test_cooldown_window_is_5_minutes():
     """The cooldown window must match the stall_threshold (5 min) so the
     same operator-visible interval applies to both signals. Locked in."""
-    src = inspect.getsource(tasks_module.check_stalled_transfers)
+    src = inspect.getsource(tasks_module._legacy_check_stalled_transfers)
     # Look for the cooldown's timedelta
     assert "timedelta(minutes=5)" in src, \
         "cooldown must use timedelta(minutes=5) to match stall_threshold"
