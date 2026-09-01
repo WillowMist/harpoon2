@@ -19,6 +19,22 @@ import re
 from dplibs.filesystem import safe_rename
 from dplibs.retry import _sftp_connect_with_retry
 
+
+def _get_redis_client():
+    """Lazily build a Redis client from the broker URL setting.
+
+    The redis package is imported lazily to avoid import-time side effects
+    (it is a Celery broker dependency, not a first-class app dependency).
+    Uses the same DB as the Celery broker so the per-hash transfer semaphore
+    shares visibility with the task queue.
+    """
+    import redis
+    url = (
+        getattr(settings, 'REDIS_URL', None)
+        or getattr(settings, 'CELERY_BROKER_URL', 'redis://localhost:6379/0')
+    )
+    return redis.Redis.from_url(url)
+
 logger = logging.getLogger(__name__)
 
 
@@ -427,794 +443,834 @@ def transfer_files_async(item_hash):
         logger.info(f"[transfer_files_async] Item {item_hash} locked or missing, exiting")
         return
     
-    logger.info(f"[transfer_files_async] ========== Processing item: {item.name} ({item.status}) ==========")
-    logger.info(f"[transfer_files_async] Downloader: {item.downloader}, Seedbox: {item.downloader.seedbox if item.downloader else 'None'}")
-    
-    logger.info(f"[transfer_files_async] Transferring files for {item.name} (status={item.status})")
-    
-    if not item.downloader:
-        logger.error(f"[transfer_files_async] No downloader assigned to {item.name}")
-        return
-    
-    if not item.downloader.seedbox:
-        logger.error(f"[transfer_files_async] No seedbox configured for {item.name}")
-        return
-    
-    downloader = item.downloader
-    seedbox = downloader.seedbox
-    logger.info(f"[transfer_files_async] Downloader: {downloader.name}, Seedbox: {seedbox.name}, Auth: {seedbox.auth_type}")
-    
+    # Phase 6-01 (COR-07): per-hash Redis semaphore. Closes the
+    # duplicate-work race where N workers each spend an hour transferring
+    # the same item (the select_for_update lock above only closes the
+    # duplicate-ROW race). The first arrival INCRs to 1 and proceeds;
+    # later arrivals see count > 1 and exit cleanly without taking a DB
+    # connection or a worker slot.
+    import redis
+    redis_client = _get_redis_client()
+    semaphore_key = f"transfer_lock:{item_hash}"
     try:
-        # Get the download path from the downloader
-        client = downloader.client
-        client._ensure_client()
-        hash_value = item.hash
-        logger.info(f"[transfer_files_async] Connected to downloader client for {item.name}")
-        
-        # Initialize variables
-        category = ''
-        remote_dir = ''
-        torrent_name = ''
-        
-        # Get download info using downloader's get_download_info method
-        logger.debug(f"[transfer_files_async] Getting download info for {downloader.downloadertype}")
-        download_info = client.get_download_info(hash_value)
-        remote_dir = download_info.get('remote_dir', '')
-        files_to_copy = download_info.get('files_to_copy')
-        is_single_file = download_info.get('is_single_file', False)
-        name = download_info.get('name', item.name)
-        torrent_name = name  # Use the name from download_info as the torrent name
-        
-        if not remote_dir:
-            logger.error(f"[transfer_files_async] No remote directory found for {hash_value}")
-            ItemHistory.objects.create(
-                item=item,
-                details=f"No remote directory found for {downloader.downloadertype} download"
+        count = redis_client.incr(semaphore_key)
+        if count > 1:
+            redis_client.decr(semaphore_key)
+            logger.info(
+                f"[transfer_files_async] Item {item_hash} already being "
+                f"transferred by another worker (count={count}), exiting"
             )
-            item.status = 'Failed'
-            item.save()
+            return
+        # 5-minute TTL covers worker-death cleanup: a worker that dies
+        # mid-transfer releases its slot via expiry, not a held-forever key.
+        redis_client.expire(semaphore_key, 300)
+    except redis.RedisError as e:
+        # Redis-down = fail OPEN: proceed without the semaphore. The DB row
+        # lock from Phase 5-04 remains defense-in-depth.
+        logger.warning(
+            f"[transfer_files_async] Redis unavailable ({e}); proceeding "
+            f"without per-hash semaphore for {item_hash}"
+        )
+        redis_client = None
+
+    try:
+        logger.info(f"[transfer_files_async] ========== Processing item: {item.name} ({item.status}) ==========")
+        logger.info(f"[transfer_files_async] Downloader: {item.downloader}, Seedbox: {item.downloader.seedbox if item.downloader else 'None'}")
+        
+        logger.info(f"[transfer_files_async] Transferring files for {item.name} (status={item.status})")
+        
+        if not item.downloader:
+            logger.error(f"[transfer_files_async] No downloader assigned to {item.name}")
             return
         
-        logger.info(f"[transfer_files_async] {downloader.downloadertype} - remote_dir={remote_dir}, name={name}, is_single_file={is_single_file}")
+        if not item.downloader.seedbox:
+            logger.error(f"[transfer_files_async] No seedbox configured for {item.name}")
+            return
         
-        # Handle AirDC++ folder downloads specially
-        if downloader.downloadertype == 'AirDC++' and not is_single_file:
-            # Check if this is a folder download
-            try:
-                history = item.history.filter(details__icontains='Folder bundle detected').first()
-                if history:
-                    is_folder = True
-                    remote_dir = os.path.join(seedbox.base_download_folder, item.name)
-                    files_to_copy = None
-                    logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
-            except:
-                pass
+        downloader = item.downloader
+        seedbox = downloader.seedbox
+        logger.info(f"[transfer_files_async] Downloader: {downloader.name}, Seedbox: {seedbox.name}, Auth: {seedbox.auth_type}")
         
-        # Connect to seedbox via SFTP
-        logger.info(f"[transfer_files_async] Connecting to seedbox {seedbox.host}:{seedbox.port} as {seedbox.username} (auth={seedbox.auth_type})")
-        ssh = _sftp_connect_with_retry(seedbox)
-        
-        logger.debug(f"[transfer_files_async] Opening SFTP channel")
-        sftp = ssh.open_sftp()
-        sftp.get_channel().settimeout(60)
-        logger.info(f"[transfer_files_async] SFTP channel open for {item.name}")
-        
-        # For SABnzbd, check if remote_dir is a file or folder
-        if downloader.downloadertype == 'SABNzbd':
-            try:
-                file_stat = sftp.stat(remote_dir)
-                import stat as stat_module_check
-                if stat_module_check.S_ISREG(file_stat.st_mode):
-                    # It's a file, need to find the parent directory
-                    current_dir = os.path.dirname(remote_dir)
-                    parent_name = os.path.basename(current_dir)
-                    if ' (' in parent_name and ' of ' in parent_name:
-                        base_name = parent_name.split(' (')[0]
-                        category_dir = os.path.dirname(current_dir)
-                        try:
-                            category_contents = sftp.listdir(category_dir)
-                            matching_folders = [f for f in category_contents if f.startswith(base_name)]
-                            if matching_folders:
-                                remote_dir = os.path.join(category_dir, matching_folders[0])
-                        except:
-                            pass
-                    else:
-                        remote_dir = current_dir
-            except:
-                pass
-         
-        # Determine destination folder - create subfolder for item
-        if item.manager and item.manager.folder:
-            final_base_folder = item.manager.folder.folder
-        elif item.downloader and item.downloader.options:
-            # For downloaders like AirDC++ without a manager, get folder from downloader config
-            from entities.models import DownloadFolder
-            target_folder_id = item.downloader.options.get('target_folder')
-            if target_folder_id:
+        try:
+            # Get the download path from the downloader
+            client = downloader.client
+            client._ensure_client()
+            hash_value = item.hash
+            logger.info(f"[transfer_files_async] Connected to downloader client for {item.name}")
+            
+            # Initialize variables
+            category = ''
+            remote_dir = ''
+            torrent_name = ''
+            
+            # Get download info using downloader's get_download_info method
+            logger.debug(f"[transfer_files_async] Getting download info for {downloader.downloadertype}")
+            download_info = client.get_download_info(hash_value)
+            remote_dir = download_info.get('remote_dir', '')
+            files_to_copy = download_info.get('files_to_copy')
+            is_single_file = download_info.get('is_single_file', False)
+            name = download_info.get('name', item.name)
+            torrent_name = name  # Use the name from download_info as the torrent name
+            
+            if not remote_dir:
+                logger.error(f"[transfer_files_async] No remote directory found for {hash_value}")
+                ItemHistory.objects.create(
+                    item=item,
+                    details=f"No remote directory found for {downloader.downloadertype} download"
+                )
+                item.status = 'Failed'
+                item.save()
+                return
+            
+            logger.info(f"[transfer_files_async] {downloader.downloadertype} - remote_dir={remote_dir}, name={name}, is_single_file={is_single_file}")
+            
+            # Handle AirDC++ folder downloads specially
+            if downloader.downloadertype == 'AirDC++' and not is_single_file:
+                # Check if this is a folder download
                 try:
-                    target_folder = DownloadFolder.objects.get(id=target_folder_id)
-                    final_base_folder = target_folder.folder
-                    logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
-                except Exception as e:
-                    logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
+                    history = item.history.filter(details__icontains='Folder bundle detected').first()
+                    if history:
+                        is_folder = True
+                        remote_dir = os.path.join(seedbox.base_download_folder, item.name)
+                        files_to_copy = None
+                        logger.info(f"[transfer_files_async] AirDC++ FOLDER - remote_dir={remote_dir}")
+                except:
+                    pass
+            
+            # Connect to seedbox via SFTP
+            logger.info(f"[transfer_files_async] Connecting to seedbox {seedbox.host}:{seedbox.port} as {seedbox.username} (auth={seedbox.auth_type})")
+            ssh = _sftp_connect_with_retry(seedbox)
+            
+            logger.debug(f"[transfer_files_async] Opening SFTP channel")
+            sftp = ssh.open_sftp()
+            sftp.get_channel().settimeout(60)
+            logger.info(f"[transfer_files_async] SFTP channel open for {item.name}")
+            
+            # For SABnzbd, check if remote_dir is a file or folder
+            if downloader.downloadertype == 'SABNzbd':
+                try:
+                    file_stat = sftp.stat(remote_dir)
+                    import stat as stat_module_check
+                    if stat_module_check.S_ISREG(file_stat.st_mode):
+                        # It's a file, need to find the parent directory
+                        current_dir = os.path.dirname(remote_dir)
+                        parent_name = os.path.basename(current_dir)
+                        if ' (' in parent_name and ' of ' in parent_name:
+                            base_name = parent_name.split(' (')[0]
+                            category_dir = os.path.dirname(current_dir)
+                            try:
+                                category_contents = sftp.listdir(category_dir)
+                                matching_folders = [f for f in category_contents if f.startswith(base_name)]
+                                if matching_folders:
+                                    remote_dir = os.path.join(category_dir, matching_folders[0])
+                            except:
+                                pass
+                        else:
+                            remote_dir = current_dir
+                except:
+                    pass
+             
+            # Determine destination folder - create subfolder for item
+            if item.manager and item.manager.folder:
+                final_base_folder = item.manager.folder.folder
+            elif item.downloader and item.downloader.options:
+                # For downloaders like AirDC++ without a manager, get folder from downloader config
+                from entities.models import DownloadFolder
+                target_folder_id = item.downloader.options.get('target_folder')
+                if target_folder_id:
+                    try:
+                        target_folder = DownloadFolder.objects.get(id=target_folder_id)
+                        final_base_folder = target_folder.folder
+                        logger.info(f"[transfer_files_async] Using target folder from downloader config: {final_base_folder}")
+                    except Exception as e:
+                        logger.error(f"[transfer_files_async] Could not find target folder {target_folder_id}: {e}")
+                        final_base_folder = '/tmp'
+                else:
+                    logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
                     final_base_folder = '/tmp'
             else:
-                logger.warning(f"[transfer_files_async] No target folder in downloader config, using /tmp")
                 final_base_folder = '/tmp'
-        else:
-            final_base_folder = '/tmp'
-        
-        # Check if this is a Blackhole manager
-        is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
-        
-        # Get temp folder from Blackhole manager config
-        if is_blackhole and item.manager and item.manager.temp_folder:
-            temp_base_folder = item.manager.temp_folder
-        else:
-            temp_base_folder = None
-        
-        # Get category from item (stored from Blackhole manager based on subfolder)
-        # For SABNzbd, this is already stored in item.category when the item was created
-        # For RTorrent, use the label from torrent_info if available, otherwise use item.category
-        if not category:
-            category = item.category or ''
-        
-        # Add category subfolder if available (from rtorrent label or manager settings)
-        # Only for Blackhole manager
-        if is_blackhole and category:
-            final_base_folder = os.path.join(final_base_folder, category)
-        
-        # Create a subfolder for this item using a sanitized name
-        # For Blackhole manager, ALWAYS create a subfolder per item (even for single files)
-        # For other managers, single files go directly in base folder
-        import re
-        sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
-        sanitized_name = sanitized_name.strip()
-        
-        # Determine if we need a subfolder for this item
-        # Blackhole: always create subfolder to keep items organized
-        # Other managers: only for multi-file downloads
-        if is_blackhole or not is_single_file:
-            # Create subfolder for this item
-            subfolder_name = sanitized_name
-        else:
-            # Single file in non-Blackhole manager: no subfolder
-            subfolder_name = None
-        
-        # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
-        if is_blackhole and temp_base_folder:
-            if subfolder_name:
-                temp_folder = os.path.join(temp_base_folder, subfolder_name)
-                final_folder = os.path.join(final_base_folder, subfolder_name)
+            
+            # Check if this is a Blackhole manager
+            is_blackhole = item.manager and item.manager.managertype == 'Blackhole'
+            
+            # Get temp folder from Blackhole manager config
+            if is_blackhole and item.manager and item.manager.temp_folder:
+                temp_base_folder = item.manager.temp_folder
             else:
-                temp_folder = temp_base_folder
-                final_folder = final_base_folder
+                temp_base_folder = None
             
-            os.makedirs(temp_folder, exist_ok=True)
-            logger.info(f"Created temp folder for transfer: {temp_folder}")
-        else:
-            temp_folder = None
-            if subfolder_name:
-                final_folder = os.path.join(final_base_folder, subfolder_name)
+            # Get category from item (stored from Blackhole manager based on subfolder)
+            # For SABNzbd, this is already stored in item.category when the item was created
+            # For RTorrent, use the label from torrent_info if available, otherwise use item.category
+            if not category:
+                category = item.category or ''
+            
+            # Add category subfolder if available (from rtorrent label or manager settings)
+            # Only for Blackhole manager
+            if is_blackhole and category:
+                final_base_folder = os.path.join(final_base_folder, category)
+            
+            # Create a subfolder for this item using a sanitized name
+            # For Blackhole manager, ALWAYS create a subfolder per item (even for single files)
+            # For other managers, single files go directly in base folder
+            import re
+            sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+            sanitized_name = sanitized_name.strip()
+            
+            # Determine if we need a subfolder for this item
+            # Blackhole: always create subfolder to keep items organized
+            # Other managers: only for multi-file downloads
+            if is_blackhole or not is_single_file:
+                # Create subfolder for this item
+                subfolder_name = sanitized_name
             else:
-                final_folder = final_base_folder
+                # Single file in non-Blackhole manager: no subfolder
+                subfolder_name = None
             
-            os.makedirs(final_folder, exist_ok=True)
-            logger.info(f"Created folder for transfer: {final_folder}")
-        
-        # Build transfer list
-        # For single-file torrents, only transfer that specific file
-        # For multi-file torrents, recursively transfer all files from the directory
-        transfer_list = []  # List of (remote_path, relative_path) tuples
-        import stat as stat_module_list
-        
-        # Use temp_folder for transfer if Blackhole, else use final_folder
-        item_folder = temp_folder if temp_folder else final_folder
-        
-        logger.info(f"[transfer_files_async] About to list files from remote_dir={remote_dir}, files_to_copy={files_to_copy}, is_single_file={is_single_file}, downloader={downloader.downloadertype}")
-        
-        if is_single_file and downloader.downloadertype == 'RTorrent':
-            # Single-file torrent: find and transfer the actual media file
-            # The torrent_name should be the actual filename (e.g., "Movie.mkv")
-            try:
-                # For single-file torrents, the torrent name IS the filename
-                # But check in the directory to be safe (in case structure changed)
-                logger.info(f"[transfer_files_async] Listing files in {remote_dir}")
-                remote_files = sftp.listdir(remote_dir)
-                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in remote_dir")
-                media_file = None
-                
-                # First, try to match the exact torrent name
-                if torrent_name in remote_files:
-                    media_file = torrent_name
-                    logger.info(f"[transfer_files_async] Matched exact torrent name: {media_file}")
+            # Use temporary folder for transfer for Blackhole manager, then move to final location after complete
+            if is_blackhole and temp_base_folder:
+                if subfolder_name:
+                    temp_folder = os.path.join(temp_base_folder, subfolder_name)
+                    final_folder = os.path.join(final_base_folder, subfolder_name)
                 else:
-                    # If exact match not found, look for media files (skip .nfo, Screens directories, etc)
-                    logger.info(f"[transfer_files_async] Looking for media file in {len(remote_files)} files...")
-                    for filename in remote_files:
-                        if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm')):
-                            # Additional check: make sure it matches the expected name pattern
-                            # Extract just the filename from torrent_name for comparison
-                            torrent_basename = os.path.basename(torrent_name)
-                            # Check if filenames are similar (handles minor naming variations)
-                            if filename.lower() == torrent_basename.lower():
-                                media_file = filename
-                                break
-                    
-                    # If still no match, use files_to_copy if available
-                    if not media_file and files_to_copy:
-                        # Use the specific file from files_to_copy
-                        for filename in remote_files:
-                            if filename in files_to_copy:
-                                media_file = filename
-                                logger.info(f"[transfer_files_async] Matched file from files_to_copy: {media_file}")
-                                break
-                    
-                    # Last resort: take the first media file as fallback
-                    if not media_file:
-                        logger.warning(f"[transfer_files_async] No match found in files_to_copy, using first media file as fallback")
-                        for filename in remote_files:
-                            if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
-                                media_file = filename
-                                break
+                    temp_folder = temp_base_folder
+                    final_folder = final_base_folder
                 
-                if not media_file:
-                    logger.warning(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name} - will transfer all files")
-                    # Set is_single_file to False to trigger multi-file transfer
-                    is_single_file = False
+                os.makedirs(temp_folder, exist_ok=True)
+                logger.info(f"Created temp folder for transfer: {temp_folder}")
+            else:
+                temp_folder = None
+                if subfolder_name:
+                    final_folder = os.path.join(final_base_folder, subfolder_name)
                 else:
-                    full_remote_path = os.path.join(remote_dir, media_file)
-                    # Verify the file exists
-                    sftp.stat(full_remote_path)
-                    # Use just the filename as the relative path so it transfers to item_folder/filename
-                    transfer_list.append((full_remote_path, media_file))
-                    logger.info(f"Single-file torrent detected: {media_file} (from torrent: {torrent_name})")
-            except Exception as e:
-                logger.error(f"Cannot process single-file torrent in {remote_dir}: {e} - aborting transfer")
-                sftp.close()
-                ssh.close()
-                return
-        
-        # Single file handling - directly add files_to_copy to transfer_list
-        # (avoids walking the entire base download directory)
-        if is_single_file and files_to_copy:
-            logger.info(f"[transfer_files_async] Single file: adding {files_to_copy} from {remote_dir}")
-            for filename in files_to_copy:
-                remote_path = os.path.join(remote_dir, filename)
-                transfer_list.append((remote_path, filename))
-            logger.info(f"[transfer_files_async] Added {len(transfer_list)} files to transfer list")
-        
-        # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
-        # Only run if transfer_list is still empty
-        if len(transfer_list) == 0:
-            # Multi-file torrent: recursively traverse directories
-            actual_remote_dir = remote_dir
-            try:
-                remote_files = sftp.listdir(actual_remote_dir)
-                logger.info(f"[transfer_files_async] Found {len(remote_files)} files in {actual_remote_dir}")
-            except Exception as e:
-                logger.error(f"Cannot access remote directory {actual_remote_dir}: {e}")
-                sftp.close()
-                ssh.close()
-                return
+                    final_folder = final_base_folder
+                
+                os.makedirs(final_folder, exist_ok=True)
+                logger.info(f"Created folder for transfer: {final_folder}")
             
-            def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
-                """Recursively walk remote directory and collect files while preserving structure."""
-                nonlocal transfer_list
-                logger.warning(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
+            # Build transfer list
+            # For single-file torrents, only transfer that specific file
+            # For multi-file torrents, recursively transfer all files from the directory
+            transfer_list = []  # List of (remote_path, relative_path) tuples
+            import stat as stat_module_list
+            
+            # Use temp_folder for transfer if Blackhole, else use final_folder
+            item_folder = temp_folder if temp_folder else final_folder
+            
+            logger.info(f"[transfer_files_async] About to list files from remote_dir={remote_dir}, files_to_copy={files_to_copy}, is_single_file={is_single_file}, downloader={downloader.downloadertype}")
+            
+            if is_single_file and downloader.downloadertype == 'RTorrent':
+                # Single-file torrent: find and transfer the actual media file
+                # The torrent_name should be the actual filename (e.g., "Movie.mkv")
                 try:
-                    remote_items = sftp_obj.listdir(remote_path)
-                    logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}: {remote_items[:10]}")
+                    # For single-file torrents, the torrent name IS the filename
+                    # But check in the directory to be safe (in case structure changed)
+                    logger.info(f"[transfer_files_async] Listing files in {remote_dir}")
+                    remote_files = sftp.listdir(remote_dir)
+                    logger.info(f"[transfer_files_async] Found {len(remote_files)} files in remote_dir")
+                    media_file = None
+                    
+                    # First, try to match the exact torrent name
+                    if torrent_name in remote_files:
+                        media_file = torrent_name
+                        logger.info(f"[transfer_files_async] Matched exact torrent name: {media_file}")
+                    else:
+                        # If exact match not found, look for media files (skip .nfo, Screens directories, etc)
+                        logger.info(f"[transfer_files_async] Looking for media file in {len(remote_files)} files...")
+                        for filename in remote_files:
+                            if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v', '.flv', '.wmv', '.webm')):
+                                # Additional check: make sure it matches the expected name pattern
+                                # Extract just the filename from torrent_name for comparison
+                                torrent_basename = os.path.basename(torrent_name)
+                                # Check if filenames are similar (handles minor naming variations)
+                                if filename.lower() == torrent_basename.lower():
+                                    media_file = filename
+                                    break
+                        
+                        # If still no match, use files_to_copy if available
+                        if not media_file and files_to_copy:
+                            # Use the specific file from files_to_copy
+                            for filename in remote_files:
+                                if filename in files_to_copy:
+                                    media_file = filename
+                                    logger.info(f"[transfer_files_async] Matched file from files_to_copy: {media_file}")
+                                    break
+                        
+                        # Last resort: take the first media file as fallback
+                        if not media_file:
+                            logger.warning(f"[transfer_files_async] No match found in files_to_copy, using first media file as fallback")
+                            for filename in remote_files:
+                                if filename.lower().endswith(('.mkv', '.mp4', '.avi', '.mov', '.m4v')):
+                                    media_file = filename
+                                    break
+                    
+                    if not media_file:
+                        logger.warning(f"No media file found in single-file torrent directory {remote_dir}. Torrent: {torrent_name} - will transfer all files")
+                        # Set is_single_file to False to trigger multi-file transfer
+                        is_single_file = False
+                    else:
+                        full_remote_path = os.path.join(remote_dir, media_file)
+                        # Verify the file exists
+                        sftp.stat(full_remote_path)
+                        # Use just the filename as the relative path so it transfers to item_folder/filename
+                        transfer_list.append((full_remote_path, media_file))
+                        logger.info(f"Single-file torrent detected: {media_file} (from torrent: {torrent_name})")
                 except Exception as e:
-                    logger.warning(f"Cannot access remote directory {remote_path}: {e}")
+                    logger.error(f"Cannot process single-file torrent in {remote_dir}: {e} - aborting transfer")
+                    sftp.close()
+                    ssh.close()
+                    return
+            
+            # Single file handling - directly add files_to_copy to transfer_list
+            # (avoids walking the entire base download directory)
+            if is_single_file and files_to_copy:
+                logger.info(f"[transfer_files_async] Single file: adding {files_to_copy} from {remote_dir}")
+                for filename in files_to_copy:
+                    remote_path = os.path.join(remote_dir, filename)
+                    transfer_list.append((remote_path, filename))
+                logger.info(f"[transfer_files_async] Added {len(transfer_list)} files to transfer list")
+            
+            # Transfer ALL files in the directory (handles both multi-file torrents and single-file torrents without media)
+            # Only run if transfer_list is still empty
+            if len(transfer_list) == 0:
+                # Multi-file torrent: recursively traverse directories
+                actual_remote_dir = remote_dir
+                try:
+                    remote_files = sftp.listdir(actual_remote_dir)
+                    logger.info(f"[transfer_files_async] Found {len(remote_files)} files in {actual_remote_dir}")
+                except Exception as e:
+                    logger.error(f"Cannot access remote directory {actual_remote_dir}: {e}")
+                    sftp.close()
+                    ssh.close()
                     return
                 
-                for item_name in remote_items:
-                    remote_item_path = os.path.join(remote_path, item_name)
-                    relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
-                    
-                    # Check if it's a directory or file first (needed for AirDC++ filtering)
+                def walk_remote_sftp(sftp_obj, remote_path, base_remote_dir, relative_prefix=''):
+                    """Recursively walk remote directory and collect files while preserving structure."""
+                    nonlocal transfer_list
+                    logger.warning(f"[walk_remote_sftp] Walking {remote_path}, files_to_copy={files_to_copy}, downloader={downloader.downloadertype}")
                     try:
-                        item_stat = sftp_obj.stat(remote_item_path)
-                        is_dir = stat_module_list.S_ISDIR(item_stat.st_mode)
+                        remote_items = sftp_obj.listdir(remote_path)
+                        logger.info(f"[walk_remote_sftp] Found {len(remote_items)} items in {remote_path}: {remote_items[:10]}")
                     except Exception as e:
-                        logger.warning(f"Cannot stat {remote_item_path}: {e}")
-                        continue
+                        logger.warning(f"Cannot access remote directory {remote_path}: {e}")
+                        return
                     
-                    # For all downloaders, only transfer items matching files_to_copy list (if specified)
-                    if files_to_copy:
-                        # Check if this file/folder matches any in files_to_copy
-                        logger.info(f"[transfer_files_async] files_to_copy={files_to_copy}, checking {item_name}")
-                        if item_name not in files_to_copy:
-                            logger.debug(f"[transfer_files_async] Skipping {item_name} (not in files_to_copy)")
-                            continue
-                    
-                    # Skip hidden files, images, HTML
-                    if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
-                        continue
-                    
-                    logger.info(f"[walk_remote_sftp] Processing item {item_name}, is_dir={is_dir}")
-                    
-                    # Handle directories and files
-                    if is_dir:
-                        # Recursively walk subdirectories
-                        logger.info(f"[walk_remote_sftp] Recursing into directory {item_name}")
-                        walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
-                    else:
-                        # It's a file, add to transfer list
-                        logger.info(f"[walk_remote_sftp] Adding file {item_name} to transfer list")
-                        transfer_list.append((remote_item_path, relative_item_path))
-            
-            walk_remote_sftp(sftp, actual_remote_dir, actual_remote_dir)
-            logger.info(f"[transfer_files_async] walk_remote_sftp completed, transfer_list has {len(transfer_list)} items")
-        logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
-        
-        # STEP 1: Create FileTransfer records UPFRONT for ALL files
-        # This ensures the dashboard shows correct total size from the start
-        # transfer_list now contains (remote_path, relative_path) tuples.
-        #
-        # The per-file loop below (around line 770) handles dedup correctly:
-        # reuses completed transfers, leaves in-flight ones alone, deletes
-        # stale ones. There used to be an early-return here that bailed if
-        # ANY pending/transferring transfer existed — that prevented the
-        # function from creating the missing transfers (e.g., the ~545
-        # files the Phase 1 band-aid had not created on a previous run),
-        # which is why a 120 GB torrent could end up with only 138 (25 GB)
-        # FileTransfer rows and stall out at 20%. The per-file logic makes
-        # the early-return redundant (and harmful), so it's removed.
-
-        transfer_records = {}
-        skipped_count = 0
-
-        if len(transfer_list) == 0:
-             logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
-            # Don't return early - still proceed to post_process since files may already exist locally
-            # Continue to the post-process section below
-
-        # Dedup transfer_list by relative_path (filename). Some downloaders
-        # (rTorrent in particular) can return the same logical file twice
-        # with slightly different remote paths — e.g., once via the proper
-        # directory tree and once via a fallback listing. Without dedup,
-        # each duplicate entry writes its own "Copied" history event and
-        # re-runs the inner loop's status='completed' save for the same
-        # FileTransfer row. Defensive — the DB-level unique constraint is
-        # the authoritative fix for row duplicates.
-        if transfer_list:
-            seen = set()
-            deduped = []
-            for _rp, _fp in transfer_list:
-                if _fp not in seen:
-                    seen.add(_fp)
-                    deduped.append((_rp, _fp))
-            if len(deduped) < len(transfer_list):
-                logger.debug(
-                    f"[transfer_files_async] Deduped transfer_list "
-                    f"{len(transfer_list)} -> {len(deduped)} (by filename)"
-                )
-                transfer_list = deduped
-
-        for remote_file_path, relative_path in transfer_list:
-            # Build local path preserving folder structure
-            local_path = os.path.join(item_folder, relative_path)
-            
-            # Create local directories if needed
-            local_dir = os.path.dirname(local_path)
-            os.makedirs(local_dir, exist_ok=True)
-            
-            # Get remote file size
-            try:
-                file_stat = sftp.stat(remote_file_path)
-                file_size = file_stat.st_size
-            except Exception as e:
-                logger.warning(f"Cannot stat {remote_file_path}: {e}")
-                continue
-            
-            # Deduplicate: check for existing transfers for this item+filename
-            existing_transfer = FileTransfer.objects.filter(
-                item=item,
-                filename=relative_path
-            ).first()
-            
-            if existing_transfer:
-                if existing_transfer.status == 'completed' and existing_transfer.file_size == file_size:
-                    # Already transferred successfully - reuse the record
-                    logger.info(f"Reusing existing completed transfer for {relative_path}")
-                    transfer_records[(remote_file_path, relative_path)] = existing_transfer
-                    continue
-                elif existing_transfer.status in ('pending', 'transferring'):
-                    # Mid-flight from a prior run - leave alone. Deleting an
-                    # in-progress transfer would lose bytes already copied and
-                    # confuse the dashboard. The next call (or
-                    # check_stalled_transfers recovery) will pick it up once it
-                    # finishes or stalls out.
-                    logger.debug(
-                        f"Leaving in-flight transfer for {relative_path} "
-                        f"(status={existing_transfer.status}); not touching"
-                    )
-                    continue
-                else:
-                    # Stale terminal-but-not-completed record (failed, or
-                    # completed-with-wrong-size from a local edit). Clean it
-                    # up so the per-file logic below creates a fresh record.
-                    logger.info(f"Removing stale {existing_transfer.status} transfer record for {relative_path}")
-                    existing_transfer.delete()
-            
-            # Check if file exists locally and verify file size
-            if os.path.exists(local_path):
-                local_size = os.path.getsize(local_path)
-                if local_size == file_size:
-                    # File exists and has correct size - skip it, but make sure
-                    # a completed FileTransfer record exists so manager
-                    # post-processing (e.g. Bindery) can locate the staged file
-                    # even when this run didn't transfer anything.
-                    logger.info(f"Skipped (complete): {local_path} ({local_size / (1024*1024):.1f}MB)")
-                    skipped_count += 1
-                    if (remote_file_path, relative_path) not in transfer_records:
-                        try:
-                            # get_or_create is atomic at the row level — prevents
-                            # the check-then-create race that left 2,037 duplicate
-                            # rows in the user's 120 GB torrent (sum(file_size)
-                            # showed 480 GB). If a concurrent transfer_files_async
-                            # task already created this row, we get the existing
-                            # one back instead of creating a duplicate.
-                            transfer, created = FileTransfer.objects.get_or_create(
-                                item=item,
-                                filename=relative_path,
-                                defaults={
-                                    'remote_path': remote_file_path,
-                                    'local_path': local_path,
-                                    'file_size': file_size,
-                                    'status': 'completed',
-                                }
-                            )
-                            transfer_records[(remote_file_path, relative_path)] = transfer
-                        except Exception as e:
-                            logger.error(f"Failed to create completed FileTransfer record for {relative_path}: {e}")
-                    continue
-                else:
-                    # File exists but size mismatch - delete and retransfer
-                    logger.warning(f"File size mismatch for {local_path}: local={local_size}, remote={file_size}. Deleting and retransferring.")
-                    try:
-                        os.remove(local_path)
-                    except Exception as e:
-                        logger.error(f"Failed to delete incomplete file {local_path}: {e}")
-                        continue
-            
-            # Create FileTransfer record with 'pending' status.
-            # Use get_or_create for atomic check-then-create — prevents the
-            # duplicate-row race when multiple transfer_files_async tasks
-            # run concurrently (e.g., check_downloaders + Block B requeue).
-            # See commit history; user observed 2,037 duplicates inflating
-            # a 120 GB torrent to 480 GB before this fix.
-            try:
-                transfer, created = FileTransfer.objects.get_or_create(
-                    item=item,
-                    filename=relative_path,
-                    defaults={
-                        'remote_path': remote_file_path,
-                        'local_path': local_path,
-                        'file_size': file_size,
-                        'status': 'pending',
-                    }
-                )
-                transfer_records[(remote_file_path, relative_path)] = transfer
-            except Exception as e:
-                logger.error(f"Failed to create FileTransfer record for {relative_path}: {e}")
-                continue
-         
-        logger.info(f"Created {len(transfer_records)} FileTransfer records upfront (skipped {skipped_count})")
-        
-        ItemHistory.objects.create(item=item, details=f'Created {len(transfer_records)} file transfer records')
-        
-        # STEP 2: Now transfer the files
-        copied_count = 0
-        failed_count = 0
-        
-        for (remote_file_path, filename), transfer in transfer_records.items():
-            local_path = transfer.local_path
-            file_size = transfer.file_size
-            
-            # Update status to transferring
-            transfer.status = 'transferring'
-            transfer.started = django.utils.timezone.now()
-            transfer.save()
-            
-            retry_count = 0
-            max_retries = 3
-            transfer_successful = False
-            
-            while retry_count < max_retries and not transfer_successful:
-                try:
-                    logger.info(f"SFTP: {remote_file_path} -> {local_path} ({file_size / 1024 / 1024:.1f}MB)" + 
-                               (f" [Retry {retry_count+1}/{max_retries}]" if retry_count > 0 else ""))
-                    
-                    # Progress callback with throttling
-                    last_update = [0]
-                    update_interval = 1024 * 1024
-                    
-                    def progress_callback(bytes_so_far, bytes_total):
-                        """Update progress during file transfer."""
-                        try:
-                            if bytes_so_far - last_update[0] >= update_interval or bytes_so_far >= bytes_total:
-                                transfer.bytes_transferred = bytes_so_far
-                                transfer.save()
-                                last_update[0] = bytes_so_far
-                        except Exception as e:
-                            logger.debug(f"Could not update transfer progress: {e}")
-                    
-                    # Download file with progress tracking + stall watchdog.
-                    # _sftp_get_with_timeout raises SFTPStallTimeout if sftp.get()
-                    # hangs longer than SFTP_GET_TIMEOUT_SECONDS — without this,
-                    # a dead seedbox can hold the Celery worker hostage for up to
-                    # task_time_limit (1h).
-                    _sftp_get_with_timeout(
-                        sftp, remote_file_path, local_path,
-                        callback=progress_callback,
-                        timeout=SFTP_GET_TIMEOUT_SECONDS,
-                    )
-                    
-                    # Update transfer record - mark as completed
-                    transfer.bytes_transferred = file_size
-                    transfer.status = 'completed'
-                    transfer.completed = django.utils.timezone.now()
-                    transfer.save()
-                    
-                    ItemHistory.objects.create(item=item, details=f'Copied {filename}')
-                    copied_count += 1
-                    transfer_successful = True
-                    
-                except Exception as e:
-                    logger.error(f"Failed to copy {remote_file_path}: {e}")
-                    retry_count += 1
-                    
-                    if retry_count < max_retries:
-                        # Try to recover connection and retry
-                        logger.warning(f"Attempting to reconnect for retry {retry_count}/{max_retries}...")
-                        try:
-                            sftp.close()
-                            ssh.close()
-                        except:
-                            pass
+                    for item_name in remote_items:
+                        remote_item_path = os.path.join(remote_path, item_name)
+                        relative_item_path = os.path.join(relative_prefix, item_name) if relative_prefix else item_name
                         
-                        # Reconnect
+                        # Check if it's a directory or file first (needed for AirDC++ filtering)
                         try:
-                            ssh = paramiko.SSHClient()
-                            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                            
-                            if seedbox.auth_type == 'password':
-                                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
-                            else:
-                                pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
-                                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
-                            
-                            sftp = ssh.open_sftp()
-                            sftp.get_channel().settimeout(60)
-                            logger.info("Successfully reconnected to seedbox")
-                        except Exception as reconnect_error:
-                            logger.error(f"Failed to reconnect: {reconnect_error}")
-                            transfer_successful = False
-                    else:
-                        # Max retries exceeded
-                        transfer.status = 'failed'
-                        transfer.error_message = f"Transfer failed after {max_retries} retries: {str(e)}"
-                        transfer.save()
-                        ItemHistory.objects.create(item=item, details=f'Failed to copy {filename} after {max_retries} retries: {str(e)}')
-                        Notification.create_for_admin(
-                            f"SFTP transfer failed for '{item.name}': {str(e)[:100]}",
-                            notification_type='sftp_failure',
-                            item_hash=item.hash
-                        )
-                        failed_count += 1
-                        transfer_successful = True  # Exit retry loop
-        
-        sftp.close()
-        ssh.close()
-        
-        logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
-        ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
-        
-        # Post-transfer processing: extract ZIP and RAR archives FIRST
-        # (before moving to final folder so extraction happens in temp location)
-        local_folder = None
-        if copied_count > 0:
-            try:
-                first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
-                if first_transfer and first_transfer.local_path:
-                    local_folder = os.path.dirname(first_transfer.local_path)
-                    
-                    # Process ZIP archives first
-                    logger.info(f"Processing ZIP archives in: {local_folder}")
-                    success, message = process_zip_archives(local_folder, item)
-                    if not success:
-                        logger.warning(f"ZIP processing encountered issues: {message}")
-                    else:
-                        logger.info(f"ZIP processing completed: {message}")
-                    
-                    # Then process RAR archives (in case there were RARs inside ZIPs or alongside)
-                    logger.info(f"Processing RAR archives in: {local_folder}")
-                    success, message = process_rar_archives(local_folder, item)
-                    if not success:
-                        logger.warning(f"RAR processing encountered issues: {message}")
-                    else:
-                        logger.info(f"RAR processing completed: {message}")
-            except Exception as e:
-                logger.error(f"Error during archive processing: {e}")
-         
-        # THEN move from temp folder to final destination (Blackhole manager only)
-        # This happens AFTER extraction
-        # Verify ALL transfers have completed (success or failure) before moving
-        total_transfers = FileTransfer.objects.filter(item=item).count()
-        completed_transfers = FileTransfer.objects.filter(
-            item=item
-        ).exclude(status__in=['pending', 'transferring']).count()
-        all_transfers_done = (total_transfers > 0 and completed_transfers == total_transfers)
-        
-        if is_blackhole and all_transfers_done and temp_folder and os.path.exists(temp_folder):
-            try:
-                # Create category folder if it doesn't exist
-                if not os.path.exists(final_base_folder):
-                    os.makedirs(final_base_folder)
-                    logger.info(f"Created category folder: {final_base_folder}")
+                            item_stat = sftp_obj.stat(remote_item_path)
+                            is_dir = stat_module_list.S_ISDIR(item_stat.st_mode)
+                        except Exception as e:
+                            logger.warning(f"Cannot stat {remote_item_path}: {e}")
+                            continue
+                        
+                        # For all downloaders, only transfer items matching files_to_copy list (if specified)
+                        if files_to_copy:
+                            # Check if this file/folder matches any in files_to_copy
+                            logger.info(f"[transfer_files_async] files_to_copy={files_to_copy}, checking {item_name}")
+                            if item_name not in files_to_copy:
+                                logger.debug(f"[transfer_files_async] Skipping {item_name} (not in files_to_copy)")
+                                continue
+                        
+                        # Skip hidden files, images, HTML
+                        if item_name.startswith('.') or item_name.endswith('.jpg') or item_name.endswith('.html'):
+                            continue
+                        
+                        logger.info(f"[walk_remote_sftp] Processing item {item_name}, is_dir={is_dir}")
+                        
+                        # Handle directories and files
+                        if is_dir:
+                            # Recursively walk subdirectories
+                            logger.info(f"[walk_remote_sftp] Recursing into directory {item_name}")
+                            walk_remote_sftp(sftp_obj, remote_item_path, base_remote_dir, relative_item_path)
+                        else:
+                            # It's a file, add to transfer list
+                            logger.info(f"[walk_remote_sftp] Adding file {item_name} to transfer list")
+                            transfer_list.append((remote_item_path, relative_item_path))
                 
-                # Only delete final folder if temp folder exists (meaning we're replacing it)
-                # This prevents accidental deletion of existing extracted content
-                if os.path.exists(temp_folder):
-                    if os.path.exists(final_folder):
-                        import shutil
-                        shutil.rmtree(final_folder)
-                        logger.info(f"Removed existing final folder: {final_folder}")
-                    # Rename temp to final (atomic on same filesystem; cross-device safe via shutil.move)
-                    safe_rename(temp_folder, final_folder)
-                    logger.info(f"Moved temp folder to final: {final_folder}")
-                    ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
-                else:
-                    logger.warning(f"Temp folder does not exist: {temp_folder}. Final folder may already be in place.")
-            except Exception as e:
-                logger.error(f"Failed to move temp folder to final: {e}")
-                ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
-        
-        # Call manager post-processing BEFORE marking as Completed
-        # This sends to Sonarr/Radarr/etc while item is still in PostProcessing
-        # Call even if copied_count is 0 (files may have already existed locally).
-        # post_process_succeeded tracks the outcome so items are NOT marked
-        # Completed when post-processing failed (for Bindery-managed items: they
-        # stay PostProcessing and are owned by the manager poll + retry task).
-        post_process_succeeded = None
-        if item.manager and hasattr(item.manager, 'client'):
-            try:
-                # Get local_folder from first completed transfer if not set
-                if not local_folder:
+                walk_remote_sftp(sftp, actual_remote_dir, actual_remote_dir)
+                logger.info(f"[transfer_files_async] walk_remote_sftp completed, transfer_list has {len(transfer_list)} items")
+            logger.info(f"[transfer_files_async] Found {len(transfer_list)} files to transfer for {item.name} (including nested directories)")
+            
+            # STEP 1: Create FileTransfer records UPFRONT for ALL files
+            # This ensures the dashboard shows correct total size from the start
+            # transfer_list now contains (remote_path, relative_path) tuples.
+            #
+            # The per-file loop below (around line 770) handles dedup correctly:
+            # reuses completed transfers, leaves in-flight ones alone, deletes
+            # stale ones. There used to be an early-return here that bailed if
+            # ANY pending/transferring transfer existed — that prevented the
+            # function from creating the missing transfers (e.g., the ~545
+            # files the Phase 1 band-aid had not created on a previous run),
+            # which is why a 120 GB torrent could end up with only 138 (25 GB)
+            # FileTransfer rows and stall out at 20%. The per-file logic makes
+            # the early-return redundant (and harmful), so it's removed.
+    
+            transfer_records = {}
+            skipped_count = 0
+    
+            if len(transfer_list) == 0:
+                 logger.warning(f"[transfer_files_async] NO FILES FOUND to transfer for {item.name}! remote_dir={remote_dir}")
+                # Don't return early - still proceed to post_process since files may already exist locally
+                # Continue to the post-process section below
+    
+            # Dedup transfer_list by relative_path (filename). Some downloaders
+            # (rTorrent in particular) can return the same logical file twice
+            # with slightly different remote paths — e.g., once via the proper
+            # directory tree and once via a fallback listing. Without dedup,
+            # each duplicate entry writes its own "Copied" history event and
+            # re-runs the inner loop's status='completed' save for the same
+            # FileTransfer row. Defensive — the DB-level unique constraint is
+            # the authoritative fix for row duplicates.
+            if transfer_list:
+                seen = set()
+                deduped = []
+                for _rp, _fp in transfer_list:
+                    if _fp not in seen:
+                        seen.add(_fp)
+                        deduped.append((_rp, _fp))
+                if len(deduped) < len(transfer_list):
+                    logger.debug(
+                        f"[transfer_files_async] Deduped transfer_list "
+                        f"{len(transfer_list)} -> {len(deduped)} (by filename)"
+                    )
+                    transfer_list = deduped
+    
+            for remote_file_path, relative_path in transfer_list:
+                # Build local path preserving folder structure
+                local_path = os.path.join(item_folder, relative_path)
+                
+                # Create local directories if needed
+                local_dir = os.path.dirname(local_path)
+                os.makedirs(local_dir, exist_ok=True)
+                
+                # Get remote file size
+                try:
+                    file_stat = sftp.stat(remote_file_path)
+                    file_size = file_stat.st_size
+                except Exception as e:
+                    logger.warning(f"Cannot stat {remote_file_path}: {e}")
+                    continue
+                
+                # Deduplicate: check for existing transfers for this item+filename
+                existing_transfer = FileTransfer.objects.filter(
+                    item=item,
+                    filename=relative_path
+                ).first()
+                
+                if existing_transfer:
+                    if existing_transfer.status == 'completed' and existing_transfer.file_size == file_size:
+                        # Already transferred successfully - reuse the record
+                        logger.info(f"Reusing existing completed transfer for {relative_path}")
+                        transfer_records[(remote_file_path, relative_path)] = existing_transfer
+                        continue
+                    elif existing_transfer.status in ('pending', 'transferring'):
+                        # Mid-flight from a prior run - leave alone. Deleting an
+                        # in-progress transfer would lose bytes already copied and
+                        # confuse the dashboard. The next call (or
+                        # check_stalled_transfers recovery) will pick it up once it
+                        # finishes or stalls out.
+                        logger.debug(
+                            f"Leaving in-flight transfer for {relative_path} "
+                            f"(status={existing_transfer.status}); not touching"
+                        )
+                        continue
+                    else:
+                        # Stale terminal-but-not-completed record (failed, or
+                        # completed-with-wrong-size from a local edit). Clean it
+                        # up so the per-file logic below creates a fresh record.
+                        logger.info(f"Removing stale {existing_transfer.status} transfer record for {relative_path}")
+                        existing_transfer.delete()
+                
+                # Check if file exists locally and verify file size
+                if os.path.exists(local_path):
+                    local_size = os.path.getsize(local_path)
+                    if local_size == file_size:
+                        # File exists and has correct size - skip it, but make sure
+                        # a completed FileTransfer record exists so manager
+                        # post-processing (e.g. Bindery) can locate the staged file
+                        # even when this run didn't transfer anything.
+                        logger.info(f"Skipped (complete): {local_path} ({local_size / (1024*1024):.1f}MB)")
+                        skipped_count += 1
+                        if (remote_file_path, relative_path) not in transfer_records:
+                            try:
+                                # get_or_create is atomic at the row level — prevents
+                                # the check-then-create race that left 2,037 duplicate
+                                # rows in the user's 120 GB torrent (sum(file_size)
+                                # showed 480 GB). If a concurrent transfer_files_async
+                                # task already created this row, we get the existing
+                                # one back instead of creating a duplicate.
+                                transfer, created = FileTransfer.objects.get_or_create(
+                                    item=item,
+                                    filename=relative_path,
+                                    defaults={
+                                        'remote_path': remote_file_path,
+                                        'local_path': local_path,
+                                        'file_size': file_size,
+                                        'status': 'completed',
+                                    }
+                                )
+                                transfer_records[(remote_file_path, relative_path)] = transfer
+                            except Exception as e:
+                                logger.error(f"Failed to create completed FileTransfer record for {relative_path}: {e}")
+                        continue
+                    else:
+                        # File exists but size mismatch - delete and retransfer
+                        logger.warning(f"File size mismatch for {local_path}: local={local_size}, remote={file_size}. Deleting and retransferring.")
+                        try:
+                            os.remove(local_path)
+                        except Exception as e:
+                            logger.error(f"Failed to delete incomplete file {local_path}: {e}")
+                            continue
+                
+                # Create FileTransfer record with 'pending' status.
+                # Use get_or_create for atomic check-then-create — prevents the
+                # duplicate-row race when multiple transfer_files_async tasks
+                # run concurrently (e.g., check_downloaders + Block B requeue).
+                # See commit history; user observed 2,037 duplicates inflating
+                # a 120 GB torrent to 480 GB before this fix.
+                try:
+                    transfer, created = FileTransfer.objects.get_or_create(
+                        item=item,
+                        filename=relative_path,
+                        defaults={
+                            'remote_path': remote_file_path,
+                            'local_path': local_path,
+                            'file_size': file_size,
+                            'status': 'pending',
+                        }
+                    )
+                    transfer_records[(remote_file_path, relative_path)] = transfer
+                except Exception as e:
+                    logger.error(f"Failed to create FileTransfer record for {relative_path}: {e}")
+                    continue
+             
+            logger.info(f"Created {len(transfer_records)} FileTransfer records upfront (skipped {skipped_count})")
+            
+            ItemHistory.objects.create(item=item, details=f'Created {len(transfer_records)} file transfer records')
+            
+            # STEP 2: Now transfer the files
+            copied_count = 0
+            failed_count = 0
+            
+            for (remote_file_path, filename), transfer in transfer_records.items():
+                local_path = transfer.local_path
+                file_size = transfer.file_size
+                
+                # Update status to transferring
+                transfer.status = 'transferring'
+                transfer.started = django.utils.timezone.now()
+                transfer.save()
+                
+                retry_count = 0
+                max_retries = 3
+                transfer_successful = False
+                
+                while retry_count < max_retries and not transfer_successful:
+                    try:
+                        logger.info(f"SFTP: {remote_file_path} -> {local_path} ({file_size / 1024 / 1024:.1f}MB)" + 
+                                   (f" [Retry {retry_count+1}/{max_retries}]" if retry_count > 0 else ""))
+                        
+                        # Progress callback with throttling
+                        last_update = [0]
+                        update_interval = 1024 * 1024
+                        
+                        def progress_callback(bytes_so_far, bytes_total):
+                            """Update progress during file transfer."""
+                            try:
+                                if bytes_so_far - last_update[0] >= update_interval or bytes_so_far >= bytes_total:
+                                    transfer.bytes_transferred = bytes_so_far
+                                    transfer.save()
+                                    last_update[0] = bytes_so_far
+                            except Exception as e:
+                                logger.debug(f"Could not update transfer progress: {e}")
+                        
+                        # Download file with progress tracking + stall watchdog.
+                        # _sftp_get_with_timeout raises SFTPStallTimeout if sftp.get()
+                        # hangs longer than SFTP_GET_TIMEOUT_SECONDS — without this,
+                        # a dead seedbox can hold the Celery worker hostage for up to
+                        # task_time_limit (1h).
+                        _sftp_get_with_timeout(
+                            sftp, remote_file_path, local_path,
+                            callback=progress_callback,
+                            timeout=SFTP_GET_TIMEOUT_SECONDS,
+                        )
+                        
+                        # Update transfer record - mark as completed
+                        transfer.bytes_transferred = file_size
+                        transfer.status = 'completed'
+                        transfer.completed = django.utils.timezone.now()
+                        transfer.save()
+                        
+                        ItemHistory.objects.create(item=item, details=f'Copied {filename}')
+                        copied_count += 1
+                        transfer_successful = True
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to copy {remote_file_path}: {e}")
+                        retry_count += 1
+                        
+                        if retry_count < max_retries:
+                            # Try to recover connection and retry
+                            logger.warning(f"Attempting to reconnect for retry {retry_count}/{max_retries}...")
+                            try:
+                                sftp.close()
+                                ssh.close()
+                            except:
+                                pass
+                            
+                            # Reconnect
+                            try:
+                                ssh = paramiko.SSHClient()
+                                ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                                
+                                if seedbox.auth_type == 'password':
+                                    ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
+                                else:
+                                    pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
+                                    ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
+                                
+                                sftp = ssh.open_sftp()
+                                sftp.get_channel().settimeout(60)
+                                logger.info("Successfully reconnected to seedbox")
+                            except Exception as reconnect_error:
+                                logger.error(f"Failed to reconnect: {reconnect_error}")
+                                transfer_successful = False
+                        else:
+                            # Max retries exceeded
+                            transfer.status = 'failed'
+                            transfer.error_message = f"Transfer failed after {max_retries} retries: {str(e)}"
+                            transfer.save()
+                            ItemHistory.objects.create(item=item, details=f'Failed to copy {filename} after {max_retries} retries: {str(e)}')
+                            Notification.create_for_admin(
+                                f"SFTP transfer failed for '{item.name}': {str(e)[:100]}",
+                                notification_type='sftp_failure',
+                                item_hash=item.hash
+                            )
+                            failed_count += 1
+                            transfer_successful = True  # Exit retry loop
+            
+            sftp.close()
+            ssh.close()
+            
+            logger.info(f"Async transfer complete for {item.name} ({copied_count} files)")
+            ItemHistory.objects.create(item=item, details=f'Async file transfer complete ({copied_count} files)')
+            
+            # Post-transfer processing: extract ZIP and RAR archives FIRST
+            # (before moving to final folder so extraction happens in temp location)
+            local_folder = None
+            if copied_count > 0:
+                try:
                     first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
                     if first_transfer and first_transfer.local_path:
                         local_folder = os.path.dirname(first_transfer.local_path)
-                    elif item.manager and item.manager.folder:
-                        # If no transfer record, use manager's folder (files may already exist locally)
-                        local_folder = item.manager.folder.folder
-                
-                # Always try to call post_process - log even if local_folder is None
-                logger.info(f"Attempting manager post-processing for {item.name}, local_folder={local_folder}")
-                
-                if local_folder:
-                    # Construct the download path with item folder name included
-                    # Get the sanitized item name (same logic as during transfer)
-                    sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
-                    sanitized_item_name = sanitized_item_name.strip()
-                    
-                    # Get base folder (local version for extraction check, remote for API)
-                    if item.manager.folder:
-                        # Construct remote path
-                        if item.manager.folder.remote_folder_name:
-                            base_remote_path = item.manager.folder.remote_folder_name
-                        else:
-                            base_remote_path = item.manager.folder.folder
                         
-                        # For forceProcess, we need the full file path
-                        # Construct it as base_folder/filename (single files go directly in base folder)
-                        download_path = os.path.join(base_remote_path, item.name)
-                    else:
-                        download_path = local_folder
-                    
-                    # Check if there's only one video file in the directory - if so, use that file path
-                    video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
-                    try:
-                        local_item_path = os.path.join(local_folder, sanitized_item_name)
-                        if os.path.isdir(local_item_path):
-                            video_files = [f for f in os.listdir(local_item_path) 
-                                         if os.path.isfile(os.path.join(local_item_path, f)) 
-                                         and os.path.splitext(f)[1].lower() in video_extensions]
-                            if len(video_files) == 1:
-                                # Single video file - use it instead of directory
-                                video_file = video_files[0]
-                                download_path = os.path.join(download_path, video_file)
-                                logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
-                    except Exception as e:
-                        logger.warning(f"Could not check for single video file: {e}")
-                    
-                    # Only call post_process if the manager supports it
-                    if item.manager:
-                        logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
-                        try:
-                            success, pp_message = item.manager.post_process(item, download_path)
-                            
-                            if success:
-                                post_process_succeeded = True
-                                logger.info(f"Manager post-processing succeeded: {pp_message}")
-                                ItemHistory.objects.create(item=item, details=f'Post-processing succeeded: {pp_message}')
-                                
-                                # Cleanup seedbox files after successful post-processing
-                                # Get the first completed transfer to know what was transferred
-                                first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
-                                if first_transfer and item.downloader:
-                                    try:
-                                        cleanup_success, cleanup_message = item.downloader.client.cleanup(first_transfer)
-                                        ItemHistory.objects.create(item=item, details=cleanup_message)
-                                        if cleanup_success:
-                                            logger.info(f"Seedbox cleanup: {cleanup_message}")
-                                        else:
-                                            logger.warning(f"Seedbox cleanup error: {cleanup_message}")
-                                    except Exception as e:
-                                        logger.warning(f"Error calling cleanup: {e}")
-                                        ItemHistory.objects.create(item=item, details=f'Cleanup error: {str(e)}')
-                            else:
-                                post_process_succeeded = False
-                                logger.error(f"Manager post-processing failed: {pp_message}")
-                                ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
-                                Notification.create_for_admin(
-                                    f"Post-processing failed for '{item.name}': {pp_message[:100]}",
-                                    notification_type='postprocess_failure',
-                                    item_hash=item.hash
-                                )
-                                logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
-                                retry_postprocessing.apply_async(args=[item_hash], countdown=300)
-                        except Exception as e:
-                            post_process_succeeded = False
-                            logger.error(f"Error calling post-processing: {e}")
-                            ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
-                            retry_postprocessing.apply_async(args=[item_hash], countdown=300)
-            except Exception as e:
-                post_process_succeeded = False
-                logger.error(f"Error calling manager post-processing: {e}")
-                ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
-        
-        # Mark item as Completed after transfer AND extraction AND move AND post-processing are done.
-        # Only if not already marked as Failed by extraction. Bindery-managed
-        # items are intentionally NOT marked Completed when post-processing
-        # failed: the Bindery poll owns their state (recoverable failure or
-        # Completed once imported) and retry_postprocessing re-attempts. Other
-        # manager types keep the existing behavior (mark Completed and let the
-        # retry task re-run post-processing).
-        bindery_pp_failed = (
-            post_process_succeeded is False
-            and item.manager
-            and item.manager.managertype == 'Bindery'
-        )
-        if item.status != 'Failed' and not bindery_pp_failed:
-            item.status = 'Completed'
-            item.save()
-            ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
+                        # Process ZIP archives first
+                        logger.info(f"Processing ZIP archives in: {local_folder}")
+                        success, message = process_zip_archives(local_folder, item)
+                        if not success:
+                            logger.warning(f"ZIP processing encountered issues: {message}")
+                        else:
+                            logger.info(f"ZIP processing completed: {message}")
+                        
+                        # Then process RAR archives (in case there were RARs inside ZIPs or alongside)
+                        logger.info(f"Processing RAR archives in: {local_folder}")
+                        success, message = process_rar_archives(local_folder, item)
+                        if not success:
+                            logger.warning(f"RAR processing encountered issues: {message}")
+                        else:
+                            logger.info(f"RAR processing completed: {message}")
+                except Exception as e:
+                    logger.error(f"Error during archive processing: {e}")
+             
+            # THEN move from temp folder to final destination (Blackhole manager only)
+            # This happens AFTER extraction
+            # Verify ALL transfers have completed (success or failure) before moving
+            total_transfers = FileTransfer.objects.filter(item=item).count()
+            completed_transfers = FileTransfer.objects.filter(
+                item=item
+            ).exclude(status__in=['pending', 'transferring']).count()
+            all_transfers_done = (total_transfers > 0 and completed_transfers == total_transfers)
             
-            # Send completion notification
-            Notification.create_for_admin(
-                f"Item completed: {item.name}",
-                notification_type='item_completed',
-                item_hash=item.hash
+            if is_blackhole and all_transfers_done and temp_folder and os.path.exists(temp_folder):
+                try:
+                    # Create category folder if it doesn't exist
+                    if not os.path.exists(final_base_folder):
+                        os.makedirs(final_base_folder)
+                        logger.info(f"Created category folder: {final_base_folder}")
+                    
+                    # Only delete final folder if temp folder exists (meaning we're replacing it)
+                    # This prevents accidental deletion of existing extracted content
+                    if os.path.exists(temp_folder):
+                        if os.path.exists(final_folder):
+                            import shutil
+                            shutil.rmtree(final_folder)
+                            logger.info(f"Removed existing final folder: {final_folder}")
+                        # Rename temp to final (atomic on same filesystem; cross-device safe via shutil.move)
+                        safe_rename(temp_folder, final_folder)
+                        logger.info(f"Moved temp folder to final: {final_folder}")
+                        ItemHistory.objects.create(item=item, details=f'Moved to final folder: {final_folder}')
+                    else:
+                        logger.warning(f"Temp folder does not exist: {temp_folder}. Final folder may already be in place.")
+                except Exception as e:
+                    logger.error(f"Failed to move temp folder to final: {e}")
+                    ItemHistory.objects.create(item=item, details=f'Failed to move to final folder: {e}')
+            
+            # Call manager post-processing BEFORE marking as Completed
+            # This sends to Sonarr/Radarr/etc while item is still in PostProcessing
+            # Call even if copied_count is 0 (files may have already existed locally).
+            # post_process_succeeded tracks the outcome so items are NOT marked
+            # Completed when post-processing failed (for Bindery-managed items: they
+            # stay PostProcessing and are owned by the manager poll + retry task).
+            post_process_succeeded = None
+            if item.manager and hasattr(item.manager, 'client'):
+                try:
+                    # Get local_folder from first completed transfer if not set
+                    if not local_folder:
+                        first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+                        if first_transfer and first_transfer.local_path:
+                            local_folder = os.path.dirname(first_transfer.local_path)
+                        elif item.manager and item.manager.folder:
+                            # If no transfer record, use manager's folder (files may already exist locally)
+                            local_folder = item.manager.folder.folder
+                    
+                    # Always try to call post_process - log even if local_folder is None
+                    logger.info(f"Attempting manager post-processing for {item.name}, local_folder={local_folder}")
+                    
+                    if local_folder:
+                        # Construct the download path with item folder name included
+                        # Get the sanitized item name (same logic as during transfer)
+                        sanitized_item_name = re.sub(r'[<>:"/\\|?*]', '', item.name)
+                        sanitized_item_name = sanitized_item_name.strip()
+                        
+                        # Get base folder (local version for extraction check, remote for API)
+                        if item.manager.folder:
+                            # Construct remote path
+                            if item.manager.folder.remote_folder_name:
+                                base_remote_path = item.manager.folder.remote_folder_name
+                            else:
+                                base_remote_path = item.manager.folder.folder
+                            
+                            # For forceProcess, we need the full file path
+                            # Construct it as base_folder/filename (single files go directly in base folder)
+                            download_path = os.path.join(base_remote_path, item.name)
+                        else:
+                            download_path = local_folder
+                        
+                        # Check if there's only one video file in the directory - if so, use that file path
+                        video_extensions = ['.mkv', '.mp4', '.avi', '.mov', '.flv', '.wmv', '.webm']
+                        try:
+                            local_item_path = os.path.join(local_folder, sanitized_item_name)
+                            if os.path.isdir(local_item_path):
+                                video_files = [f for f in os.listdir(local_item_path) 
+                                             if os.path.isfile(os.path.join(local_item_path, f)) 
+                                             and os.path.splitext(f)[1].lower() in video_extensions]
+                                if len(video_files) == 1:
+                                    # Single video file - use it instead of directory
+                                    video_file = video_files[0]
+                                    download_path = os.path.join(download_path, video_file)
+                                    logger.info(f"Single video file detected: {video_file}, using file path for post-processing")
+                        except Exception as e:
+                            logger.warning(f"Could not check for single video file: {e}")
+                        
+                        # Only call post_process if the manager supports it
+                        if item.manager:
+                            logger.info(f"Calling manager post-processing for {item.name} at path: {download_path}")
+                            try:
+                                success, pp_message = item.manager.post_process(item, download_path)
+                                
+                                if success:
+                                    post_process_succeeded = True
+                                    logger.info(f"Manager post-processing succeeded: {pp_message}")
+                                    ItemHistory.objects.create(item=item, details=f'Post-processing succeeded: {pp_message}')
+                                    
+                                    # Cleanup seedbox files after successful post-processing
+                                    # Get the first completed transfer to know what was transferred
+                                    first_transfer = FileTransfer.objects.filter(item=item, status='completed').first()
+                                    if first_transfer and item.downloader:
+                                        try:
+                                            cleanup_success, cleanup_message = item.downloader.client.cleanup(first_transfer)
+                                            ItemHistory.objects.create(item=item, details=cleanup_message)
+                                            if cleanup_success:
+                                                logger.info(f"Seedbox cleanup: {cleanup_message}")
+                                            else:
+                                                logger.warning(f"Seedbox cleanup error: {cleanup_message}")
+                                        except Exception as e:
+                                            logger.warning(f"Error calling cleanup: {e}")
+                                            ItemHistory.objects.create(item=item, details=f'Cleanup error: {str(e)}')
+                                else:
+                                    post_process_succeeded = False
+                                    logger.error(f"Manager post-processing failed: {pp_message}")
+                                    ItemHistory.objects.create(item=item, details=f'Post-processing failed: {pp_message}')
+                                    Notification.create_for_admin(
+                                        f"Post-processing failed for '{item.name}': {pp_message[:100]}",
+                                        notification_type='postprocess_failure',
+                                        item_hash=item.hash
+                                    )
+                                    logger.info(f"Scheduling post-processing retry for {item.name} in 5 minutes")
+                                    retry_postprocessing.apply_async(args=[item_hash], countdown=300)
+                            except Exception as e:
+                                post_process_succeeded = False
+                                logger.error(f"Error calling post-processing: {e}")
+                                ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
+                                retry_postprocessing.apply_async(args=[item_hash], countdown=300)
+                except Exception as e:
+                    post_process_succeeded = False
+                    logger.error(f"Error calling manager post-processing: {e}")
+                    ItemHistory.objects.create(item=item, details=f'Error calling post-processing: {str(e)}')
+            
+            # Mark item as Completed after transfer AND extraction AND move AND post-processing are done.
+            # Only if not already marked as Failed by extraction. Bindery-managed
+            # items are intentionally NOT marked Completed when post-processing
+            # failed: the Bindery poll owns their state (recoverable failure or
+            # Completed once imported) and retry_postprocessing re-attempts. Other
+            # manager types keep the existing behavior (mark Completed and let the
+            # retry task re-run post-processing).
+            bindery_pp_failed = (
+                post_process_succeeded is False
+                and item.manager
+                and item.manager.managertype == 'Bindery'
             )
-        elif item.status != 'Failed':
-            logger.warning(
-                f"Item {item.name} post-processing failed; leaving in {item.status} "
-                f"(retry scheduled)"
-            )
-        else:
-            logger.warning(f"Item {item.name} marked as Failed during extraction, not marking as Completed")
-
-        logger.info(f"[transfer_files_async] ========== COMPLETED successfully for {item.name} ==========")
-        
-    except Exception as e:
-        logger.error(f"[transfer_files_async] ========== FAILED for {item_hash}: {e} ==========", exc_info=True)
-        try:
-            ItemHistory.objects.create(item=item, details=f'Async transfer failed: {str(e)}')
-        except:
-            pass
+            if item.status != 'Failed' and not bindery_pp_failed:
+                item.status = 'Completed'
+                item.save()
+                ItemHistory.objects.create(item=item, details='File transfer and post-processing completed, item marked as Completed')
+                
+                # Send completion notification
+                Notification.create_for_admin(
+                    f"Item completed: {item.name}",
+                    notification_type='item_completed',
+                    item_hash=item.hash
+                )
+            elif item.status != 'Failed':
+                logger.warning(
+                    f"Item {item.name} post-processing failed; leaving in {item.status} "
+                    f"(retry scheduled)"
+                )
+            else:
+                logger.warning(f"Item {item.name} marked as Failed during extraction, not marking as Completed")
+    
+            logger.info(f"[transfer_files_async] ========== COMPLETED successfully for {item.name} ==========")
+            
+        except Exception as e:
+            logger.error(f"[transfer_files_async] ========== FAILED for {item_hash}: {e} ==========", exc_info=True)
+            try:
+                ItemHistory.objects.create(item=item, details=f'Async transfer failed: {str(e)}')
+            except:
+                pass
+    finally:
+        if redis_client is not None:
+            try:
+                redis_client.decr(semaphore_key)
+            except redis.RedisError as e:
+                logger.warning(
+                    f"[transfer_files_async] Redis DECR failed for "
+                    f"{item_hash}: {e}"
+                )
 
 
 @shared_task
