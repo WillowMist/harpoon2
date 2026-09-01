@@ -417,12 +417,21 @@ def cancel_postprocessing(request, item_hash):
                 messages.success(request, f'Item marked as Completed: {item.name}')
                 
             elif action == 'retry':
-                # Reset to Grabbed to try again
+                # Reset to Grabbed to try again. Clear recovery state so
+                # check_stalled_transfers doesn't immediately requeue (60s
+                # cooldown gate reads last_recovery_at) and delete any
+                # stale transfers from the previous run so the new
+                # transfer_files_async starts clean.
                 item.status = 'Grabbed'
+                item.last_recovery_at = None
+                item.attempt_count = 0
                 item.save()
+                from itemqueue.models import FileTransfer
+                FileTransfer.objects.filter(item=item).delete()
                 ItemHistory.objects.create(
                     item=item,
-                    details='PostProcessing reset to Grabbed by user for retry'
+                    details='PostProcessing reset to Grabbed by user for retry '
+                            '(cleared last_recovery_at, attempt_count, transfers)'
                 )
                 messages.success(request, f'Item reset to Grabbed: {item.name}')
             
