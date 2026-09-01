@@ -4,6 +4,7 @@ from entities.models import Manager
 from itemqueue.models import Item, ItemHistory
 import logging
 import requests
+from dplibs.retry import api_retry
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,9 @@ def poll_manager(manager_id):
         # a Postgres connection (and a Celery worker slot) indefinitely. A
         # past Postgres pool exhaustion was caused by poll_managers blocking
         # on no-timeout HTTP calls; this is the surgical fix.
-        resp = requests.get(url, headers=headers, params={'pageSize': 50}, timeout=(3.05, 10))
+        resp = api_retry()(lambda: requests.get(
+            url, headers=headers, params={'pageSize': 50}, timeout=(3.05, 10)
+        ))()
         if resp.status_code != 200:
             logger.warning(f"Failed to fetch history for {manager.name}: {resp.status_code}")
             return

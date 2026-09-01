@@ -13,6 +13,7 @@ import subprocess
 import glob
 import re
 from dplibs.filesystem import safe_rename
+from dplibs.retry import _sftp_connect_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -459,21 +460,7 @@ def transfer_files_async(item_hash):
         
         # Connect to seedbox via SFTP
         logger.info(f"[transfer_files_async] Connecting to seedbox {seedbox.host}:{seedbox.port} as {seedbox.username} (auth={seedbox.auth_type})")
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        
-        try:
-            if seedbox.auth_type == 'password':
-                logger.debug(f"[transfer_files_async] Using password auth")
-                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, password=seedbox.password, timeout=10)
-            else:
-                logger.debug(f"[transfer_files_async] Using SSH key auth")
-                pkey = paramiko.RSAKey.from_private_key_string(seedbox.ssh_key)
-                ssh.connect(seedbox.host, port=seedbox.port, username=seedbox.username, pkey=pkey, timeout=10)
-            logger.info(f"[transfer_files_async] Successfully connected to seedbox")
-        except Exception as e:
-            logger.error(f"[transfer_files_async] Failed to connect to seedbox: {e}", exc_info=True)
-            raise
+        ssh = _sftp_connect_with_retry(seedbox)
         
         logger.debug(f"[transfer_files_async] Opening SFTP channel")
         sftp = ssh.open_sftp()

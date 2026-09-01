@@ -1040,6 +1040,7 @@ class Bindery:
                 return path.replace(src, dst, 1)
         return path
 
+    @api_retry()
     def test(self):
         """Test Bindery API connection."""
         import logging

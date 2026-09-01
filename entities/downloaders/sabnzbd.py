@@ -3,6 +3,8 @@ import requests
 import os
 import time
 import logging
+import paramiko
+from dplibs.retry import _sftp_connect_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -397,18 +399,7 @@ class SABnzbdDownloader(BaseDownloader):
             seedbox = self.downloader.seedbox
             
             # Establish SFTP connection
-            import paramiko
-            ssh = paramiko.SSHClient()
-            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            
-            logger.debug(f"[SABnzbd cleanup] Connecting to {seedbox.host}:{seedbox.port}")
-            ssh.connect(
-                hostname=seedbox.host,
-                port=seedbox.port,
-                username=seedbox.username,
-                password=seedbox.password,
-                timeout=10
-            )
+            ssh = _sftp_connect_with_retry(seedbox)
             sftp = ssh.open_sftp()
             
             path = file_transfer.remote_path
