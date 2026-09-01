@@ -3,7 +3,7 @@ from django.contrib import messages
 from django.contrib.sessions.backends.db import SessionStore
 from django.utils.dateparse import parse_datetime
 from django.http import JsonResponse, HttpResponse
-from django.db.models import Prefetch, Count, Q
+from django.db.models import Prefetch, Count, Q, Subquery, IntegerField
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import authenticate, login, get_user_model
 from django.views.decorators.csrf import csrf_protect
@@ -689,21 +689,38 @@ def api_dashboard(request):
         from datetime import timedelta
         
         managers = Manager.objects.all()
-        
-        # Get counts by manager
+
+        # Global Grabbed count for items with no manager (AirDC++-created
+        # items). Uncorrelated scalar subquery — the DB evaluates it once in
+        # the same round trip as the manager summary below.
+        no_manager_grabbed = Subquery(
+            Item.objects.filter(status='Grabbed', archived=False, manager__isnull=True)
+            .values('manager_id')
+            .annotate(c=Count('hash'))
+            .values('c'),
+            output_field=IntegerField(),
+        )
+
+        # All managers (LEFT JOIN) with per-manager status counts — ONE query
+        # replaces the old 4 COUNT queries per manager.
+        managers = Manager.objects.annotate(
+            grabbing=Count('item', filter=Q(item__status='Grabbed', item__archived=False)),
+            postprocessing=Count('item', filter=Q(item__status='PostProcessing', item__archived=False)),
+            completed=Count('item', filter=Q(item__status='Completed', item__archived=False)),
+            failed=Count('item', filter=Q(item__status='Failed', item__archived=False)),
+            no_manager_grabbed=no_manager_grabbed,
+        )
+        manager_list = list(managers)
+
         manager_summary = []
-        for m in managers:
-            grabbing = Item.objects.filter(status='Grabbed', manager=m, archived=False).count()
-            postprocessing = Item.objects.filter(status='PostProcessing', manager=m, archived=False).count()
-            completed = Item.objects.filter(status='Completed', manager=m, archived=False).count()
-            failed = Item.objects.filter(status='Failed', manager=m, archived=False).count()
+        for m in manager_list:
             manager_summary.append({
                 'name': m.name,
-                'grabbing': grabbing,
-                'postprocessing': postprocessing,
-                'completed': completed,
-                'failed': failed,
-                'total': grabbing + postprocessing,
+                'grabbing': m.grabbing,
+                'postprocessing': m.postprocessing,
+                'completed': m.completed,
+                'failed': m.failed,
+                'total': m.grabbing + m.postprocessing,
             })
         
         # Get active downloads from cache (fast!)
@@ -728,22 +745,29 @@ def api_dashboard(request):
         # Track data for speed calculation
         transfers_by_item = {}
         item_total_sizes = {}
-        
-        # First pass: collect total sizes
+
+        # First pass: collect total sizes and which items have active
+        # (pending/transferring) transfers. Both are computed in Python from
+        # the already-joined rows — the old code re-filtered the queryset by
+        # item hash here (one new DB query per distinct item), which turned
+        # the dashboard poll into an O(N+1) scan and blew gunicorn's 60s
+        # timeout once the table grew past a few hundred rows.
+        items_with_active_transfers = set()
         for transfer in active_transfers_query:
             if not transfer.item:
                 continue
             item_hash = transfer.item.hash
-            if item_hash not in item_total_sizes:
-                all_transfers = active_transfers_query.filter(item__hash=item_hash)
-                item_total_sizes[item_hash] = sum(t.file_size for t in all_transfers)
-        
+            item_total_sizes[item_hash] = item_total_sizes.get(item_hash, 0) + transfer.file_size
+            if transfer.status in ('pending', 'transferring'):
+                items_with_active_transfers.add(item_hash)
+
         # Second pass: collect transfer data with timing for speed calculation
         for transfer in active_transfers_query:
             if not transfer.item:
                 continue
             item_hash = transfer.item.hash
             if item_hash not in transfers_by_item:
+                has_active = item_hash in items_with_active_transfers
                 transfers_by_item[item_hash] = {
                     'item_name': transfer.item.name,
                     'item': transfer.item,
@@ -752,6 +776,8 @@ def api_dashboard(request):
                     'file_count': 0,
                     'earliest_start': None,
                     'latest_update': None,
+                    'extraction_status': transfer.item.extraction_status if has_active else '',
+                    'extraction_progress': transfer.item.extraction_progress if has_active else 0,
                 }
             
             transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
@@ -818,23 +844,10 @@ def api_dashboard(request):
                     'percent': percent,
                     'file_count': data['file_count'],
                     'speed_mbps': speed_mbps,
-                    'extraction_status': '',
-                    'extraction_progress': 0,
+                    'extraction_status': data.get('extraction_status', ''),
+                    'extraction_progress': data.get('extraction_progress', 0),
                 })
-        
-        # Get item extraction statuses
-        items_with_transfers = Item.objects.filter(transfers__status__in=['pending', 'transferring']).distinct()
-        for item in items_with_transfers:
-            if item.hash in transfers_by_item:
-                transfers_by_item[item.hash]['extraction_status'] = item.extraction_status
-                transfers_by_item[item.hash]['extraction_progress'] = item.extraction_progress
-        
-        for t in active_transfers:
-            item_hash = next((k for k, v in transfers_by_item.items() if v['item_name'] == t['item_name']), None)
-            if item_hash:
-                t['extraction_status'] = transfers_by_item[item_hash].get('extraction_status', '')
-                t['extraction_progress'] = transfers_by_item[item_hash].get('extraction_progress', 0)
-        
+
         # Update session with current poll state for next poll's speed calculation
         poll_state = {}
         for item_hash, data in transfers_by_item.items():
@@ -845,7 +858,14 @@ def api_dashboard(request):
         request.session['transfer_poll_state'] = poll_state
         request.session.modified = True
         
-        total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
+        # Global Grabbed total = per-manager Grabbed items + manager-less Grabbed
+        # items (AirDC++-created). The subquery above is evaluated in the same
+        # round trip as the manager summary; the fallback only fires in the
+        # degenerate no-managers-configured case.
+        if manager_list:
+            total_queued = sum(m.grabbing for m in manager_list) + (manager_list[0].no_manager_grabbed or 0)
+        else:
+            total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
         
         return JsonResponse({
             'manager_summary': manager_summary,
