@@ -177,3 +177,75 @@ form's Bindery-only panel. Defaults are empty / sensible.
 - **Single-file handling was scoped to AirDC++ only** for a long time — generalized to all downloaders. Per-downloader `get_download_info()` should still return `files_to_copy` for single-file items, but the destination code no longer needs to know it's AirDC++.
 - **Mylar3 downloader assignment**: was failing because Mylar3's API has no `/api/v3/queue`. Fixed by extracting the downloader from the log message prefix (`[AIRDCPP]`, `[SABNZBD]`, etc.) at Item creation time.
 - **`unrar` is in Debian's `non-free` repo** — python:3.12-slim only has `main`. Dockerfile adds `non-free` dynamically based on `VERSION_CODENAME`.
+
+## Current Debugging State (as of 2026-09-01)
+
+**Net regression: before Phase 5 the system worked for everything except one stalled long-torrent. After Phase 5 + the 3 hot-fix patches, the UI is accessible again only because celery + gunicorn have been manually restarted with the worker pool emptied. Do not start celery back up without the dispatcher back-pressure fix from Phase 6.**
+
+### Phase 5 outcome (delivered 2026-08-31 / 2026-09-01)
+
+12 commits across 5 plans, verifier PASS (113 / 113 tests):
+
+| Plan | Subject | Files |
+|------|---------|-------|
+| 05-01 | `feat(05-01)` bounded celery concurrency (`--concurrency=4 --prefetch-multiplier=1`) + `PIPELINE_HARDENING_ENABLED` feature flag (default true) + `Item.last_recovery_at` migration 0010 + supervisord edit | `c755342`, `d54bd97` |
+| 05-02 | `feat(05-02)` `dplibs/retry.py` (`api_retry` + `sftp_retry` factories) wrapping 4 network call sites: `Arr.test()`, `Bindery.test()`, `poll_manager()`, 2× SFTP connect | `baa7a81`, `9040d51`, `8f2b81d`, `a4ec201` |
+| 05-03 | `feat(05-03)` unified `_recover_one_item` state machine in `check_stalled_transfers` — Block A + Block B merged, 300s stall threshold pinned via freezegun, legacy path under flag=false | `2421eba`, `54bf4b2` |
+| 05-04 | `feat(05-04)` `select_for_update(skip_locked=True)` row lock at top of `transfer_files_async` inside `transaction.atomic()` (PIPE-02 + COR-06) | `7ae08ea`, `c22de80` |
+| 05-05 | `feat(05-05)` `retry_postprocessing` attempt cap (3) + deterministic `task_id` + `Item.last_recovery_at` 60s cooldown + `Item.attempt_count` migration 0011 | `ea12ba0`, `4bb1c41` |
+
+### Phase 5 hot-fix patches (post-verifier, pushed 2026-09-01)
+
+After Phase 5 was pushed, production showed the layered-architecture problem AGENTS.md §"If asked..." warned about — each surface patched, another surfaced.
+
+3. **`fix(queue-ui)`** (`c2323f4`) — `templates/queue.html` was POSTing to URL paths that no longer existed after commit `16953cb` renamed them. All "Mark as Failed / Completed / Reset to Grabbed / Retry Transfer" clicks 404'd. Repointed to registered paths `/cancel/postprocessing/<hash>/` and `/retry/postprocessing/<hash>/`. With this, operators could finally move stuck items out of PostProcessing via the UI.
+
+3. **`fix(postprocess)`** (`8c96cff`) — `postprocess_item` had no idempotency guard. `check_downloaders` fires every 20s and would re-dispatch `transfer_files_async` for already-PostProcessing items, since the function blindly transitioned status and queued the transfer. Added `if item.status != 'Grabbed': return` immediately after `Item.objects.get()`. Closes the duplicate-dispatch cascade at its source.
+
+4. **`fix(views)`** (`3506ebc`) — `cancel_postprocessing` (action='retry') was flipping status to Grabbed but leaving `last_recovery_at`, `attempt_count`, and stale `FileTransfer` rows in place. After Phase 5 the recovery state machine would re-queue the item within 60s and `transfer_files_async` would no-op because transfers already existed. Added explicit state reset: NULL `last_recovery_at`, zero `attempt_count`, delete `FileTransfer` rows for this item.
+
+### What's still broken (the layer Phase 5 did not close)
+
+After deploying all three hot-fixes, the operator reset four items from PostProcessing → Grabbed. Within minutes:
+
+- Celery `inspect active` showed four concurrent `transfer_files_async` tasks **all for the same item hash `44C87CC876D3326C62A1FCD438D5DB12D3C4EFC1`** (worker PIDs 29, 30, 31, 32 — all four `--concurrency=4` slots occupied by ONE item).
+- gunicorn's three workers eventually timed out (they were blocked waiting for DB connections those four celery forks held), died, and the master process accepted new TCP connections with no workers to forward them to → UI timeouts on every page including direct-IP curl.
+- SFTP never started for the four items — celery reserved the worker slots but the duplicate tasks were in a redundant loop (each task acquired the lock briefly, then released it; the next duplicate acquired it; repeat).
+
+Root cause: **`select_for_update(skip_locked=True)` in `transfer_files_async` is released as soon as the `with transaction.atomic()` block exits at `itemqueue/tasks.py:418` (~10ms after acquire).** The lock is meant to close the duplicate-row race (which it does — FileTransfer rows are protected by `UniqueConstraint`), but it does NOT close the duplicate-work race. Four tasks for the same hash sequentially each spend an hour transferring the same files.
+
+This is oracle's Hypothesis 2 from the 2026-09-01 incident report — confirmed in production after the three hot-fixes landed.
+
+### Known items in known states (as of 2026-09-01 ~02:50 UTC)
+
+- **Hash `44C87CC876D3326C62A1FCD438D5DB12D3C4EFC1`** (the long-running stalled torrent): status=Failed, 682 FileTransfer rows (~132 completed). Was the test case for the original recovery loop; now also the test case for the duplicate-work race.
+- **Four Sonarr items** (hashes start with `SABnzbd_nzo_`, `EB7C482969E8`, `BEB1140657FC`): reset to Grabbed via the queue UI after `c2323f4` landed; were the items that triggered the 2026-09-01 incident. None have transfers. Celery currently STOPPED — they will NOT attempt to transfer until the Redis queue is flushed and celery is restarted.
+- **Celery is currently STOPPED** (`supervisorctl stop celery-worker celery-beat`) — the operator manually stopped it to break the duplicate-dispatch cascade. UI is currently responsive because gunicorn has no DB connection competition.
+- **Gunicorn was manually restarted** after its workers timed out and died (`supervisorctl restart django` from the docker host). New master pid 692, workers spawned successfully.
+- **Redis queue contains 4 stale `transfer_files_async` tasks** (task ids `ba98d627-bc0c-461b-a532-22035f34d12b`, `70c57fb7-10f9-4ee5-8cdb-559b38dcb923`, `fd5f27ce-f884-4020-8d83-81cfd3b3b0a3`, `d11e5115-2b53-4760-8f3f-757296f9120f`) — all `redelivered=True`. `redis-cli` is not installed in the harpoon2 container, so the queue cannot be flushed from inside it. The harpoon2-redis container has it.
+
+### Operational notes for the current container state
+
+- Container name is `harpoon2` (NOT `harpoon2-app` — older AGENTS.md references were stale).
+- Postgres container is `harpoon2-postgres`. Redis container is `harpoon2-redis`.
+- Access from this dev machine: `ssh docker` (no credentials required), then `docker exec harpoon2 ...`.
+- `supervisord.conf` runs gunicorn with `--workers 3 --threads 2 --timeout 60` (from earlier commit `21cf0c1`). Workers died once already (2026-09-01) under DB starvation; `--timeout 60` killed them; new master spawned workers successfully after restart.
+- Celery worker command is `celery -A harpoon2 worker -l debug --max-tasks-per-child=10`.
+- Postgres `max_connections = 100`, `CONN_MAX_AGE = 60s` (in `harpoon2/settings_template.py`).
+- **Do not restart celery until the dispatcher back-pressure fix from Phase 6 is in place.** The 4 stale Redis tasks will re-fire on restart and re-saturate the worker pool.
+
+### If asked "why does the UI keep dying / why is the recovery looping", answer:
+
+> The recovery loop is a structural problem with multiple layers. Phase 5 closed three layers (data-layer races, retry storms, legacy recovery-block interleaving) and the three hot-fix patches closed two more (`check_downloaders` duplicate dispatch + `cancel_postprocessing` state-clear). What remains is the **dispatcher back-pressure layer**: multiple dispatch paths can each queue `transfer_files_async` for the same item hash within the same second, and the `select_for_update` lock doesn't prevent duplicate *work*, only duplicate *rows*. Phase 6 must close this with a per-hash Redis counter or a `try_acquire` semaphore, plus drain-on-idle for the celery beat scheduler so `check_downloaders` and `check_stalled_transfers` pause when the worker pool is saturated. **Do not chase symptoms with another hot-patch.**
+
+### Phase 6: Dispatch Back-Pressure (planned — DO NOT START WITHOUT A PLAN)
+
+Scope of Phase 6 (sequence-dependent, with rollback at each step):
+
+1. **Per-hash transfer semaphore** — Redis `INCR` on `transfer_lock:{item_hash}` after the `select_for_update` lock; if counter > 1, the task exits cleanly. 5-minute TTL on the key. Single-line atomic guard, no schema change. Closes the duplicate-work race immediately.
+2. **Drain-on-idle for celery beat** — `check_downloaders` and `check_stalled_transfers` check `celery inspect active` (or `redis LLEN celery`) before dispatching; pause if active count >= concurrency threshold. Prevents re-dispatch into a saturated pool.
+3. **Single source of truth for "is this item being worked on"** — `Item.transfer_in_flight` boolean column (or a Redis `SETNX item:{hash}:working EX 7200`) replaces the implicit "status == PostProcessing" check. `postprocess_item`, `check_downloaders`, `check_stalled_transfers`, and `transfer_files_async` all read this one signal instead of inferring from status.
+4. **Tenant quota for `transfer_files_async`** — cap concurrent tasks per `(downloader_id, item_size_bucket)` to prevent one large file from holding 4 worker slots. If item size > 50GB, dispatch with `--soft-time-limit=3600` and dedicated queue.
+5. **Redis flush in recovery script** — `bin/recover.sh` that wraps `docker exec harpoon2-redis redis-cli FLUSHDB` + `supervisorctl restart celery-worker celery-beat` + a post-restart sanity check (active count <= concurrency).
+
+The four items currently in `Grabbed` should NOT be touched until plan 1 is in place. Once plan 1 is in: flush Redis, restart celery, the items will pick up one-at-a-time with no duplicate-dispatch.
