@@ -474,12 +474,12 @@ def transfer_files_async(item_hash):
                 item = (
                     Item.objects
                     .select_for_update(skip_locked=True)
-                    .filter(hash=item_hash.lower())
+                    .filter(hash__iexact=item_hash)
                     .first()
                 )
             else:
                 # Legacy: simple get without lock. Faster but unsafe under concurrency.
-                item = Item.objects.filter(hash=item_hash.lower()).first()
+                item = Item.objects.filter(hash__iexact=item_hash).first()
     except Item.DoesNotExist:
         # filter().first() returns None, not raises — this branch is unreachable
         # but kept for defensive coverage during the cutover.
@@ -1326,7 +1326,7 @@ def postprocess_item(item_hash):
     """Post-process a completed download: mark as completed and queue async file transfer."""
     logger.info(f"[postprocess_item] Starting post-processing for item {item_hash}")
     try:
-        item = Item.objects.get(hash=item_hash.lower())
+        item = Item.objects.filter(hash__iexact=item_hash).first()
     except Item.DoesNotExist:
         logger.error(f"[postprocess_item] Item {item_hash} not found in database")
         return
@@ -1905,7 +1905,7 @@ def retry_postprocessing(item_hash, attempt=1):
         return
 
     try:
-        item = Item.objects.get(hash=item_hash.lower())
+        item = Item.objects.filter(hash__iexact=item_hash).first()
     except Item.DoesNotExist:
         logger.error(f"Item {item_hash} not found for retry_postprocessing")
         return
@@ -1916,7 +1916,7 @@ def retry_postprocessing(item_hash, attempt=1):
     # 4th invocation is a no-op.
     if attempt > RETRY_CAP_ATTEMPTS or item.attempt_count >= RETRY_CAP_ATTEMPTS:
         logger.warning(f"[retry_postprocessing] Item {item_hash[:16]} hit PIPE-01 cap at attempt {attempt}; marking Failed")
-        Item.objects.filter(hash=item_hash.lower()).update(status='Failed')
+        Item.objects.filter(hash__iexact=item_hash).update(status='Failed')
         return
 
     # PIPE-03: cooldown gate via Item.last_recovery_at (same source as
@@ -1994,12 +1994,12 @@ def retry_postprocessing(item_hash, attempt=1):
                     next_attempt = attempt + 1
                     if next_attempt > RETRY_CAP_ATTEMPTS:
                         logger.warning(f"[retry_postprocessing] Item {item_hash[:16]} hit PIPE-01 cap; marking Failed")
-                        Item.objects.filter(hash=item_hash.lower()).update(status='Failed')
+                        Item.objects.filter(hash__iexact=item_hash).update(status='Failed')
                         return
                     # Write attempt_count + last_recovery_at BEFORE apply_async
                     # (Pitfall 2 race fix — the next worker that reads sees the
                     # new value; the deterministic task_id is the broker-side dedup).
-                    Item.objects.filter(hash=item_hash.lower()).update(
+                    Item.objects.filter(hash__iexact=item_hash).update(
                         attempt_count=next_attempt,
                         last_recovery_at=timezone.now(),
                     )
@@ -2027,7 +2027,7 @@ def _legacy_retry_postprocessing(item_hash):
     deterministic task_id, no last_recovery_at cooldown.
     """
     try:
-        item = Item.objects.get(hash=item_hash.lower())
+        item = Item.objects.filter(hash__iexact=item_hash).first()
     except Item.DoesNotExist:
         logger.error(f"Item {item_hash} not found for retry_postprocessing")
         return
