@@ -1041,17 +1041,21 @@ class Bindery:
         return path
 
     @api_retry()
+    def _api_get(self, url, params=None):
+        # timeout=(connect, read): prevents a dead manager API from pinning
+        # the caller's Celery worker slot + Postgres connection.
+        return requests.get(url, params=params, headers=self.headers, timeout=10)
+
     def test(self):
         """Test Bindery API connection."""
         import logging
-        import requests
         logger = logging.getLogger(__name__)
 
         url = self.apiurl + '/health'
         logger.info(f"[Bindery test] Testing connection to {url}")
 
         try:
-            r = requests.get(url, headers=self.headers, timeout=10)
+            r = self._api_get(url)
             if r.status_code == 200:
                 return True, r.json()
             elif r.status_code == 401:
