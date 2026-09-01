@@ -170,6 +170,13 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 
+# Phase 5 pipeline hardening feature flag. Defaults to True; set
+# PIPELINE_HARDENING_ENABLED=false to revert to legacy behavior (the
+# simple Item.objects.get lookup without row locks). Same env-var pattern
+# as USE_POSTGRES above. This plan only DEFINES the setting — the wiring
+# into task bodies happens in later Phase 5 plans.
+PIPELINE_HARDENING_ENABLED = os.environ.get('PIPELINE_HARDENING_ENABLED', 'true').lower() == 'true'
+
 # Internationalization
 # https://docs.djangoproject.com/en/3.1/topics/i18n/
 

@@ -26,6 +26,12 @@ class Item(models.Model):
     archived = models.BooleanField(default=False, db_index=True)
     archived_at = models.DateTimeField(null=True, blank=True)
 
+    # Phase 5 recovery-loop cooldown. NULL means "cooldown elapsed" — no
+    # backfill needed. db_index=True keeps the check_stalled query
+    # (Q(last_recovery_at__isnull=True) | Q(last_recovery_at__lt=now-60s))
+    # indexed.
+    last_recovery_at = models.DateTimeField(null=True, blank=True, db_index=True, help_text='Last time the recovery loop requeued this item; NULL means cooldown elapsed.')
+
     class Meta:
         indexes = [
             models.Index(fields=['status', 'archived', '-modified']),
