@@ -1477,7 +1477,7 @@ def postprocess_item(item_hash):
         item.save()
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def check_downloaders():
     """Check all configured downloaders for completed downloads."""
     logger.debug(f"[check_downloaders] Starting downloader check")
@@ -1823,7 +1823,7 @@ def _legacy_check_stalled_transfers():
         logger.info(f"Detected and failed {stalled_count} stalled transfers")
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def check_stalled_transfers():
     """Check for stalled transfers and restart them if they haven't progressed in 5+ minutes."""
     import logging
@@ -2162,7 +2162,7 @@ def _legacy_retry_postprocessing(item_hash):
         ItemHistory.objects.create(item=item, details=f'Retry failed with error: {str(e)}')
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def check_downloader_failures():
     """Check downloader for failed downloads and report them to manager.
     
@@ -2241,3 +2241,84 @@ def check_downloader_failures():
         
         except Exception as e:
             logger.error(f"Error checking {downloader.name} for failures: {e}")
+
+
+# -----------------------------------------------------------------------------
+# Self-healing watchdog
+# -----------------------------------------------------------------------------
+# The celery worker pool can fill with hung beat tasks (poll_managers hanging
+# on a slow manager API, etc.). Without intervention, those tasks hold their
+# worker slot indefinitely, blocking all subsequent dispatch. Combined with
+# Redis filling up with stale redelivered tasks, the system grinds to a halt.
+#
+# This watchdog runs as a beat task (every 60s) and:
+#   1. Checks Redis queue depth via LLEN. If >REDIS_QUEUE_FLUSH_THRESHOLD,
+#      runs FLUSHDB (the harpoon2 container's redis-cli is not installed;
+#      this runs from inside Python instead).
+#   2. Checks celery active tasks for ones older than ACTIVE_TASK_MAX_AGE_SECONDS.
+#      The time_limit on each beat task should already kill them, but this is
+#      defense in depth (the timestamp comes from `time_start` in inspect.active).
+#
+# Result: the system self-heals. No docker exec required.
+
+import time
+import redis as _redis_lib
+
+REDIS_QUEUE_FLUSH_THRESHOLD = 50  # tasks waiting in queue
+ACTIVE_TASK_MAX_AGE_SECONDS = 600  # 10 min — anything older is wedged
+
+_watchdog_state = {'last_flush_log_at': 0.0}
+
+
+@shared_task(time_limit=60, soft_time_limit=45, name='itemqueue.tasks.celery_watchdog')
+def celery_watchdog():
+    """Beat-scheduled self-healing task. Flushes Redis if the queue is wedged."""
+    from django.conf import settings
+    broker_url = getattr(settings, 'CELERY_BROKER_URL', None)
+    if not broker_url:
+        return
+    try:
+        r = _redis_lib.Redis.from_url(broker_url)
+    except Exception as e:
+        logger.warning(f'[celery_watchdog] could not connect to Redis: {e}')
+        return
+
+    # 1. Queue-depth check.
+    try:
+        depth = r.llen('celery')
+    except Exception as e:
+        logger.warning(f'[celery_watchdog] LLEN failed: {e}')
+        depth = None
+
+    if depth is not None and depth > REDIS_QUEUE_FLUSH_THRESHOLD:
+        now = time.monotonic()
+        # Throttle the log/flush so we don't spam during sustained backpressure.
+        if now - _watchdog_state['last_flush_log_at'] > 60:
+            logger.warning(
+                f'[celery_watchdog] queue depth {depth} > {REDIS_QUEUE_FLUSH_THRESHOLD}; '
+                f'flushing Redis to clear stale redelivered tasks'
+            )
+            _watchdog_state['last_flush_log_at'] = now
+        try:
+            r.flushdb()
+        except Exception as e:
+            logger.warning(f'[celery_watchdog] FLUSHDB failed: {e}')
+
+    # 2. Active-task-age check (defense in depth — time_limit should already kill them).
+    try:
+        from harpoon2.celery import app as _celery_app
+        active = _celery_app.control.inspect().active() or {}
+    except Exception as e:
+        logger.debug(f'[celery_watchdog] inspect failed: {e}')
+        return
+
+    now = time.monotonic()
+    for worker, tasks in active.items():
+        for t in tasks:
+            age = now - float(t.get('time_start', now))
+            if age > ACTIVE_TASK_MAX_AGE_SECONDS:
+                logger.warning(
+                    f'[celery_watchdog] task {t.get("name")} on {worker} has been '
+                    f'running for {age:.0f}s (> {ACTIVE_TASK_MAX_AGE_SECONDS}s); '
+                    f'it should have hit time_limit — investigate'
+                )

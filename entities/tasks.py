@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def poll_managers():
     """Poll all managers for newly grabbed items."""
     for manager in Manager.objects.all():
@@ -232,7 +232,7 @@ def queue_cronjob():
     poll_managers()
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def poll_blackhole_managers():
     """Poll all Blackhole managers for new .nzb and .torrent files."""
     from entities.models import Manager
@@ -391,7 +391,7 @@ def poll_blackhole_manager(manager_id):
         logger.info(f"Blackhole manager {manager.name} processed {processed_count} files")
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def assign_items_to_downloaders():
     """Assign items to downloaders based on the download client they use."""
     from itemqueue.models import Item
@@ -481,7 +481,7 @@ def assign_items_to_downloaders():
             logger.error(f"Error assigning item {item.hash}: {e}")
 
 
-@shared_task
+@shared_task(time_limit=300, soft_time_limit=240)
 def cache_downloader_status():
     """Poll all downloaders and cache their status for fast page loads."""
     from entities.models import Downloader, CachedDownloaderStatus

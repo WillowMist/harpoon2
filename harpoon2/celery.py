@@ -67,6 +67,13 @@ app.conf.beat_schedule = {
         'task': 'harpoon2.tasks.cleanup_sessions',
         'schedule': crontab(hour=3, minute=0),  # Daily at 3am
     },
+    # Self-healing watchdog — flushes Redis queue when wedged and logs
+    # tasks that exceed the safety age threshold. Runs every 60s; bounded
+    # by its own 60s time_limit.
+    'celery-watchdog': {
+        'task': 'itemqueue.tasks.celery_watchdog',
+        'schedule': 60.0,
+    },
 }
 
 # Also set as CELERY_BEAT_SCHEDULE for backwards compatibility
