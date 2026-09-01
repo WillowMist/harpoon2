@@ -1226,7 +1226,18 @@ def postprocess_item(item_hash):
     except Item.DoesNotExist:
         logger.error(f"[postprocess_item] Item {item_hash} not found in database")
         return
-    
+
+    # Idempotency guard: only act on Grabbed items. check_downloaders fires
+    # every 20s and would otherwise re-dispatch transfer_files_async for
+    # already-pending items, which is what produced the post-Phase-5 worker
+    # pile-up (see incident: "items reset to Grabbed, UI unresponsive").
+    if item.status != 'Grabbed':
+        logger.info(
+            f"[postprocess_item] Skipping {item_hash}: status={item.status}, "
+            f"not Grabbed — already handled"
+        )
+        return
+
     logger.info(f"[postprocess_item] Processing {item.name} (current_status={item.status})")
     
     if not item.downloader:
