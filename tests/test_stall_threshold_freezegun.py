@@ -21,7 +21,7 @@ from itemqueue.models import Item, FileTransfer
 from itemqueue.tasks import (
     check_stalled_transfers,
     STALL_THRESHOLD_SECONDS,
-    SFTP_GET_TIMEOUT_SECONDS,
+    SFTP_STALL_TIMEOUT_SECONDS,
 )
 
 
@@ -50,9 +50,9 @@ def _ensure_item_category_column(db):
 
 
 def test_stall_threshold_constants_pinned():
-    """The stall threshold and the SFTP watchdog timeout must both be 300s."""
+    """The stall threshold (recovery tick) is 300s; the SFTP watchdog is the no-progress stall window (180s default)."""
     assert STALL_THRESHOLD_SECONDS == 300
-    assert SFTP_GET_TIMEOUT_SECONDS == 300
+    assert SFTP_STALL_TIMEOUT_SECONDS == 180
 
 
 @pytest.mark.django_db

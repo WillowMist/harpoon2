@@ -1,16 +1,19 @@
 """Tests for the SFTP stall watchdog in itemqueue.tasks.
 
-Covers _sftp_get_with_timeout and _stoppable_progress_callback.
+Covers _sftp_get_with_timeout and _stoppable_progress_callback. The
+watchdog fires on NO-PROGRESS (configurable via SFTP_STALL_TIMEOUT_SECONDS,
+default 180s) rather than a wall-clock cap on the whole transfer — so
+large 30-40GB files can run as long as they're actively progressing.
 """
 import threading
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from itemqueue.tasks import (
     SFTPStallTimeout,
-    SFTP_GET_TIMEOUT_SECONDS,
+    SFTP_STALL_TIMEOUT_SECONDS,
     _sftp_get_with_timeout,
     _stoppable_progress_callback,
 )
@@ -44,41 +47,52 @@ class TestStoppableProgressCallback:
 
 
 class TestSftpGetWithTimeout:
-    """Wall-clock timeout for sftp.get() — the heart of fix B."""
+    """Stall-detection watchdog for sftp.get() — fires on no-progress."""
 
-    def test_returns_normally_when_get_finishes_in_time(self):
+    def test_returns_normally_when_get_finishes_with_progress(self):
+        """An sftp.get() that completes AND reports progress returns normally."""
         sftp = MagicMock()
-        sftp.get.return_value = None
+        progress_state = {'done': False}
+
+        def fake_get(remote, local, callback=None):
+            # Emit one progress callback then return.
+            callback(100, 1_000_000)
+            progress_state['done'] = True
+
+        sftp.get = fake_get
         callback = MagicMock()
-        _sftp_get_with_timeout(sftp, "/remote", "/local", callback, timeout=2)
-        sftp.get.assert_called_once()
+        _sftp_get_with_timeout(sftp, '/remote', '/local', callback, stall_timeout=2)
+        assert progress_state['done']
         sftp.close.assert_not_called()
+        callback.assert_called_once()
 
     def test_propagates_exception_from_inside_get(self):
         """Real SFTP errors (socket.error, IOError) must propagate, not be swallowed."""
         sftp = MagicMock()
-        sftp.get.side_effect = IOError("seedbox connection reset")
-        callback = MagicMock()
-        with pytest.raises(IOError, match="seedbox connection reset"):
-            _sftp_get_with_timeout(sftp, "/remote", "/local", callback, timeout=2)
+        sftp.get = MagicMock(side_effect=IOError('seedbox connection reset'))
+        with pytest.raises(IOError, match='seedbox connection reset'):
+            _sftp_get_with_timeout(sftp, '/remote', '/local', MagicMock(), stall_timeout=2)
 
-    def test_raises_stall_timeout_when_get_hangs(self):
-        """The headline behavior: a hanging sftp.get() raises SFTPStallTimeout."""
+    def test_raises_stall_timeout_when_get_hangs_without_progress(self):
+        """The headline behavior: a hanging sftp.get() with NO progress raises SFTPStallTimeout."""
         sftp = MagicMock()
 
         def hang(*args, **kwargs):
-            # Block until released — simulate the dead-seedbox stall
+            # Block forever, never call the progress callback — simulates a
+            # dead seedbox where the SSH channel is alive but no data flows.
             time.sleep(5)
             return None
 
-        sftp.get.side_effect = hang
-        # timeout=0.3s means the join returns within ~0.3s; hang() runs for 5s
+        sftp.get = hang
+        # stall_timeout=0.5s. The watchdog polls every 1s but the FIRST
+        # poll at t=1 already has elapsed_stall=1.0s > 0.5s, so it fires
+        # immediately on the first cycle.
         t0 = time.monotonic()
-        with pytest.raises(SFTPStallTimeout, match="did not return within 0.3"):
-            _sftp_get_with_timeout(sftp, "/remote", "/local", MagicMock(), timeout=0.3)
+        with pytest.raises(SFTPStallTimeout, match='stalled'):
+            _sftp_get_with_timeout(sftp, '/remote', '/local', MagicMock(), stall_timeout=0.5)
         elapsed = time.monotonic() - t0
-        # Should return in ~timeout, not in the 5s hang() — proves the watchdog fires
-        assert elapsed < 2.0, f"watchdog took {elapsed:.2f}s — should be ~0.3s"
+        # Should fire within ~1s (one poll cycle), not 5s.
+        assert elapsed < 3.0, f'watchdog took {elapsed:.2f}s — should be ~1s'
 
     def test_stall_timeout_closes_sftp_channel(self):
         """On stall, the watchdog closes sftp to signal the leaked thread to exit."""
@@ -87,9 +101,9 @@ class TestSftpGetWithTimeout:
         def hang(*args, **kwargs):
             time.sleep(5)
 
-        sftp.get.side_effect = hang
+        sftp.get = hang
         with pytest.raises(SFTPStallTimeout):
-            _sftp_get_with_timeout(sftp, "/remote", "/local", MagicMock(), timeout=0.2)
+            _sftp_get_with_timeout(sftp, '/remote', '/local', MagicMock(), stall_timeout=0.3)
         sftp.close.assert_called_once()
 
     def test_stall_timeout_swallows_sftp_close_errors(self):
@@ -99,17 +113,17 @@ class TestSftpGetWithTimeout:
         def hang(*args, **kwargs):
             time.sleep(5)
 
-        sftp.get.side_effect = hang
-        sftp.close.side_effect = OSError("channel already closed")
+        sftp.get = hang
+        sftp.close.side_effect = OSError('channel already closed')
         with pytest.raises(SFTPStallTimeout):
-            _sftp_get_with_timeout(sftp, "/remote", "/local", MagicMock(), timeout=0.2)
+            _sftp_get_with_timeout(sftp, '/remote', '/local', MagicMock(), stall_timeout=0.3)
         # close was attempted (and swallowed)
         sftp.close.assert_called_once()
 
-    def test_progress_callback_stops_after_timeout(self):
-        """After the watchdog raises, the stop_event is set — leaked thread's
-        progress callback must not bump the DB. We verify by capturing the
-        wrapped callback that _sftp_get_with_timeout passes to sftp.get."""
+    def test_progress_callback_stops_after_stall(self):
+        """After the watchdog raises, the stop_event is set — the leaked thread's
+        progress callback must not bump the inner callback. We verify by capturing
+        the wrapped callback that _sftp_get_with_timeout passes to sftp.get."""
         sftp = MagicMock()
         captured = {}
 
@@ -117,24 +131,19 @@ class TestSftpGetWithTimeout:
             captured['cb'] = callback
             time.sleep(5)
 
-        sftp.get.side_effect = hang
+        sftp.get = hang
         inner = MagicMock()
         with pytest.raises(SFTPStallTimeout):
-            _sftp_get_with_timeout(sftp, "/remote", "/local", inner, timeout=0.2)
+            _sftp_get_with_timeout(sftp, '/remote', '/local', inner, stall_timeout=0.3)
         # Now invoke the captured callback — it should short-circuit
         captured['cb'](100, 1000)
         inner.assert_not_called()
 
 
 class TestSftpGetTimeoutConstant:
-    """The timeout constant should match the stall detector's threshold."""
+    """The SFTP stall timeout defaults to 3 minutes (180s) of no-progress."""
 
-    def test_default_matches_stall_threshold(self):
-        # check_stalled_transfers uses 5 minutes; the watchdog should fire at the
-        # same point so the worker doesn't outlive the operator-visible stall
-        # by an order of magnitude. Lock-in test so a future refactor doesn't
-        # quietly drift them apart.
+    def test_default_is_three_minutes(self):
         from datetime import timedelta
-        from itemqueue.tasks import check_stalled_transfers  # noqa: F401
-        assert SFTP_GET_TIMEOUT_SECONDS == 300
-        assert timedelta(minutes=5).total_seconds() == SFTP_GET_TIMEOUT_SECONDS
+        assert SFTP_STALL_TIMEOUT_SECONDS == 180
+        assert timedelta(minutes=3).total_seconds() == SFTP_STALL_TIMEOUT_SECONDS

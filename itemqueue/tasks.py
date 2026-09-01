@@ -87,17 +87,27 @@ def _active_transfer_count():
 
 
 # Wall-clock timeout for a single sftp.get() call. Mirrors the stall-detection
-# threshold in check_stalled_transfers (5 minutes) so the watchdog fires at the
-# same point the operator would otherwise see the transfer marked stalled.
-# Without this, sftp.get() can hang indefinitely when the seedbox stops sending
+# threshold in check_stalled_transfers so the watchdog and the recovery tick
+# fire at the same boundary. Tunable via SFTP_STALL_TIMEOUT_SECONDS / STALL_THRESHOLD_SECONDS.
+# Without these, sftp.get() can hang indefinitely when the seedbox stops sending
 # data but keeps the SSH channel alive via keepalives — the Celery worker
 # holds the slot until task_time_limit (1h).
-SFTP_GET_TIMEOUT_SECONDS = 300
+#
+# IMPORTANT: SFTP_STALL_TIMEOUT_SECONDS is a NO-PROGRESS stall window, NOT a
+# wall-clock cap on the whole transfer. Large 30-40GB files legitimately take
+# longer than the old 5-minute wall-clock budget — they only fail if there's
+# no progress for the configured stall window.
+SFTP_STALL_TIMEOUT_SECONDS = int(os.environ.get('SFTP_STALL_TIMEOUT_SECONDS', '180'))
 
-# Stall-detection threshold for check_stalled_transfers. Mirrors
-# SFTP_GET_TIMEOUT_SECONDS so the watchdog and the recovery tick fire at the
-# same wall-clock boundary (5 minutes).
-STALL_THRESHOLD_SECONDS = 300
+# Hard cap on a single sftp.get() call as a safety net (24h default). Fires
+# only if the file has been actively progressing this whole time. Tunable via
+# the SFTP_MAX_TRANSFER_SECONDS env var.
+SFTP_MAX_TRANSFER_SECONDS = int(os.environ.get('SFTP_MAX_TRANSFER_SECONDS', '86400'))
+
+# Stall-detection threshold for check_stalled_transfers (recovery tick, not the
+# SFTP watchdog). Unchanged from Phase 5-03 default — the SFTP_STALL_TIMEOUT_SECONDS
+# change is independent of the recovery loop's behavior.
+STALL_THRESHOLD_SECONDS = int(os.environ.get('STALL_THRESHOLD_SECONDS', '300'))
 
 # PIPE-03: cooldown between recovery dispatches for the same Item. Tighter
 # than the legacy 5-minute Block B cooldown; Item.last_recovery_at is the
@@ -111,10 +121,13 @@ RETRY_CAP_ATTEMPTS = 3
 
 
 class SFTPStallTimeout(Exception):
-    """Raised when sftp.get() does not return within SFTP_GET_TIMEOUT_SECONDS.
+    """Raised when sftp.get() shows no progress for SFTP_STALL_TIMEOUT_SECONDS.
 
     The caller is expected to handle this in its retry loop, clean up the
-    partial local file, and reconnect to the seedbox.
+    partial local file, and reconnect to the seedbox. Note that this is a
+    NO-PROGRESS stall window — large files that are actively transferring
+    never trigger this; only transfers where the seedbox stops sending
+    data while keeping the SSH channel alive do.
     """
     pass
 
@@ -136,48 +149,88 @@ def _stoppable_progress_callback(inner_callback, stop_event):
     return wrapped
 
 
-def _sftp_get_with_timeout(sftp, remote, local, callback, timeout):
-    """Run sftp.get() with a hard wall-clock timeout.
+def _sftp_get_with_timeout(sftp, remote, local, callback, stall_timeout, max_total=None):
+    """Run sftp.get() with a STALL (no-progress) timeout and an optional max-total cap.
 
-    If the call hangs longer than `timeout` seconds (typical: seedbox stalls
-    mid-file but keeps the SSH channel alive via keepalives), set the stop
-    event so the progress callback stops bumping DB rows, close the SFTP
-    channel so the leaked worker thread can exit, and raise SFTPStallTimeout.
+    The transfer itself runs as long as it's making progress. Only when
+    `stall_timeout` seconds pass WITHOUT any progress being reported does
+    this raise SFTPStallTimeout (typical cause: seedbox stalled mid-file
+    but kept the SSH channel alive via keepalives). Set the stop event so
+    the progress callback stops bumping DB rows, close the SFTP channel so
+    the leaked worker thread can exit, and raise.
+
+    `max_total` is a wall-clock safety cap (default: SFTP_MAX_TRANSFER_SECONDS,
+    24h by default). Fires only if the file has been actively progressing this
+    whole time — it's the "no transfer runs forever" guard, not the stall
+    detector.
 
     The leaked thread is `daemon=True` and will be reaped by Celery's
     task_time_limit (1h) if sftp.close() races. The progress_callback's
     stop_event prevents the leaked thread from corrupting the FileTransfer
     row after we've decided the transfer failed.
     """
+    import time
+    if max_total is None:
+        max_total = SFTP_MAX_TRANSFER_SECONDS
+
     stop_event = threading.Event()
     holder = {'exc': None}
+    progress_state = {'last_progress_at': time.monotonic()}
+
+    def _progress_wrapper(bytes_so_far, bytes_total):
+        # Bump the last-progress timestamp on every callback. The stall
+        # detector in the watcher loop checks this against the threshold.
+        progress_state['last_progress_at'] = time.monotonic()
+        callback(bytes_so_far, bytes_total)
 
     def _runner():
         try:
-            sftp.get(remote, local, callback=_stoppable_progress_callback(callback, stop_event))
+            sftp.get(remote, local, callback=_stoppable_progress_callback(_progress_wrapper, stop_event))
         except Exception as e:
             # Expected if we close the channel mid-call. Don't propagate —
-            # the join/timeout check below decides whether we report success
-            # or raise SFTPStallTimeout.
+            # the watcher loop below decides whether we report success or
+            # raise SFTPStallTimeout.
             holder['exc'] = e
 
     t = threading.Thread(target=_runner, daemon=True, name=f"sftp-get-{os.path.basename(remote)[:40]}")
     t.start()
-    t.join(timeout=timeout)
 
-    if t.is_alive():
-        logger.error(
-            f"SFTP get stalled after {timeout}s for {remote}; "
-            f"closing channel and raising SFTPStallTimeout (worker thread will be reaped by task_time_limit)"
-        )
-        stop_event.set()  # tell progress callback to stop touching the DB
-        try:
-            sftp.close()
-        except Exception as close_exc:
-            logger.debug(f"sftp.close() after stall raised: {close_exc}")
-        # Do NOT wait for the leaked thread — it's daemon=True and will be reaped
-        # when the worker process exits. Waiting here just blocks the worker.
-        raise SFTPStallTimeout(f"sftp.get() did not return within {timeout}s for {remote}")
+    start = time.monotonic()
+    while t.is_alive():
+        time.sleep(1)
+        now = time.monotonic()
+        elapsed_total = now - start
+        elapsed_stall = now - progress_state['last_progress_at']
+
+        # Hard wall-clock cap (safety net for runaway transfers).
+        if elapsed_total > max_total:
+            logger.error(
+                f"SFTP get exceeded max_total={max_total}s for {remote}; "
+                f"closing channel and raising SFTPStallTimeout"
+            )
+            stop_event.set()
+            try:
+                sftp.close()
+            except Exception as close_exc:
+                logger.debug(f"sftp.close() after max_total raised: {close_exc}")
+            raise SFTPStallTimeout(
+                f"sftp.get() exceeded {max_total}s wall-clock for {remote}"
+            )
+
+        # No-progress stall detector (the actual fix).
+        if elapsed_stall > stall_timeout:
+            logger.error(
+                f"SFTP get stalled for {elapsed_stall:.0f}s (no progress for {stall_timeout}s threshold) "
+                f"for {remote}; closing channel and raising SFTPStallTimeout"
+            )
+            stop_event.set()
+            try:
+                sftp.close()
+            except Exception as close_exc:
+                logger.debug(f"sftp.close() after stall raised: {close_exc}")
+            raise SFTPStallTimeout(
+                f"sftp.get() stalled for {elapsed_stall:.0f}s (no progress) for {remote}"
+            )
 
     if holder['exc'] is not None:
         raise holder['exc']
@@ -1039,13 +1092,15 @@ def transfer_files_async(item_hash):
                         
                         # Download file with progress tracking + stall watchdog.
                         # _sftp_get_with_timeout raises SFTPStallTimeout if sftp.get()
-                        # hangs longer than SFTP_GET_TIMEOUT_SECONDS — without this,
-                        # a dead seedbox can hold the Celery worker hostage for up to
-                        # task_time_limit (1h).
+                        # hangs when the seedbox stops sending data without closing
+                        # the SSH channel — without this, a dead seedbox can hold
+                        # the Celery worker hostage for up to task_time_limit (1h).
+                        # SFTP_STALL_TIMEOUT_SECONDS is the no-progress stall window,
+                        # NOT a wall-clock cap on the whole transfer.
                         _sftp_get_with_timeout(
                             sftp, remote_file_path, local_path,
                             callback=progress_callback,
-                            timeout=SFTP_GET_TIMEOUT_SECONDS,
+                            stall_timeout=SFTP_STALL_TIMEOUT_SECONDS,
                         )
                         
                         # Update transfer record - mark as completed
