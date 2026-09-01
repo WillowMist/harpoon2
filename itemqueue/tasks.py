@@ -38,6 +38,54 @@ def _get_redis_client():
 logger = logging.getLogger(__name__)
 
 
+# Phase 6-02 drain-on-idle cache. _active_transfer_count() hits the celery
+# inspect endpoint on every call; the 5s cache stops beat ticks (20s apart)
+# from hammering it. {'value': count, 'ts': monotonic timestamp}.
+_active_count_cache = {'value': 0, 'ts': 0}
+
+
+def _active_transfer_count():
+    """Number of transfer_files_async tasks currently active on the celery pool.
+
+    Drain-on-idle gate for the dispatchers (check_downloaders,
+    _recover_one_item). If the count is >= MAX_CONCURRENT_TRANSFERS the
+    dispatcher skips the current tick and the item waits for a slot to free.
+
+    Fails OPEN: if the inspect endpoint is unreachable we log a warning and
+    return 0 so dispatch proceeds (the per-hash Redis semaphore from 06-01
+    and the select_for_update lock from Phase 5-04 remain the backstops).
+
+    The broker connection is bounded via broker_transport_options max_retries
+    so a down broker fails fast instead of hanging the beat tick: kombu's
+    retry_over_time deadline is computed from time.time(), which freezegun
+    freezes in tests — a count-based max_retries terminates regardless.
+    """
+    import time
+    now = time.monotonic()
+    if now - _active_count_cache['ts'] < 5:
+        return _active_count_cache['value']
+    try:
+        from harpoon2.celery import app as celery_app
+        old_transport_opts = celery_app.conf.broker_transport_options
+        celery_app.conf.broker_transport_options = {
+            'max_retries': 1,
+            'interval_start': 0,
+            'interval_step': 0,
+            'interval_max': 0,
+        }
+        try:
+            active = celery_app.control.inspect().active() or {}
+        finally:
+            celery_app.conf.broker_transport_options = old_transport_opts
+        count = sum(1 for tasks in active.values() for t in tasks
+                    if t.get('name', '').endswith('transfer_files_async'))
+    except Exception as e:
+        logger.warning(f"[drain] inspect failed: {e}; failing OPEN")
+        count = 0
+    _active_count_cache.update(value=count, ts=now)
+    return count
+
+
 # Wall-clock timeout for a single sftp.get() call. Mirrors the stall-detection
 # threshold in check_stalled_transfers (5 minutes) so the watchdog fires at the
 # same point the operator would otherwise see the transfer marked stalled.
@@ -1412,6 +1460,21 @@ def check_downloaders():
                                     logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - no downloader assigned yet (will retry later)")
                                 else:
                                     logger.info(f"[check_downloaders] {downloader.downloadertype}: Queueing postprocess_item for {item.name} (status={item.status})")
+                                    # Drain-on-idle gate (Phase 6-02): if the
+                                    # celery pool is already at the
+                                    # MAX_CONCURRENT_TRANSFERS threshold, skip
+                                    # this tick and let the item wait for a
+                                    # slot. Prevents re-dispatch into a
+                                    # saturated pool (the worker-saturates-
+                                    # gunicorn cycle from 2026-08-31).
+                                    max_active = getattr(settings, 'MAX_CONCURRENT_TRANSFERS', 2)
+                                    active = _active_transfer_count()
+                                    if active >= max_active:
+                                        logger.info(
+                                            f"[check_downloaders] active={active} >= "
+                                            f"{max_active}, skipping dispatch for {hash_value}"
+                                        )
+                                        continue
                                     postprocess_item.delay(hash_value)
                             else:
                                 logger.debug(f"[check_downloaders] {downloader.downloadertype}: Skipping {item.name} - already in status {item.status}")
@@ -1443,6 +1506,21 @@ def _recover_one_item(item, now):
         # Transfers are done; defer to the manager's own pipeline.
         # check_queue on Bindery (and the equivalent on other managers) owns status.
         return False
+
+    if has_failed or has_pending:
+        # Drain-on-idle gate (Phase 6-02): if the celery pool is already at
+        # the MAX_CONCURRENT_TRANSFERS threshold, defer recovery to the next
+        # tick. Returning False means the caller skips the last_recovery_at
+        # marker and the transfer_files_async dispatch, so the item stays a
+        # candidate and is picked up once a worker slot frees.
+        max_active = getattr(settings, 'MAX_CONCURRENT_TRANSFERS', 2)
+        active = _active_transfer_count()
+        if active >= max_active:
+            logger.info(
+                f"[_recover_one_item] active={active} >= {max_active}, "
+                f"deferring recovery for {item.hash} (next tick)"
+            )
+            return False
 
     return has_failed or has_pending
 

@@ -177,6 +177,12 @@ CELERY_RESULT_SERIALIZER = 'json'
 # into task bodies happens in later Phase 5 plans.
 PIPELINE_HARDENING_ENABLED = os.environ.get('PIPELINE_HARDENING_ENABLED', 'true').lower() == 'true'
 
+# Drain-on-idle threshold. If active transfer_files_async tasks >= this,
+# dispatchers skip the tick and the item waits. Default 2 leaves 2 of the 4
+# --concurrency=4 slots for gunicorn + short-lived tasks. Set higher for more
+# throughput, lower for more UI headroom.
+MAX_CONCURRENT_TRANSFERS = int(os.environ.get('MAX_CONCURRENT_TRANSFERS', '2'))
+
 # Internationalization
 # https://docs.djangoproject.com/en/3.1/topics/i18n/
 
