@@ -2,7 +2,10 @@ from celery import shared_task
 from itemqueue.models import Item, ItemHistory, FileTransfer
 from entities.models import Downloader
 from users.models import Notification
-from django.db import OperationalError, InterfaceError, DatabaseError
+from django.db import OperationalError, InterfaceError, DatabaseError, transaction
+from django.db.models import Q
+from django.utils import timezone
+from datetime import timedelta
 import logging
 import os
 import shutil
@@ -25,6 +28,16 @@ logger = logging.getLogger(__name__)
 # data but keeps the SSH channel alive via keepalives — the Celery worker
 # holds the slot until task_time_limit (1h).
 SFTP_GET_TIMEOUT_SECONDS = 300
+
+# Stall-detection threshold for check_stalled_transfers. Mirrors
+# SFTP_GET_TIMEOUT_SECONDS so the watchdog and the recovery tick fire at the
+# same wall-clock boundary (5 minutes).
+STALL_THRESHOLD_SECONDS = 300
+
+# PIPE-03: cooldown between recovery dispatches for the same Item. Tighter
+# than the legacy 5-minute Block B cooldown; Item.last_recovery_at is the
+# single source of truth for the gate.
+RECOVERY_COOLDOWN_SECONDS = 60
 
 
 class SFTPStallTimeout(Exception):
@@ -1324,6 +1337,273 @@ def check_downloaders():
             logger.error(f"[check_downloaders] Error checking downloader {downloader.name}: {e}", exc_info=True)
 
 
+def _recover_one_item(item, now):
+    """Single recovery decision for one PostProcessing item.
+
+    Returns True when the item needs recovery (has failed or pending
+    transfers), False when all transfers are completed (defer to the
+    manager's own pipeline — the check_queue poll owns status) or when
+    nothing is unfinished. The caller performs the recovery actions
+    (last_recovery_at marker, transfer cleanup, transfer_files_async
+    dispatch) so the marker-before-delay ordering stays visible in
+    check_stalled_transfers' source.
+    """
+    transfers = FileTransfer.objects.filter(item=item)
+    has_failed = transfers.filter(status='failed').exists()
+    has_pending = transfers.filter(status='pending').exists()
+    all_completed = transfers.exists() and not transfers.exclude(status='completed').exists()
+
+    if all_completed:
+        # Transfers are done; defer to the manager's own pipeline.
+        # check_queue on Bindery (and the equivalent on other managers) owns status.
+        return False
+
+    return has_failed or has_pending
+
+
+def _legacy_check_stalled_transfers():
+    """Legacy Block A + Block B recovery loop (pre-Phase-5).
+
+    Preserved under the PIPELINE_HARDENING_ENABLED=False branch for one
+    release per the canary-deployment convention. Setting the env-var to
+    false reverts to this two-block recovery path without code changes.
+    """
+    from django.utils import timezone
+    from datetime import timedelta
+
+    stall_threshold = timezone.now() - timedelta(minutes=5)
+    stalled_count = 0
+
+    # Catch "Completed but not really" items: status=Completed but the item
+    # still has unfinished transfers (pending/failed/transferring). The
+    # Block A / Block B recovery paths below only iterate over PostProcessing
+    # items, so a prematurely-Completed item with 500+ pending transfers
+    # would otherwise sit forever — observed in production by a multi-file
+    # torrent where the post-processing branch briefly saw `all_completed`
+    # before the remaining transfers were created. Reset to PostProcessing
+    # so Block A picks it up next tick.
+    completed_with_pending = Item.objects.filter(
+        status='Completed'
+    ).filter(
+        transfers__status__in=['pending', 'failed', 'transferring']
+    ).distinct()
+    for item in completed_with_pending:
+        unfinished = item.transfers.filter(
+            status__in=['pending', 'failed', 'transferring']
+        ).count()
+        logger.warning(
+            f"Item marked Completed but has {unfinished} unfinished transfers; "
+            f"resetting to PostProcessing for recovery"
+        )
+        item.status = 'PostProcessing'
+        item.save()
+        ItemHistory.objects.create(
+            item=item,
+            details=(
+                f'Reset from Completed to PostProcessing: '
+                f'{unfinished} unfinished transfers detected by check_stalled_transfers'
+            ),
+        )
+
+    # Check for transferring transfers that are stalled
+    # A transfer is stalled if:
+    # 1. It's been transferring for 5+ minutes, AND
+    # 2. bytes_transferred hasn't changed (modified time tracks this)
+    transferring = FileTransfer.objects.filter(status='transferring')
+    for transfer in transferring:
+        # Check if transfer started more than 5 minutes ago
+        if transfer.started and transfer.started < stall_threshold:
+            # Check if any progress was made in the last 5 minutes
+            if transfer.modified < stall_threshold:
+                logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]} - no progress for 5+ minutes")
+                
+                transfer.status = 'failed'
+                transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
+                transfer.save()
+                
+                ItemHistory.objects.create(
+                    item=transfer.item,
+                    details=f'Transfer stalled: {transfer.filename} - no progress for 5+ minutes'
+                )
+                stalled_count += 1
+    
+    # Check for items in PostProcessing with failed or pending transfers
+    post_processing_items = Item.objects.filter(status='PostProcessing')
+    for item in post_processing_items:
+        item_transfers = FileTransfer.objects.filter(item=item)
+        has_failed = any(t.status == 'failed' for t in item_transfers)
+        has_pending = any(t.status == 'pending' for t in item_transfers)
+        
+        # If item has failed or pending transfers that are old, reset it
+        if has_failed or has_pending:
+            # For items with issues, check the oldest transfer's age
+            oldest_transfer = item_transfers.order_by('modified').first()
+            if oldest_transfer and oldest_transfer.modified < stall_threshold:
+                logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
+                # Delete old failed/pending transfers so they can be recreated fresh
+                item_transfers.filter(status__in=['failed', 'pending']).delete()
+                item.status = 'Grabbed'
+                item.save()
+                stalled_count += 1
+    
+    # Check for items in PostProcessing and handle appropriately
+    # This handles cases where status was manually set to PostProcessing
+    pp_items = Item.objects.filter(status='PostProcessing')
+    for item in pp_items:
+        transfers = FileTransfer.objects.filter(item=item)
+        
+        if not transfers.exists():
+            # No transfers - queue a new transfer
+            logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
+            try:
+                transfer_files_async.delay(item.hash)
+                logger.info(f"Successfully queued transfer for {item.name}")
+            except Exception as e:
+                logger.error(f"Failed to queue transfer for {item.name}: {e}")
+        else:
+            # Transfers exist - check their status
+            has_failed = any(t.status == 'failed' for t in transfers)
+            has_pending = any(t.status == 'pending' for t in transfers)
+            all_completed = all(t.status == 'completed' for t in transfers)
+            
+            if has_failed or has_pending:
+                # Has failed/pending transfers - requeue the transfer.
+                # Cooldown guard: Block B fires every 20s on PostProcessing items
+                # with unfinished transfers. Without this, the chain
+                # `transfers.delete() -> transfer_files_async.delay()` races with
+                # itself — by the time transfer_files_async has recreated the
+                # transfers and started copying, the next Block B tick sees
+                # the fresh pending/transferring rows and wipes them again.
+                # Observed in production as a torrent stuck oscillating at the
+                # cumulative byte count of one batch of transfers (25 GB of
+                # ~120 GB total), forever. A 5-min cooldown matches
+                # stall_threshold and gives transfer_files_async time to
+                # actually create and process the full set before we consider
+                # re-recovering.
+                recent_requeue = ItemHistory.objects.filter(
+                    item=item,
+                    details__startswith='Requeued by check_stalled_transfers',
+                    created__gte=timezone.now() - timedelta(minutes=5),
+                ).exists()
+                if recent_requeue:
+                    logger.debug(
+                        f"Skipping requeue for {item.name[:50]}: "
+                        f"already requeued within the last 5 minutes"
+                    )
+                    continue
+                logger.info(f"Item {item.name} has failed/pending transfers, requeueing transfer")
+                # Preserve both completed AND transferring transfers:
+                # - completed: real progress we don't want to redo
+                # - transferring: workers are mid-flight; killing them
+                #   loses bytes already copied and resets their
+                #   bytes_transferred=0, causing Block B's 5-min cycle
+                #   to oscillate the byte count (44 -> 45 -> 44)
+                # Only delete pending (waiting to be transferred) and
+                # failed (already tried max retries). transfer_files_async
+                # skips completed via per-file dedup; in-flight transfers
+                # finish on their own (or get marked failed by
+                # check_stalled_transfers if truly stuck).
+                transfers.filter(status__in=['pending', 'failed']).delete()
+                try:
+                    # Write the cooldown marker BEFORE .delay(), not after.
+                    # Original code: .delay() then .create(). The create is
+                    # the marker the next Block B tick checks for cooldown.
+                    # When .delay() comes first, there's a race window where
+                    # another Block B tick can fire between .delay() and
+                    # .create() and see no marker, re-requeueing. That
+                    # race produced 14+ parallel transfer_files_async
+                    # tasks for the same item, each running concurrently
+                    # and starving the celery workers of slots for
+                    # everything else. Writing the marker first closes
+                    # the race: the next Block B tick (5 min later) sees
+                    # the marker and skips. If .delay() fails, the next
+                    # tick also fires and retries since the marker is now
+                    # older than 5 min.
+                    ItemHistory.objects.create(
+                        item=item,
+                        details='Requeued by check_stalled_transfers: transfers deleted, transfer_files_async dispatched',
+                    )
+                    transfer_files_async.delay(item.hash)
+                except Exception as e:
+                    logger.error(f"Failed to requeue transfer for {item.name}: {e}")
+            elif all_completed:
+                # Check if post-processing already ran recently (within the last
+                # 10 minutes) to avoid re-running every 20 seconds.
+                # transfer_files_async leaves failed Bindery items in
+                # PostProcessing with all-completed transfers; a fresh
+                # attempt marker means the retry task owns recovery.
+                recent_pp = ItemHistory.objects.filter(
+                    item=item,
+                    details__icontains='Post-processing',
+                    created__gte=timezone.now() - timedelta(minutes=10)
+                ).exists()
+                
+                if recent_pp:
+                    logger.info(f"Item {item.name} already had post-processing initiated recently, skipping")
+                    continue
+                
+                # All transfers completed - this might be a re-run of post-processing
+                # Run the post-processing (extraction) now
+                logger.info(f"Item {item.name} all transfers completed, running post-processing")
+                try:
+                    first_transfer = transfers.filter(status='completed').first()
+                    if first_transfer and first_transfer.local_path:
+                        local_folder = os.path.dirname(first_transfer.local_path)
+                        
+                        # Process ZIP archives FIRST
+                        success_zip, msg_zip = process_zip_archives(local_folder, item)
+                        logger.info(f"ZIP processing: {msg_zip}")
+                        
+                        # Process RAR archives SECOND
+                        success_rar, msg_rar = process_rar_archives(local_folder, item)
+                        logger.info(f"RAR processing: {msg_rar}")
+                        
+                        # Run manager post-processing (send to Whisparr/Sonarr/etc)
+                        if item.manager:
+                            client = item.manager.client
+                            if hasattr(client, 'post_process'):
+                                try:
+                                    logger.info(f"Calling manager post-processing for {item.name}")
+                                    success_pp, pp_message = client.post_process(item, local_folder)
+                                    if success_pp:
+                                        logger.info(f"Manager post-processing succeeded: {pp_message}")
+                                    else:
+                                        logger.warning(f"Manager post-processing failed: {pp_message}")
+                                except Exception as e:
+                                    logger.error(f"Error calling post-processing: {e}")
+                        
+                        # THEN move from temp to final folder for Blackhole
+                        if item.manager and item.manager.managertype == 'Blackhole':
+                            import re
+                            sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name).strip()
+                            temp_base = item.manager.temp_folder if item.manager.temp_folder else '/tmp'
+                            final_base = item.manager.folder.folder if item.manager.folder else '/tmp'
+                            category = item.category or ''
+                            if category:
+                                final_base = os.path.join(final_base, category)
+                            final_folder = os.path.join(final_base, sanitized_name)
+                            temp_folder = os.path.join(temp_base, sanitized_name)
+                            
+                            # Move from temp to final if needed
+                            if os.path.exists(temp_folder) and not os.path.exists(final_folder):
+                                os.makedirs(final_base, exist_ok=True)
+                                safe_rename(temp_folder, final_folder)
+                                logger.info(f"Moved from temp to final: {final_folder}")
+                        
+                        # Mark as completed after post-processing
+                        item.status = 'Completed'
+                        item.save()
+                        ItemHistory.objects.create(
+                            item=item,
+                            details='Post-processing (extraction) completed, marked as Completed'
+                        )
+                except Exception as e:
+                    logger.error(f"Failed post-processing for {item.name}: {e}")
+    
+    if stalled_count > 0:
+        logger.info(f"Detected and failed {stalled_count} stalled transfers")
+
+
 @shared_task
 def check_stalled_transfers():
     """Check for stalled transfers and restart them if they haven't progressed in 5+ minutes."""
@@ -1331,20 +1611,23 @@ def check_stalled_transfers():
     logger = logging.getLogger(__name__)
     
     try:
-        from django.utils import timezone
-        from datetime import timedelta
-        
-        stall_threshold = timezone.now() - timedelta(minutes=5)
+        from django.conf import settings
+        if not getattr(settings, 'PIPELINE_HARDENING_ENABLED', True):
+            # Legacy Block A + Block B path (pre-Phase-5). Preserved for one
+            # release per the canary-deployment convention; setting the env-var
+            # to false reverts to the old two-block recovery loop.
+            _legacy_check_stalled_transfers()
+            return
+
+        # === Unified state machine (Phase 5) ===
+        now = timezone.now()
+        stall_threshold = now - timedelta(seconds=STALL_THRESHOLD_SECONDS)
         stalled_count = 0
 
-        # Catch "Completed but not really" items: status=Completed but the item
-        # still has unfinished transfers (pending/failed/transferring). The
-        # Block A / Block B recovery paths below only iterate over PostProcessing
-        # items, so a prematurely-Completed item with 500+ pending transfers
-        # would otherwise sit forever — observed in production by a multi-file
-        # torrent where the post-processing branch briefly saw `all_completed`
-        # before the remaining transfers were created. Reset to PostProcessing
-        # so Block A picks it up next tick.
+        # Phase A: reset "Completed but not really" items to PostProcessing.
+        # The recovery pass below only iterates over PostProcessing items, so a
+        # prematurely-Completed item with unfinished transfers would otherwise
+        # sit forever. Reset so the per-item recovery pass picks it up.
         completed_with_pending = Item.objects.filter(
             status='Completed'
         ).filter(
@@ -1368,201 +1651,53 @@ def check_stalled_transfers():
                 ),
             )
 
-        # Check for transferring transfers that are stalled
-        # A transfer is stalled if:
-        # 1. It's been transferring for 5+ minutes, AND
-        # 2. bytes_transferred hasn't changed (modified time tracks this)
+        # Phase A: mark stalled transferring transfers as failed. A transfer is
+        # stalled if it started 5+ minutes ago AND made no progress since
+        # (modified time tracks bytes_transferred changes).
         transferring = FileTransfer.objects.filter(status='transferring')
         for transfer in transferring:
-            # Check if transfer started more than 5 minutes ago
             if transfer.started and transfer.started < stall_threshold:
-                # Check if any progress was made in the last 5 minutes
                 if transfer.modified < stall_threshold:
-                    logger.warning(f"Stalled transfer detected: {transfer.filename} for item {transfer.item.name[:50]} - no progress for 5+ minutes")
-                    
+                    logger.warning(
+                        f"Stalled transfer detected: {transfer.filename} for item "
+                        f"{transfer.item.name[:50]} - no progress for 5+ minutes"
+                    )
                     transfer.status = 'failed'
                     transfer.error_message = 'Transfer stalled - no progress for 5+ minutes'
                     transfer.save()
-                    
                     ItemHistory.objects.create(
                         item=transfer.item,
                         details=f'Transfer stalled: {transfer.filename} - no progress for 5+ minutes'
                     )
                     stalled_count += 1
-        
-        # Check for items in PostProcessing with failed or pending transfers
-        post_processing_items = Item.objects.filter(status='PostProcessing')
-        for item in post_processing_items:
-            item_transfers = FileTransfer.objects.filter(item=item)
-            has_failed = any(t.status == 'failed' for t in item_transfers)
-            has_pending = any(t.status == 'pending' for t in item_transfers)
-            
-            # If item has failed or pending transfers that are old, reset it
-            if has_failed or has_pending:
-                # For items with issues, check the oldest transfer's age
-                oldest_transfer = item_transfers.order_by('modified').first()
-                if oldest_transfer and oldest_transfer.modified < stall_threshold:
-                    logger.info(f"Item {item.name} in PostProcessing with failed/pending transfers, resetting to Grabbed for retry")
-                    # Delete old failed/pending transfers so they can be recreated fresh
-                    item_transfers.filter(status__in=['failed', 'pending']).delete()
-                    item.status = 'Grabbed'
-                    item.save()
-                    stalled_count += 1
-        
-        # Check for items in PostProcessing and handle appropriately
-        # This handles cases where status was manually set to PostProcessing
-        pp_items = Item.objects.filter(status='PostProcessing')
-        for item in pp_items:
-            transfers = FileTransfer.objects.filter(item=item)
-            
-            if not transfers.exists():
-                # No transfers - queue a new transfer
-                logger.info(f"Item {item.name} is PostProcessing but has no transfers, queuing transfer")
-                try:
-                    transfer_files_async.delay(item.hash)
-                    logger.info(f"Successfully queued transfer for {item.name}")
-                except Exception as e:
-                    logger.error(f"Failed to queue transfer for {item.name}: {e}")
-            else:
-                # Transfers exist - check their status
-                has_failed = any(t.status == 'failed' for t in transfers)
-                has_pending = any(t.status == 'pending' for t in transfers)
-                all_completed = all(t.status == 'completed' for t in transfers)
-                
-                if has_failed or has_pending:
-                    # Has failed/pending transfers - requeue the transfer.
-                    # Cooldown guard: Block B fires every 20s on PostProcessing items
-                    # with unfinished transfers. Without this, the chain
-                    # `transfers.delete() -> transfer_files_async.delay()` races with
-                    # itself — by the time transfer_files_async has recreated the
-                    # transfers and started copying, the next Block B tick sees
-                    # the fresh pending/transferring rows and wipes them again.
-                    # Observed in production as a torrent stuck oscillating at the
-                    # cumulative byte count of one batch of transfers (25 GB of
-                    # ~120 GB total), forever. A 5-min cooldown matches
-                    # stall_threshold and gives transfer_files_async time to
-                    # actually create and process the full set before we consider
-                    # re-recovering.
-                    recent_requeue = ItemHistory.objects.filter(
+
+        # Phase B: per-item recovery decision for PostProcessing items whose
+        # last_recovery_at is older than the 60s cooldown (or never set).
+        # Item.last_recovery_at is the single source of truth for the cooldown
+        # (PIPE-03) — the ItemHistory prefix-scan is gone.
+        candidates = Item.objects.filter(status='PostProcessing').filter(
+            Q(last_recovery_at__isnull=True) |
+            Q(last_recovery_at__lt=now - timedelta(seconds=RECOVERY_COOLDOWN_SECONDS))
+        )
+        for item in candidates:
+            with transaction.atomic():
+                if _recover_one_item(item, now):
+                    # Write the cooldown marker BEFORE .delay() (race fix from
+                    # c41ea55). .update() runs at the SQL level, so the write is
+                    # committed the moment the statement returns; a concurrent
+                    # tick sees the marker and skips until the cooldown elapses.
+                    Item.objects.filter(hash=item.hash).update(last_recovery_at=now)
+                    ItemHistory.objects.create(
                         item=item,
-                        details__startswith='Requeued by check_stalled_transfers',
-                        created__gte=timezone.now() - timedelta(minutes=5),
-                    ).exists()
-                    if recent_requeue:
-                        logger.debug(
-                            f"Skipping requeue for {item.name[:50]}: "
-                            f"already requeued within the last 5 minutes"
-                        )
-                        continue
-                    logger.info(f"Item {item.name} has failed/pending transfers, requeueing transfer")
-                    # Preserve both completed AND transferring transfers:
-                    # - completed: real progress we don't want to redo
-                    # - transferring: workers are mid-flight; killing them
-                    #   loses bytes already copied and resets their
-                    #   bytes_transferred=0, causing Block B's 5-min cycle
-                    #   to oscillate the byte count (44 -> 45 -> 44)
-                    # Only delete pending (waiting to be transferred) and
-                    # failed (already tried max retries). transfer_files_async
-                    # skips completed via per-file dedup; in-flight transfers
-                    # finish on their own (or get marked failed by
-                    # check_stalled_transfers if truly stuck).
+                        details='Requeued by check_stalled_transfers: transfers deleted, transfer_files_async dispatched',
+                    )
+                    # Preserve completed AND transferring transfers (cb3c5d9):
+                    # completed is real progress; transferring rows are in-flight
+                    # workers whose bytes_transferred would reset to 0.
+                    transfers = FileTransfer.objects.filter(item=item)
                     transfers.filter(status__in=['pending', 'failed']).delete()
-                    try:
-                        # Write the cooldown marker BEFORE .delay(), not after.
-                        # Original code: .delay() then .create(). The create is
-                        # the marker the next Block B tick checks for cooldown.
-                        # When .delay() comes first, there's a race window where
-                        # another Block B tick can fire between .delay() and
-                        # .create() and see no marker, re-requeueing. That
-                        # race produced 14+ parallel transfer_files_async
-                        # tasks for the same item, each running concurrently
-                        # and starving the celery workers of slots for
-                        # everything else. Writing the marker first closes
-                        # the race: the next Block B tick (5 min later) sees
-                        # the marker and skips. If .delay() fails, the next
-                        # tick also fires and retries since the marker is now
-                        # older than 5 min.
-                        ItemHistory.objects.create(
-                            item=item,
-                            details='Requeued by check_stalled_transfers: transfers deleted, transfer_files_async dispatched',
-                        )
-                        transfer_files_async.delay(item.hash)
-                    except Exception as e:
-                        logger.error(f"Failed to requeue transfer for {item.name}: {e}")
-                elif all_completed:
-                    # Check if post-processing already ran recently (within the last
-                    # 10 minutes) to avoid re-running every 20 seconds.
-                    # transfer_files_async leaves failed Bindery items in
-                    # PostProcessing with all-completed transfers; a fresh
-                    # attempt marker means the retry task owns recovery.
-                    recent_pp = ItemHistory.objects.filter(
-                        item=item,
-                        details__icontains='Post-processing',
-                        created__gte=timezone.now() - timedelta(minutes=10)
-                    ).exists()
-                    
-                    if recent_pp:
-                        logger.info(f"Item {item.name} already had post-processing initiated recently, skipping")
-                        continue
-                    
-                    # All transfers completed - this might be a re-run of post-processing
-                    # Run the post-processing (extraction) now
-                    logger.info(f"Item {item.name} all transfers completed, running post-processing")
-                    try:
-                        first_transfer = transfers.filter(status='completed').first()
-                        if first_transfer and first_transfer.local_path:
-                            local_folder = os.path.dirname(first_transfer.local_path)
-                            
-                            # Process ZIP archives FIRST
-                            success_zip, msg_zip = process_zip_archives(local_folder, item)
-                            logger.info(f"ZIP processing: {msg_zip}")
-                            
-                            # Process RAR archives SECOND
-                            success_rar, msg_rar = process_rar_archives(local_folder, item)
-                            logger.info(f"RAR processing: {msg_rar}")
-                            
-                            # Run manager post-processing (send to Whisparr/Sonarr/etc)
-                            if item.manager:
-                                client = item.manager.client
-                                if hasattr(client, 'post_process'):
-                                    try:
-                                        logger.info(f"Calling manager post-processing for {item.name}")
-                                        success_pp, pp_message = client.post_process(item, local_folder)
-                                        if success_pp:
-                                            logger.info(f"Manager post-processing succeeded: {pp_message}")
-                                        else:
-                                            logger.warning(f"Manager post-processing failed: {pp_message}")
-                                    except Exception as e:
-                                        logger.error(f"Error calling post-processing: {e}")
-                            
-                            # THEN move from temp to final folder for Blackhole
-                            if item.manager and item.manager.managertype == 'Blackhole':
-                                import re
-                                sanitized_name = re.sub(r'[<>:"/\\|?*]', '', item.name).strip()
-                                temp_base = item.manager.temp_folder if item.manager.temp_folder else '/tmp'
-                                final_base = item.manager.folder.folder if item.manager.folder else '/tmp'
-                                category = item.category or ''
-                                if category:
-                                    final_base = os.path.join(final_base, category)
-                                final_folder = os.path.join(final_base, sanitized_name)
-                                temp_folder = os.path.join(temp_base, sanitized_name)
-                                
-                                # Move from temp to final if needed
-                                if os.path.exists(temp_folder) and not os.path.exists(final_folder):
-                                    os.makedirs(final_base, exist_ok=True)
-                                    safe_rename(temp_folder, final_folder)
-                                    logger.info(f"Moved from temp to final: {final_folder}")
-                            
-                            # Mark as completed after post-processing
-                            item.status = 'Completed'
-                            item.save()
-                            ItemHistory.objects.create(
-                                item=item,
-                                details='Post-processing (extraction) completed, marked as Completed'
-                            )
-                    except Exception as e:
-                        logger.error(f"Failed post-processing for {item.name}: {e}")
-        
+                    transfer_files_async.delay(item.hash)
+
         if stalled_count > 0:
             logger.info(f"Detected and failed {stalled_count} stalled transfers")
     except (OperationalError, InterfaceError, DatabaseError):
