@@ -403,7 +403,7 @@ function cancelPostProcessing(itemHash, action) {
     formData.append('action', action);
     formData.append('csrfmiddlewaretoken', getCsrfToken());
     
-    fetch(`/item/${itemHash}/cancel-postprocessing/`, {
+    fetch(`/cancel/postprocessing/${itemHash}/`, {
         method: 'POST',
         body: formData
     })
@@ -428,7 +428,7 @@ function retryTransfer(itemHash) {
     const formData = new FormData();
     formData.append('csrfmiddlewaretoken', getCsrfToken());
     
-    fetch(`/item/${itemHash}/retry-transfer/`, {
+    fetch(`/retry/postprocessing/${itemHash}/`, {
         method: 'POST',
         body: formData
     })
