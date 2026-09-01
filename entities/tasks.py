@@ -173,21 +173,50 @@ def poll_manager(manager_id):
                 # NOTE: This event means the manager has imported the item into its library,
                 # NOT that it's been transferred to seedbox yet. The actual Completed status
                 # is set by the transfer task after files are successfully transferred.
-                # We log this event for reference but don't change item status here.
+                #
+                # If the item is still in Grabbed, the manager's import event is a reliable
+                # "download is ready" signal — the manager has confirmed the downloader side
+                # is done. This is critical for downloaders whose completion-event API is
+                # lossy (e.g. AirDC++ /events is capped at 100, so check_downloaders can
+                # miss downloads when harpoon is down). Dispatching from here catches up
+                # what check_downloaders missed.
                 download_id = record.get('downloadId', '')
                 title = record.get('title', record.get('sourceTitle', 'Unknown'))
-                
+
                 if not download_id:
                     continue
-                
-                # Just log that we received the import notification
+
+                # Just log that we received the import notification. For Grabbed items,
+                # also dispatch postprocess_item so the transfer pipeline fires immediately.
                 try:
-                    item = Item.objects.get(hash=download_id)
-                    # Only log if not already completed
-                    if item.status != 'Completed':
+                    item = Item.objects.get(hash__iexact=download_id)
+                    if item.status == 'Grabbed':
                         ItemHistory.objects.create(
                             item=item,
-                            details=f'Import event received from {manager.name} - awaiting transfer completion'
+                            details=f'Import event received from {manager.name} - dispatching postprocess'
+                        )
+                        # Respect the drain gate (Phase 6-02) — same contract check_downloaders
+                        # uses, so we don't double-fill the worker pool when both paths fire.
+                        from django.conf import settings as _settings
+                        from itemqueue.tasks import postprocess_item as _postprocess
+                        from itemqueue.tasks import _active_transfer_count as _active_count
+                        max_active = getattr(_settings, 'MAX_CONCURRENT_TRANSFERS', 2)
+                        active = _active_count()
+                        if active >= max_active:
+                            logger.info(
+                                f"[downloadImported] active={active} >= {max_active}, "
+                                f"skipping dispatch for {download_id} (check_downloaders will retry)"
+                            )
+                        else:
+                            _postprocess.delay(download_id)
+                            logger.info(
+                                f"[downloadImported] dispatched postprocess_item for {download_id}"
+                            )
+                    else:
+                        # Already PostProcessing / Completed / Failed / Archived — log only.
+                        ItemHistory.objects.create(
+                            item=item,
+                            details=f'Import event received from {manager.name} - already in status {item.status}'
                         )
                     logger.debug(f"Received import event for item: {title} ({download_id})")
                 except Item.DoesNotExist:
