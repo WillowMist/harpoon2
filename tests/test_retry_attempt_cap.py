@@ -69,7 +69,7 @@ def test_fourth_invocation_is_noop(db):
     """With Item.attempt_count = 3 (cap reached), the task must NOT call
     manager.post_process and must mark the item Failed."""
     item = Item.objects.create(
-        hash='B' * 40, name='B', status='PostProcessing', attempt_count=3,
+        hash='b' * 40, name='B', status='PostProcessing', attempt_count=3,
     )
     # Mock manager.post_process; expect zero calls
     with patch('entities.managers.Bindery.post_process') as mock_pp:
@@ -84,10 +84,10 @@ def test_attempt_argument_over_cap_is_noop(db):
     """With attempt=4 (argument path), the task must NOT call
     manager.post_process and must mark the item Failed."""
     item = Item.objects.create(
-        hash='E' * 40, name='E', status='PostProcessing',
+        hash='e' * 40, name='E', status='PostProcessing',
     )
     with patch('entities.managers.Bindery.post_process') as mock_pp:
-        retry_postprocessing('E' * 40, attempt=4)
+        retry_postprocessing('e' * 40, attempt=4)
     mock_pp.assert_not_called()
     item.refresh_from_db()
     assert item.status == 'Failed'
