@@ -19,7 +19,12 @@ class SABnzbdDownloader(BaseDownloader):
 
     def __init__(self, downloader=None):
         super().__init__(downloader)
-        if downloader and hasattr(downloader, 'client'):
+        # Check the client cache directly instead of hasattr(downloader,
+        # 'client'): with the lazy client @property on Downloader, hasattr
+        # triggers the property — which is mid-construction here — and
+        # recurses to RecursionError. The cache key is the same sentinel
+        # the property uses.
+        if downloader and downloader.__dict__.get('_cached_client') is not None:
             self._init_client()
         else:
             self.reload = True

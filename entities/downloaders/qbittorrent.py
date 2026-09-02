@@ -26,7 +26,11 @@ class QBittorrentDownloader(BaseDownloader):
         super().__init__(downloader)
         # Time until which we should skip auth attempts (epoch seconds).
         self._auth_skip_until = 0
-        if downloader and hasattr(downloader, 'client'):
+        # Check the client cache directly instead of hasattr(downloader,
+        # 'client'): with the lazy client @property on Downloader, hasattr
+        # triggers the property — which is mid-construction here — and
+        # recurses to RecursionError.
+        if downloader and downloader.__dict__.get('_cached_client') is not None:
             self._init_client()
         else:
             self.reload = True
