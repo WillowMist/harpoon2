@@ -637,7 +637,8 @@ class Mylar3:
         import logging
         import requests
         import hashlib
-        from django.core.cache import cache
+        from django.conf import settings
+        import redis
         
         logger = logging.getLogger(__name__)
         
@@ -648,10 +649,28 @@ class Mylar3:
             response = requests.get(api_url, params=params, timeout=10)
             logs = response.json()
             
-            # Track the last processed log timestamp to avoid re-processing
-            # Logs are returned newest-first, so we process from the beginning
-            cache_key = f'mylar3_{self.manager.id}_last_log_time'
-            last_log_time = cache.get(cache_key, '2000-01-01 00:00:00')
+            # Track the last processed log timestamp to avoid re-processing.
+            # Logs are returned newest-first, so we process from the beginning.
+            # Backed by Redis (not the per-process LocMem django cache) so the
+            # dedup cursor is shared across all celery worker forks. A per-fork
+            # cache let each fork re-process the full log feed independently,
+            # which repeatedly reset the AirDC++ completion-check timer on
+            # already-existing items. Fail open if Redis is unavailable.
+            cache_key = f'mylar3_dedup:{self.manager.id}'
+            try:
+                redis_client = redis.Redis.from_url(
+                    getattr(settings, 'REDIS_URL', None)
+                    or getattr(settings, 'CELERY_BROKER_URL', 'redis://localhost:6379/0')
+                )
+                last_log_time = redis_client.get(cache_key)
+                if last_log_time is None:
+                    last_log_time = '2000-01-01 00:00:00'
+                else:
+                    last_log_time = last_log_time.decode()
+            except Exception as e:
+                redis_client = None
+                last_log_time = '2000-01-01 00:00:00'
+                logger.warning(f"[Mylar3] Redis unavailable, proceeding without dedup: {e}")
             
             # Look for download initiation logs from any downloader
             # Logs are ordered newest-first, so we track the newest one we've seen
@@ -742,16 +761,25 @@ class Mylar3:
                     # completion event harpoon can see (its events API is capped
                     # at 100), so set a check time + expected filename for the
                     # check_airdcpp_completions beat task to SFTP-walk for.
+                    # Only start the countdown for a genuinely new item or when
+                    # no check was ever scheduled (next_check_at NULL). An
+                    # existing item with a live timer keeps its original
+                    # countdown — Mylar3.poll() runs for existing items on every
+                    # cycle, and resetting the timer each time perpetually slides
+                    # it forward so the beat task never finds a due item.
                     if downloader and downloader.downloadertype == 'AirDC++':
-                        item.next_check_at = timezone.now() + timedelta(
-                            seconds=int(os.environ.get('AIRDCPP_CHECK_INTERVAL_SECONDS', '1800'))
-                        )
+                        if item.next_check_at is None:
+                            item.next_check_at = timezone.now() + timedelta(
+                                seconds=int(os.environ.get('AIRDCPP_CHECK_INTERVAL_SECONDS', '1800'))
+                            )
                         item.airdcpp_expected_path = comic_name
                         item.save()
                         logger.info(f"[Mylar3] Set AirDC++ completion check for {comic_name} ({hash_value})")
             
-            # Cache the newest log time for next poll
-            cache.set(cache_key, newest_log_time, timeout=3600)  # Cache for 1 hour
+            # Cache the newest log time for next poll (shared across forks via
+            # Redis). 1-hour TTL so stale cursors eventually clear.
+            if redis_client is not None:
+                redis_client.set(cache_key, newest_log_time, ex=3600)
         
         except Exception as e:
             logger.error(f"[Mylar3] Error polling {self.name}: {e}", exc_info=True)

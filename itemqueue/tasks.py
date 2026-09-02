@@ -2304,7 +2304,13 @@ def celery_watchdog():
         except Exception as e:
             logger.warning(f'[celery_watchdog] FLUSHDB failed: {e}')
 
-    # 2. Active-task-age check (defense in depth — time_limit should already kill them).
+    # 2. Active-task-age check. Tasks older than ACTIVE_TASK_MAX_AGE_SECONDS
+    #    are wedged (time_limit should have killed them but doesn't always —
+    #    e.g. a task blocked in a non-cooperative call). Revoke with
+    #    terminate=True so the worker actually aborts the task, then terminate
+    #    the worker process holding it as a second-chance kill if the task
+    #    won't die on its own. Each revoke is wrapped in try/except so one
+    #    failure doesn't abort the whole scan.
     try:
         from harpoon2.celery import app as _celery_app
         active = _celery_app.control.inspect().active() or {}
@@ -2316,12 +2322,31 @@ def celery_watchdog():
     for worker, tasks in active.items():
         for t in tasks:
             age = now - float(t.get('time_start', now))
-            if age > ACTIVE_TASK_MAX_AGE_SECONDS:
+            if age <= ACTIVE_TASK_MAX_AGE_SECONDS:
+                continue
+            task_id = t.get('id')
+            task_name = t.get('name')
+            logger.warning(
+                f'[celery_watchdog] task {task_name} ({task_id}) on {worker} has been '
+                f'running for {age:.0f}s (> {ACTIVE_TASK_MAX_AGE_SECONDS}s); '
+                f'revoking it to free the worker slot'
+            )
+            if not task_id:
+                continue
+            try:
+                _celery_app.control.revoke(task_id, terminate=True, signal='SIGTERM')
                 logger.warning(
-                    f'[celery_watchdog] task {t.get("name")} on {worker} has been '
-                    f'running for {age:.0f}s (> {ACTIVE_TASK_MAX_AGE_SECONDS}s); '
-                    f'it should have hit time_limit — investigate'
+                    f'[celery_watchdog] revoked {task_name} ({task_id}) on {worker}'
                 )
+            except Exception as e:
+                logger.warning(f'[celery_watchdog] revoke failed for {task_id}: {e}')
+            try:
+                _celery_app.control.terminate(task_id)
+                logger.warning(
+                    f'[celery_watchdog] terminated worker holding {task_name} ({task_id}) on {worker}'
+                )
+            except Exception as e:
+                logger.warning(f'[celery_watchdog] terminate failed for {task_id}: {e}')
 
 
 @shared_task(time_limit=120, soft_time_limit=90)
@@ -2350,6 +2375,11 @@ def check_airdcpp_completions():
         status='Grabbed',
         next_check_at__lte=now,
     ).exclude(airdcpp_expected_path__isnull=True).exclude(airdcpp_expected_path='')[:20]
+
+    logger.info(
+        f"[airdcpp_check] {len(due)} due AirDC++ item(s)"
+        if due else f"[airdcpp_check] no due AirDC++ items (checked {len(due)})"
+    )
 
     for item in due:
         try:
