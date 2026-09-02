@@ -3,6 +3,10 @@ import os
 from harpoon2.settings import MANAGER_TYPES, DOWNLOADER_TYPES
 from . import managers, downloaders
 
+# Sentinel for "no cached client yet" — distinct from None because a
+# downloader client object could theoretically be falsy/None on error.
+_NO_CLIENT = object()
+
 # Create your models here.
 
 
@@ -122,10 +126,19 @@ class Downloader(models.Model):
         worker thread. Callers that need the client still get one; callers
         that only need the row's fields (name, downloadertype, options) pay
         nothing.
+
+        The result is cached on the instance so the constructor's own
+        checkoptions() call (which reads self.client.optionfields) does not
+        re-enter this property and recurse to a RecursionError.
         """
+        cached = self.__dict__.get('_cached_client', _NO_CLIENT)
+        if cached is not _NO_CLIENT:
+            return cached
         from . import downloaders
         downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(self.downloadertype, self.downloadertype)
-        return getattr(downloaders, downloader_attr)(self)
+        client = getattr(downloaders, downloader_attr)(self)
+        self.__dict__['_cached_client'] = client
+        return client
 
     def checkoptions(self):
         optionfields = self.client.optionfields
