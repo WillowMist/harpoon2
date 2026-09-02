@@ -141,7 +141,16 @@ class Downloader(models.Model):
         return client
 
     def checkoptions(self):
-        optionfields = self.client.optionfields
+        # Read optionfields from the downloader subclass directly instead of
+        # via self.client — the client property constructs a fresh downloader
+        # object, whose __init__ calls checkoptions() again, recursing to
+        # RecursionError. optionfields is a plain class attribute on each
+        # BaseDownloader subclass (e.g. SABnzbdDownloader.optionfields), so no
+        # instance or network call is needed to read it.
+        from . import downloaders
+        downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(self.downloadertype, self.downloadertype)
+        downloader_cls = getattr(downloaders, downloader_attr)
+        optionfields = getattr(downloader_cls, 'optionfields', {})
         for fieldname in optionfields.keys():
             if fieldname not in self.options.keys():
                 if optionfields[fieldname] == 'string':
