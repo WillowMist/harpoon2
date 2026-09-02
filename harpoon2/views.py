@@ -102,9 +102,16 @@ def home(request):
             'total': grabbing + postprocessing,
         })
     
-    # Get active download info from cached downloader status (fast!)
+    # Get active download info from cached downloader status (fast!). Fetch
+    # downloader names via values() instead of select_related('downloader')
+    # — materializing Downloader rows used to eagerly build a live seedbox
+    # client in from_db, turning page loads into synchronous XML-RPC calls.
+    downloader_names = {
+        c['id']: c['name']
+        for c in CachedDownloaderStatus.objects.values('id', 'downloader')
+    }
     grabbing_downloads = []
-    for cache in CachedDownloaderStatus.objects.select_related('downloader').all():
+    for cache in CachedDownloaderStatus.objects.all():
         for torrent in cache.active_downloads[:10]:
             grabbing_downloads.append({
                 'name': torrent.get('name', ''),
@@ -112,7 +119,7 @@ def home(request):
                 'size': torrent.get('size', 0),
                 'completed': torrent.get('completed', 0),
                 'percent': torrent.get('percent', 0),
-                'downloader': cache.downloader.name,
+                'downloader': downloader_names.get(cache.downloader_id, ''),
                 'status': 'Grabbing',
             })
     
@@ -723,7 +730,13 @@ def api_dashboard(request):
                 'total': m.grabbing + m.postprocessing,
             })
         
-        # Get active downloads from cache (fast!)
+        # Get active downloads from cache (fast!). select_related('downloader') is
+        # safe now: Downloader.from_db no longer eagerly builds a live seedbox
+        # client — the client is a lazy property (see entities/models.py), so
+        # materializing the FK row is a plain DB read with no network call.
+        # Previously the RTorrent constructor did a synchronous XML-RPC
+        # round-trip on every fetch, turning each 3s poll into a blocking I/O
+        # wait inside a gunicorn worker thread.
         grabbing_downloads = []
         for cache in CachedDownloaderStatus.objects.select_related('downloader').all():
             for torrent in cache.active_downloads[:10]:

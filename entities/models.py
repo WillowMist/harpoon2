@@ -101,16 +101,31 @@ class Downloader(models.Model):
     @classmethod
     def from_db(cls, db, field_names, values):
         new = super(Downloader, cls).from_db(db, field_names, values)
-        # cache value went from the base
-        from . import downloaders
-        # Use mapping to handle downloader types with special characters (like 'AirDC++')
-        downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(new.downloadertype, new.downloadertype)
-        new.client = getattr(downloaders, downloader_attr)(new)
+        # The client is no longer built eagerly here — see the `client`
+        # property below. Building it in from_db meant every ORM fetch of a
+        # Downloader row (including select_related on a FK in a web view)
+        # triggered a synchronous seedbox network call; the RTorrent
+        # constructor does a live XML-RPC round-trip, so /api/dashboard/
+        # polls were blocking I/O waits inside gunicorn worker threads.
         return new
 
-    # @property
-    # def client(self):
-    #     return getattr(downloaders, self.downloadertype)(self)
+    @property
+    def client(self):
+        """Lazily construct the downloader client on first access.
+
+        Returning a property instead of eagerly building one in from_db means
+        merely fetching a Downloader row (e.g. select_related on a FK in a
+        web view) no longer triggers a synchronous seedbox network call.
+        The RTorrent client constructor does a live XML-RPC round-trip to
+        fetch the server version, so an eager constructor turned every
+        /api/dashboard/ poll into a blocking I/O wait inside a gunicorn
+        worker thread. Callers that need the client still get one; callers
+        that only need the row's fields (name, downloadertype, options) pay
+        nothing.
+        """
+        from . import downloaders
+        downloader_attr = downloaders.DOWNLOADER_NAME_MAP.get(self.downloadertype, self.downloadertype)
+        return getattr(downloaders, downloader_attr)(self)
 
     def checkoptions(self):
         optionfields = self.client.optionfields
