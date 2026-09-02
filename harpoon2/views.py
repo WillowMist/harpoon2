@@ -102,16 +102,14 @@ def home(request):
             'total': grabbing + postprocessing,
         })
     
-    # Get active download info from cached downloader status (fast!). Fetch
-    # downloader names via values() instead of select_related('downloader')
-    # — materializing Downloader rows used to eagerly build a live seedbox
-    # client in from_db, turning page loads into synchronous XML-RPC calls.
-    downloader_names = {
-        c['id']: c['name']
-        for c in CachedDownloaderStatus.objects.values('id', 'downloader')
-    }
+    # Get active download info from cached downloader status (fast!).
+    # select_related('downloader') is safe here: Downloader.client is now a
+    # lazy @property (see entities/models.py), so materializing the FK row
+    # is a plain DB read with no seedbox network call. Previously from_db
+    # eagerly built a live client and the RTorrent constructor did a
+    # synchronous XML-RPC round-trip, turning page loads into blocking I/O.
     grabbing_downloads = []
-    for cache in CachedDownloaderStatus.objects.all():
+    for cache in CachedDownloaderStatus.objects.select_related('downloader').all():
         for torrent in cache.active_downloads[:10]:
             grabbing_downloads.append({
                 'name': torrent.get('name', ''),
@@ -119,7 +117,7 @@ def home(request):
                 'size': torrent.get('size', 0),
                 'completed': torrent.get('completed', 0),
                 'percent': torrent.get('percent', 0),
-                'downloader': downloader_names.get(cache.downloader_id, ''),
+                'downloader': cache.downloader.name,
                 'status': 'Grabbing',
             })
     
