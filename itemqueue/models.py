@@ -76,7 +76,7 @@ class FileTransfer(models.Model):
     local_path = models.CharField(max_length=500)
     file_size = models.BigIntegerField(default=0)  # Total size in bytes
     bytes_transferred = models.BigIntegerField(default=0)  # Progress
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending', db_index=True)
     created = models.DateTimeField(auto_now_add=True)
     modified = models.DateTimeField(auto_now=True)  # Updated whenever bytes_transferred changes
     started = models.DateTimeField(null=True, blank=True)
@@ -90,6 +90,14 @@ class FileTransfer(models.Model):
         return 0
 
     class Meta:
+        indexes = [
+            # Speeds up the per-item status filter in api_queue (PostProcessing
+            # items' transfer lists) and the dashboard's active-transfer scan.
+            models.Index(
+                fields=['item', 'status'],
+                name='itemqueue_filetr_item_status',
+            ),
+        ]
         constraints = [
             # DB-level uniqueness on (item, filename). Required to make
             # get_or_create() actually atomic — without this, two concurrent

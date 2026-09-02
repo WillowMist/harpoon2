@@ -1,6 +1,7 @@
 import os
 from celery import Celery
 from celery.schedules import crontab
+from kombu import Queue
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'harpoon2.settings')
 
@@ -21,6 +22,21 @@ app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
 )
+
+# Dedicated queue for the self-healing watchdog. The watchdog must run on its
+# own worker pool so it always has a slot even when the main pool is saturated
+# with hung transfer tasks — otherwise it sits in the queue behind those tasks
+# and never executes (a smoke alarm with no sprinkler). Normal tasks stay on
+# the default 'celery' queue; only itemqueue.tasks.celery_watchdog is routed
+# to 'celery.watchdog'. The beat schedule entry publishes to the routed queue.
+app.conf.task_queues = (
+    Queue('celery', routing_key='celery'),
+    Queue('celery.watchdog', routing_key='celery.watchdog'),
+)
+app.conf.task_default_queue = 'celery'
+app.conf.task_routes = {
+    'itemqueue.tasks.celery_watchdog': {'queue': 'celery.watchdog'},
+}
 
 # Load task modules from all registered Django app configs.
 app.autodiscover_tasks()

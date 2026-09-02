@@ -33,3 +33,7 @@ ENV/
 .env
 docker-compose.yml
 harpoon2/secrets.py
+
+# GSD planning artifacts (local-only, see .planning/config.json commit_docs=false)
+.planning/
+.gsd/

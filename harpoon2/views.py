@@ -737,9 +737,13 @@ def api_dashboard(request):
                     'status': 'Grabbing',
                 })
         
-        # Get active transfers
+        # Get active transfers. Only pending/transferring rows are needed —
+        # completed transfers (including the many rows of a stalled item) only
+        # inflate the scan and are never shown on the dashboard. The filter is
+        # applied once and stored; the two passes below reuse the cached
+        # queryset result instead of re-querying.
         active_transfers_query = FileTransfer.objects.filter(
-            status__in=['pending', 'transferring', 'completed']
+            status__in=['pending', 'transferring']
         ).select_related('item')
         
         # Track data for speed calculation
@@ -887,6 +891,24 @@ def api_queue(request):
     
     items = Item.objects.filter(status__in=['Grabbed', 'PostProcessing'], archived=False).select_related('manager', 'downloader').order_by('-modified')
     
+    # Batch the per-item N+1 queries: collect all PostProcessing hashes first,
+    # then fetch transfers and history for all of them in two queries and group
+    # in Python by item. Item.hash is the primary key, so item__in=hashes maps
+    # directly onto the FK.
+    postprocessing_hashes = [
+        item.hash for item in items if item.status == 'PostProcessing'
+    ]
+    
+    transfers_by_item = {}
+    if postprocessing_hashes:
+        for t in FileTransfer.objects.filter(item__in=postprocessing_hashes).order_by('-created'):
+            transfers_by_item.setdefault(t.item_id, []).append(t)
+    
+    history_by_item = {}
+    if postprocessing_hashes:
+        for h in ItemHistory.objects.filter(item__in=postprocessing_hashes).order_by('-created'):
+            history_by_item.setdefault(h.item_id, []).append(h)
+    
     queue_items = []
     for item in items:
         item_data = {
@@ -902,7 +924,7 @@ def api_queue(request):
         
         # Add transfer info for PostProcessing items
         if item.status == 'PostProcessing':
-            transfers = FileTransfer.objects.filter(item=item).order_by('-created')
+            transfers = transfers_by_item.get(item.pk, [])
             item_data['transfers'] = [{
                 'filename': t.filename,
                 'status': t.status,
@@ -911,17 +933,21 @@ def api_queue(request):
                 'error_message': t.error_message or '',
             } for t in transfers]
             
-            # Get recent history (last 5 entries) - DON'T slice before filtering!
-            # In PostgreSQL, you can't call .filter() on a sliced QuerySet
-            all_history = ItemHistory.objects.filter(item=item).order_by('-created')
-            history_list = list(all_history[:5])  # Convert to list after filtering
+            # Get recent history (last 5 entries) from the batched fetch.
+            all_history = history_by_item.get(item.pk, [])
+            history_list = all_history[:5]
             item_data['history'] = [{
                 'details': h.details,
                 'created': h.created.isoformat(),
             } for h in history_list]
             
-            # Check if this is a folder download from AirDC++ - use queryset, not list
-            folder_history = all_history.filter(details__icontains='Folder bundle detected').first()
+            # Check if this is a folder download from AirDC++ — scan the
+            # already-fetched history rows (replaces the per-item LIKE query;
+            # icontains semantics preserved via case-insensitive match).
+            folder_history = next(
+                (h for h in all_history if 'folder bundle detected' in h.details.lower()),
+                None,
+            )
             if folder_history:
                 # Extract item count from history detail string
                 import re
