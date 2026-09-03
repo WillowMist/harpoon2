@@ -778,7 +778,13 @@ def api_dashboard(request):
             if not transfer.item:
                 continue
             item_hash = transfer.item.hash
-            item_total_sizes[item_hash] = item_total_sizes.get(item_hash, 0) + transfer.file_size
+            # The total size is the item's full size (set from the SFTP
+            # walk in transfer_files_async), NOT the sum of the FileTransfer
+            # rows. Only a subset of the item's files have rows yet -- the
+            # rest haven't been created -- so summing file_size across rows
+            # understates the total and the progress bar never reaches 100%.
+            if item_hash not in item_total_sizes:
+                item_total_sizes[item_hash] = transfer.item.size or 0
             if transfer.status in ('pending', 'transferring'):
                 items_with_active_transfers.add(item_hash)
 

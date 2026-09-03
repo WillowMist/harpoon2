@@ -250,14 +250,20 @@ function renderPostProcessingItems(items) {
         // Aggregate across every file in this item so the row shows total
         // progress, not just the last file's. The old display showed one file
         // at a time, so a 10-file transfer looked like it was stuck at 10%
-        // forever. Sum bytes_transferred and file_size across all transfers.
+        // forever.
+        //
+        // The denominator is item.size (the full size from the SFTP walk),
+        // NOT the sum of the transfer rows' file_size. Only a subset of the
+        // item's files have FileTransfer rows yet -- the rest haven't been
+        // created -- so summing file_size understates the total and the bar
+        // never reaches 100%. bytes_transferred is still summed across rows
+        // (that's all the progress data we have).
         let totalCompleted = 0;
-        let totalSize = 0;
+        let totalSize = item.size || 0;
         let activeCount = 0;
         if (hasTransfers) {
             for (const t of item.transfers) {
                 totalCompleted += (t.bytes_transferred || 0);
-                totalSize += (t.file_size || 0);
                 if (t.status !== 'completed' && t.status !== 'failed') activeCount++;
             }
         }

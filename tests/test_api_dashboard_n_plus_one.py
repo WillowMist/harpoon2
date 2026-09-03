@@ -66,10 +66,13 @@ def test_api_dashboard_query_count_is_bounded():
     )
 
     # One item with many transfers (the stalled-torrent shape: ~700 rows).
+    # item.size is the full size from the SFTP walk, so set it to match the
+    # 700 x 1000-byte files -- the dashboard uses item.size as the
+    # denominator, not the row sum.
     item = Item.objects.create(
         hash='44C87CC876D3326C62A1FCD438D5DB12D3C4EFC1',
         name='item', status='PostProcessing', manager=manager,
-        size=1000000, received=0,
+        size=700000, received=0,
     )
     for i in range(700):
         FileTransfer.objects.create(
