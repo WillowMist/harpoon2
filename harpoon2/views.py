@@ -748,15 +748,21 @@ def api_dashboard(request):
                     'status': 'Grabbing',
                 })
         
-        # Get active transfers. Only pending/transferring rows are needed —
-        # completed transfers (including the many rows of a stalled item) only
-        # inflate the scan and are never shown on the dashboard. The filter is
-        # applied once and stored; the two passes below reuse the cached
-        # queryset result instead of re-querying.
+# Get active transfers. Completed rows must be INCLUDED in the scan: the
+        # dashboard aggregates total size and bytes transferred across every
+        # file in an item, so excluding completed files made the total
+        # understated and the percent reflect only the file currently
+        # transferring. Items with no pending/transferring files (e.g. a
+        # fully-stalled item whose 682 rows are all completed) are still
+        # dropped in the first pass below and never displayed. The status
+        # column is indexed (migration 0013), so this is an indexed lookup,
+        # not a table scan. The filter is applied once and stored; the two
+        # passes below reuse the cached queryset result instead of
+        # re-querying.
         active_transfers_query = FileTransfer.objects.filter(
-            status__in=['pending', 'transferring']
+            status__in=['pending', 'transferring', 'completed']
         ).select_related('item')
-        
+
         # Track data for speed calculation
         transfers_by_item = {}
         item_total_sizes = {}
@@ -794,7 +800,7 @@ def api_dashboard(request):
                     'extraction_status': transfer.item.extraction_status if has_active else '',
                     'extraction_progress': transfer.item.extraction_progress if has_active else 0,
                 }
-            
+
             transfers_by_item[item_hash]['total_completed'] += transfer.bytes_transferred
             transfers_by_item[item_hash]['file_count'] += 1
             
