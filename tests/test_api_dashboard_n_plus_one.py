@@ -1,16 +1,18 @@
 """Lock-in test: api_dashboard must not issue an O(N+1) query per FileTransfer row.
 
-The dashboard endpoint previously re-filtered FileTransfer by item hash inside
-the loop (one new DB query per distinct item), plus 4 COUNT queries per manager.
-With ~700 FileTransfer rows the request took >60s and gunicorn workers died on
---timeout 60, then supervisord auto-restarted them — the cycle kept the UI
-broken. The fixed endpoint issues at most 3 queries total regardless of row
-count:
+    The dashboard endpoint previously re-filtered FileTransfer by item hash inside
+    the loop (one new DB query per distinct item), plus 4 COUNT queries per manager.
+    With ~700 FileTransfer rows the request took >60s and gunicorn workers died on
+    --timeout 60, then supervisord auto-restarted them — the cycle kept the UI
+    broken. The fixed endpoint issues a bounded number of queries regardless of row
+    count:
 
-1. one grouped aggregate for the per-manager status counts + global total
-2. one for CachedDownloaderStatus
-3. one for FileTransfer (item joined via select_related)
-"""
+    1. one grouped aggregate for the per-manager status counts + global total
+    2. one for CachedDownloaderStatus
+    3. one for FileTransfer (item joined via select_related)
+    4. one for recent_items (last 10 Completed/Failed, bounded with [:10] and
+       select_related('manager', 'downloader') — no per-item N+1)
+    """
 import os
 
 import django
@@ -94,18 +96,21 @@ def test_api_dashboard_query_count_is_bounded():
     ]
     query_count = len(data_queries)
 
-    assert query_count <= 3, (
+    assert query_count <= 4, (
         f"api_dashboard issued {query_count} data queries with 700 FileTransfer rows; "
-        f"expected <= 3 (was O(N+1) before the fix).\n"
+        f"expected <= 4 (1 manager summary + 1 CachedDownloaderStatus + 1 FileTransfer "
+        f"+ 1 recent_items; was O(N+1) before the fix).\n"
         + "\n".join(q['sql'][:200] for q in data_queries)
     )
 
-    # Response shape must be unchanged.
+    # Response shape must be unchanged (plus recent_items, the last 10
+    # Completed/Failed items shown in the Recent Activity section).
     data = response.json()
     assert set(data.keys()) == {
         'manager_summary', 'grabbing_downloads', 'active_transfers',
-        'total_speed_mbps', 'total_queued',
+        'total_speed_mbps', 'total_queued', 'recent_items',
     }
+    assert data['recent_items'] == []
     assert data['manager_summary'][0]['grabbing'] == 0
     assert data['manager_summary'][0]['postprocessing'] == 1
     assert data['total_queued'] == 0
@@ -138,3 +143,6 @@ def test_api_dashboard_total_queued_includes_managerless_items():
     assert data['total_queued'] == 1
     # No managers configured -> empty summary, but the count is still right.
     assert data['manager_summary'] == []
+    # recent_items is the last 10 Completed/Failed items; the Grabbed item
+    # created above does not appear (it is not finished).
+    assert data['recent_items'] == []

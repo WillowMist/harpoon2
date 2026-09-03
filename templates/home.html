@@ -60,6 +60,17 @@
     <i class="fas fa-check-circle me-2"></i>All quiet. No active downloads.
 </div>
 
+<!-- Recent Activity: last 10 Completed/Failed items -->
+<div id="recentCard" class="card bg-dark text-white mb-4" style="display: none;">
+    <div class="card-header bg-secondary">
+        <h5 class="card-title mb-0"><i class="fas fa-history me-2"></i>Recent Activity</h5>
+    </div>
+    <div class="card-body p-0">
+        <div class="list-group list-group-flush" id="recentList">
+        </div>
+    </div>
+</div>
+
 <!-- Transfer Detail Modal -->
 <div class="modal fade" id="transferModal" tabindex="-1">
     <div class="modal-dialog modal-lg">
@@ -290,6 +301,35 @@ function renderTransfers(data, totalSpeed) {
     }).join('');
 }
 
+function renderRecentActivity(data) {
+    const card = document.getElementById('recentCard');
+    const list = document.getElementById('recentList');
+    if (!data || data.length === 0) {
+        card.style.display = 'none';
+        return;
+    }
+    card.style.display = 'block';
+    list.innerHTML = data.map(item => {
+        const isCompleted = item.status === 'Completed';
+        const badgeClass = isCompleted ? 'bg-success' : 'bg-danger';
+        const label = isCompleted ? 'Completed' : 'Failed';
+        return `
+            <div class="list-group-item d-flex justify-content-between align-items-center" style="background-color: rgba(255,255,255,0.03); color: #fff;">
+                <span class="text-truncate" style="max-width: 45%;">
+                    <small>${item.name.substring(0, 50)}</small>
+                </span>
+                <span class="text-truncate text-muted" style="max-width: 30%;">
+                    <small>${item.manager || item.downloader || '-'}</small>
+                </span>
+                <span class="text-truncate text-muted" style="max-width: 12%;">
+                    <small>${formatBytes(item.size)}</small>
+                </span>
+                <span class="badge ${badgeClass}">${label}</span>
+            </div>
+        `;
+    }).join('');
+}
+
 function renderManagerSummary(data) {
     const container = document.getElementById('managerSummary');
     if (!data || data.length === 0) {
@@ -329,8 +369,9 @@ function loadDashboardData() {
             renderGrabbingDownloads(data.grabbing_downloads);
             renderTransfers(data.active_transfers, data.total_speed_mbps);
             renderManagerSummary(data.manager_summary);
+            renderRecentActivity(data.recent_items);
             document.getElementById('totalQueued').textContent = data.total_queued;
-            
+
             const quietAlert = document.getElementById('quietAlert');
             if (data.grabbing_downloads.length === 0 && data.active_transfers.length === 0 && data.total_queued === 0) {
                 quietAlert.style.display = 'block';

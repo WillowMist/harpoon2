@@ -881,13 +881,32 @@ def api_dashboard(request):
             total_queued = sum(m.grabbing for m in manager_list) + (manager_list[0].no_manager_grabbed or 0)
         else:
             total_queued = Item.objects.filter(status='Grabbed', archived=False).count()
-        
+
+        # Last 10 items that finished (Completed or Failed) — rendered as a
+        # small color-coded "Recent Activity" section below the quiet alert.
+        # Reuses the same shape as the history page poll (no per-item N+1).
+        recent_items = []
+        for item in (
+            Item.objects.filter(status__in=['Completed', 'Failed'], archived=False)
+            .select_related('manager', 'downloader')
+            .order_by('-modified')[:10]
+        ):
+            recent_items.append({
+                'name': item.name,
+                'manager': item.manager.name if item.manager else '',
+                'downloader': item.downloader.name if item.downloader else '',
+                'size': item.size,
+                'status': item.status,
+                'modified': item.modified.isoformat(),
+            })
+
         return JsonResponse({
             'manager_summary': manager_summary,
             'grabbing_downloads': grabbing_downloads,
             'active_transfers': active_transfers,
             'total_speed_mbps': total_speed_mbps,
             'total_queued': total_queued,
+            'recent_items': recent_items,
         })
     except Exception as e:
         import traceback
