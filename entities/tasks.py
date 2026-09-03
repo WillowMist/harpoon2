@@ -225,8 +225,14 @@ def poll_manager(manager_id):
                             logger.info(
                                 f"[downloadImported] dispatched postprocess_item for {download_id}"
                             )
+                    elif item.status in ('Completed', 'Failed', 'Archived', 'Deleted'):
+                        # Terminal state: Sonarr keeps emitting import events for
+                        # already-imported items, and each one was appending an
+                        # identical "already in status Completed" line forever.
+                        # Log once via the debug line below, no history write.
+                        logger.debug(f"Received import event for terminal item: {title} ({download_id})")
                     else:
-                        # Already PostProcessing / Completed / Failed / Archived — log only.
+                        # Already PostProcessing — log only.
                         ItemHistory.objects.create(
                             item=item,
                             details=f'Import event received from {manager.name} - already in status {item.status}'
