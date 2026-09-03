@@ -309,24 +309,27 @@ function renderRecentActivity(data) {
         return;
     }
     card.style.display = 'block';
-    // Fixed-width columns so manager and size sit at the same horizontal
-    // position on every row regardless of how long the item name is.
+    // Fixed flex-basis columns (not max-width) so manager and size sit at
+    // the same horizontal position on every row. max-width lets flex grow
+    // the gap between columns unevenly depending on name length, which
+    // pushed everything to the left. Each column also gets min-width: 0 so
+    // text-truncate can actually clip instead of overflowing the row.
     list.innerHTML = data.map(item => {
         const isCompleted = item.status === 'Completed';
         const badgeClass = isCompleted ? 'bg-success' : 'bg-danger';
         const label = isCompleted ? 'Completed' : 'Failed';
         return `
-            <div class="list-group-item d-flex align-items-center" style="background-color: rgba(255,255,255,0.03); color: #fff;">
-                <span class="text-truncate" style="max-width: 42%; padding-right: 12px;">
-                    <small>${item.name.substring(0, 50)}</small>
+            <div class="list-group-item d-flex align-items-center" style="background-color: rgba(255,255,255,0.03); color: #fff; padding: 0.5rem 0.75rem;">
+                <span class="text-truncate" style="flex: 0 0 42%; min-width: 0; padding-right: 12px;">
+                    <small class="text-white">${item.name.substring(0, 52)}</small>
                 </span>
-                <span class="text-truncate text-muted" style="max-width: 28%; padding-right: 12px;">
+                <span class="text-truncate text-muted" style="flex: 0 0 26%; min-width: 0; padding-right: 12px;">
                     <small>${item.manager || item.downloader || '-'}</small>
                 </span>
-                <span class="text-truncate text-muted" style="max-width: 14%; padding-right: 12px;">
+                <span class="text-truncate text-muted" style="flex: 0 0 14%; min-width: 0; padding-right: 12px;">
                     <small>${formatBytes(item.size)}</small>
                 </span>
-                <span class="badge ${badgeClass}" style="flex: 0 0 auto;">${label}</span>
+                <span class="badge ${badgeClass}" style="flex: 0 0 auto; font-size: 0.75rem;">${label}</span>
             </div>
         `;
     }).join('');
