@@ -241,12 +241,30 @@ function renderPostProcessingItems(items) {
     if (items.length === 0) {
         return '';
     }
-    
+
     return items.map(item => {
         const isExpanded = expandedRows.has(item.hash);
         const hasTransfers = item.transfers && item.transfers.length > 0;
         const hasHistory = item.history && item.history.length > 0;
-        
+
+        // Aggregate across every file in this item so the row shows total
+        // progress, not just the last file's. The old display showed one file
+        // at a time, so a 10-file transfer looked like it was stuck at 10%
+        // forever. Sum bytes_transferred and file_size across all transfers.
+        let totalCompleted = 0;
+        let totalSize = 0;
+        let activeCount = 0;
+        if (hasTransfers) {
+            for (const t of item.transfers) {
+                totalCompleted += (t.bytes_transferred || 0);
+                totalSize += (t.file_size || 0);
+                if (t.status !== 'completed' && t.status !== 'failed') activeCount++;
+            }
+        }
+        const totalPercent = totalSize > 0 ? Math.round((totalCompleted / totalSize) * 100) : 0;
+        const totalSizeGB = totalSize ? (totalSize / (1024*1024*1024)).toFixed(2) : '0.00';
+        const totalCompletedGB = totalCompleted ? (totalCompleted / (1024*1024*1024)).toFixed(2) : '0.00';
+
         let transfersHtml = '';
         if (hasTransfers) {
             transfersHtml = item.transfers.map(t => {
@@ -258,14 +276,14 @@ function renderPostProcessingItems(items) {
                 </div>`;
             }).join('');
         }
-        
+
         let historyHtml = '';
         if (hasHistory) {
             historyHtml = item.history.map(h => `
                 <div class="mb-1"><small class="text-muted">${h.created}:</small> ${h.details}</div>
             `).join('');
         }
-        
+
         let folderInfo = '';
         let displayName = item.name;
         if (item.is_folder_download && item.folder_item_count) {
@@ -275,11 +293,19 @@ function renderPostProcessingItems(items) {
                 displayName = `${item.name} (${sizeGB} GB)`;
             }
         }
-        
+
         return `
         <tr data-item-id="${item.hash}" onclick="toggleDetails(this)" style="cursor: pointer;">
             <td><span class="expand-icon" style="transform: ${isExpanded ? 'rotate(90deg)' : 'rotate(0deg)'}">▶</span></td>
-            <td>${displayName.substring(0, 50)}${folderInfo}</td>
+            <td>
+                ${displayName.substring(0, 50)}${folderInfo}
+                <div class="progress" style="height: 8px; width: 90%; margin-top: 4px;">
+                    <div class="progress-bar progress-bar-striped ${activeCount > 0 ? 'progress-bar-animated bg-warning' : 'bg-success'}"
+                         role="progressbar" style="width: ${totalPercent}%;"
+                         aria-valuenow="${totalPercent}" aria-valuemin="0" aria-valuemax="100"></div>
+                </div>
+                <small class="text-muted">${totalCompletedGB} / ${totalSizeGB} GB (${totalPercent}%)${activeCount ? ` · ${activeCount} file${activeCount !== 1 ? 's' : ''} active` : ''}</small>
+            </td>
             <td>${item.manager}</td>
             <td>${item.downloader}</td>
             <td>${timeSince(item.modified)} ago</td>
@@ -324,7 +350,17 @@ function renderPostProcessingItems(items) {
                     </div>
                     ${hasTransfers ? `
                     <hr style="border-color: rgba(255, 255, 255, 0.1);">
-                    <strong>Transfers:</strong>
+                    <strong>Total Transfer Progress:</strong>
+                    <div class="progress mt-1" style="height: 18px;">
+                        <div class="progress-bar progress-bar-striped ${activeCount > 0 ? 'progress-bar-animated bg-warning' : 'bg-success'}"
+                             role="progressbar" style="width: ${totalPercent}%;"
+                             aria-valuenow="${totalPercent}" aria-valuemin="0" aria-valuemax="100">
+                            ${totalPercent}%
+                        </div>
+                    </div>
+                    <small class="text-muted">${totalCompletedGB} / ${totalSizeGB} GB · ${item.transfers.length} file${item.transfers.length !== 1 ? 's' : ''} · ${activeCount} active</small>
+                    <hr style="border-color: rgba(255, 255, 255, 0.1);">
+                    <strong>Per-File:</strong>
                     <div class="mt-1">${transfersHtml}</div>
                     ` : ''}
                     ${hasHistory ? `

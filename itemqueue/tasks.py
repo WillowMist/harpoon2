@@ -941,18 +941,20 @@ def transfer_files_async(item_hash):
                     )
                     transfer_list = deduped
     
+            total_remote_size = 0  # Sum of every remote file's size, written to item.size
             for remote_file_path, relative_path in transfer_list:
                 # Build local path preserving folder structure
                 local_path = os.path.join(item_folder, relative_path)
-                
+
                 # Create local directories if needed
                 local_dir = os.path.dirname(local_path)
                 os.makedirs(local_dir, exist_ok=True)
-                
+
                 # Get remote file size
                 try:
                     file_stat = sftp.stat(remote_file_path)
                     file_size = file_stat.st_size
+                    total_remote_size += file_size
                 except Exception as e:
                     logger.warning(f"Cannot stat {remote_file_path}: {e}")
                     continue
@@ -1051,7 +1053,15 @@ def transfer_files_async(item_hash):
                     continue
              
             logger.info(f"Created {len(transfer_records)} FileTransfer records upfront (skipped {skipped_count})")
-            
+
+            # Item.size was never populated anywhere (every item was created
+            # with size=0), so the dashboard's Recent Activity showed 0B.
+            # The SFTP walk already stats every remote file above — sum them
+            # and persist the total so downstream views have a real size.
+            if total_remote_size and item.size != total_remote_size:
+                item.size = total_remote_size
+                item.save()
+
             ItemHistory.objects.create(item=item, details=f'Created {len(transfer_records)} file transfer records')
             
             # STEP 2: Now transfer the files
