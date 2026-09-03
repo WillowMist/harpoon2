@@ -117,6 +117,13 @@ class Arr(object):
                 queueitem.archived = original_archived
                 queueitem.archived_at = original_archived_at
                 queueitem.save(update_fields=['archived', 'archived_at'])
+            # Don't write history for items that have already reached a
+            # terminal state. The manager poll re-runs every 20s and would
+            # otherwise append a "{status} set to Completed" line on every
+            # cycle after the item finished -- the queue page then shows a
+            # growing list of identical post-completion entries.
+            if queueitem.status in ('Completed', 'Failed', 'Archived', 'Deleted'):
+                return
             for key in changed.keys():
                 if key != 'downloader':  # Don't log downloader assignment as a generic change
                     history = ItemHistory.objects.create(item=queueitem, details=f'{key} set to "{changed[key]}"')

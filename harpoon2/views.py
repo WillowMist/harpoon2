@@ -835,6 +835,13 @@ def api_dashboard(request):
         now = timezone.now()
         
         for item_hash, data in transfers_by_item.items():
+            # Skip items whose own status is terminal. A Completed item's
+            # FileTransfer rows cover only a subset of its files, so
+            # total_completed < total_size stays true forever and the bar
+            # never clears -- even after the item has been handed off to the
+            # manager (e.g. Sonarr).
+            if data['item'].status in ('Completed', 'Failed'):
+                continue
             if data['total_completed'] < data['total_size']:
                 percent = int((data['total_completed'] / data['total_size']) * 100) if data['total_size'] > 0 else 0
                 
